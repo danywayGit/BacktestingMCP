@@ -26,7 +26,7 @@ def calculate_rsi(close_prices: pd.Series, period: int = 14) -> pd.Series:
     else:
         result = ta.momentum.rsi(close_prices, window=period)
         # Handle NaN values by forward filling, then backward filling
-        result = result.fillna(method='ffill').fillna(method='bfill').fillna(50)
+        result = result.ffill().bfill().fillna(50)
         return result
 
 
@@ -37,7 +37,7 @@ def calculate_sma(close_prices: pd.Series, period: int) -> pd.Series:
     else:
         result = ta.trend.sma_indicator(close_prices, window=period)
         # Forward fill NaN values, then use the first available value
-        result = result.fillna(method='ffill').fillna(method='bfill')
+        result = result.ffill().bfill()
         if result.isna().all():
             result = result.fillna(close_prices.mean())
         return result
@@ -50,9 +50,9 @@ def calculate_bbands(close_prices: pd.Series, period: int = 20, std: int = 2):
         return upper, middle, lower
     else:
         bb = ta.volatility.BollingerBands(close_prices, window=period, window_dev=std)
-        upper = bb.bollinger_hband().fillna(method='ffill')
-        middle = bb.bollinger_mavg().fillna(method='ffill') 
-        lower = bb.bollinger_lband().fillna(method='ffill')
+        upper = bb.bollinger_hband().ffill()
+        middle = bb.bollinger_mavg().ffill() 
+        lower = bb.bollinger_lband().ffill()
         return upper, middle, lower
 
 
