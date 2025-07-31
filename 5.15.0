@@ -1,0 +1,7 @@
+Collecting plotly
+  Downloading plotly-6.2.0-py3-none-any.whl (9.6 MB)
+     ---------------------------------------- 9.6/9.6 MB 10.5 MB/s eta 0:00:00
+Requirement already satisfied: packaging in c:\users\danyw\documents\git\danywaygit\backtestingmcp\venv\lib\site-packages (from plotly) (25.0)
+Requirement already satisfied: narwhals>=1.15.1 in c:\users\danyw\documents\git\danywaygit\backtestingmcp\venv\lib\site-packages (from plotly) (2.0.1)
+Installing collected packages: plotly
+Successfully installed plotly-6.2.0

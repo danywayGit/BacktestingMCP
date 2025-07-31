@@ -1,0 +1,12 @@
+Collecting rich
+  Downloading rich-14.1.0-py3-none-any.whl (243 kB)
+     -------------------------------------- 243.4/243.4 kB 3.7 MB/s eta 0:00:00
+Collecting pygments<3.0.0,>=2.13.0
+  Downloading pygments-2.19.2-py3-none-any.whl (1.2 MB)
+     ---------------------------------------- 1.2/1.2 MB 25.9 MB/s eta 0:00:00
+Collecting markdown-it-py>=2.2.0
+  Using cached markdown_it_py-3.0.0-py3-none-any.whl (87 kB)
+Collecting mdurl~=0.1
+  Using cached mdurl-0.1.2-py3-none-any.whl (10.0 kB)
+Installing collected packages: pygments, mdurl, markdown-it-py, rich
+Successfully installed markdown-it-py-3.0.0 mdurl-0.1.2 pygments-2.19.2 rich-14.1.0

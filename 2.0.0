@@ -1,0 +1,13 @@
+Collecting pydantic
+  Downloading pydantic-2.11.7-py3-none-any.whl (444 kB)
+     -------------------------------------- 444.8/444.8 kB 4.6 MB/s eta 0:00:00
+Collecting annotated-types>=0.6.0
+  Using cached annotated_types-0.7.0-py3-none-any.whl (13 kB)
+Collecting pydantic-core==2.33.2
+  Downloading pydantic_core-2.33.2-cp310-cp310-win_amd64.whl (2.0 MB)
+     ---------------------------------------- 2.0/2.0 MB 30.9 MB/s eta 0:00:00
+Collecting typing-inspection>=0.4.0
+  Downloading typing_inspection-0.4.1-py3-none-any.whl (14 kB)
+Requirement already satisfied: typing-extensions>=4.12.2 in c:\users\danyw\documents\git\danywaygit\backtestingmcp\venv\lib\site-packages (from pydantic) (4.14.1)
+Installing collected packages: typing-inspection, pydantic-core, annotated-types, pydantic
+Successfully installed annotated-types-0.7.0 pydantic-2.11.7 pydantic-core-2.33.2 typing-inspection-0.4.1

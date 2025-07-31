@@ -1,0 +1,109 @@
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv/
+.env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+data/crypto.db
+
+# Logs
+*.log
+logs/
+*.out
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# PyCharm
+.idea/
+
+# Temporary files
+*.tmp
+*.temp
+temp/
+tmp/
+
+# Exports and generated files
+exports/
+*.csv
+*.xlsx
+*.json
+*.png
+*.jpg
+*.gif
+
+# Test coverage
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Backup files
+*.bak
+*.backup
+
+# MCP Server logs
+mcp_server.log
+
+# Strategy cache
+strategies/cache/
+
+# Activation scripts (these are generated)
+activate.bat
+activate.sh
+
+# Test files
+test_*.py
+*_test.py
