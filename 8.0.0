@@ -1,7 +1,0 @@
-Collecting click
-  Downloading click-8.2.1-py3-none-any.whl (102 kB)
-     -------------------------------------- 102.2/102.2 kB 1.5 MB/s eta 0:00:00
-Collecting colorama
-  Using cached colorama-0.4.6-py2.py3-none-any.whl (25 kB)
-Installing collected packages: colorama, click
-Successfully installed click-8.2.1 colorama-0.4.6

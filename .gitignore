@@ -39,6 +39,11 @@ data/crypto.db
 logs/
 *.out
 
+# Pip installation logs (numeric filenames)
+[0-9]*.[0-9]*.[0-9]*
+[0-9]*.[0-9]*
+[0-9]*
+
 # Environment variables
 .env
 .env.local
