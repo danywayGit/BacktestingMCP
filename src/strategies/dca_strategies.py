@@ -206,6 +206,7 @@ class DCAMonthlyStrategy(BaseStrategy):
     """
     
     # Strategy parameters
+    direction = 'long'  # DCA is long-only strategy
     monthly_budget = 600.0
     allocation_ratios = {
         'BTC': 0.50,
@@ -465,6 +466,7 @@ class DCASignalStrategy(BaseStrategy):
     """
     
     # Budget parameters
+    direction = 'long'  # DCA is long-only strategy
     monthly_budget = 600.0  # Changed from monthly_contribution for consistency
     active_cash_pct = 70.0  # 70% for regular signals
     reserve_cash_pct = 30.0  # 30% for extreme signals

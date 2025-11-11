@@ -17,6 +17,7 @@ except ImportError:
     HAS_TALIB = False
 
 from ..core.backtesting_engine import BaseStrategy
+from .dca_strategies import DCAMonthlyStrategy, DCASignalStrategy
 
 
 def calculate_rsi(close_prices: pd.Series, period: int = 14) -> pd.Series:
@@ -395,6 +396,8 @@ STRATEGY_REGISTRY = {
     'macd': MACDStrategy,
     'support_resistance': SupportResistanceStrategy,
     'multi_timeframe': MultiTimeframeStrategy,
+    'monthly_dca': DCAMonthlyStrategy,
+    'signal_based_dca': DCASignalStrategy,
 }
 
 

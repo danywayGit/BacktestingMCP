@@ -398,12 +398,123 @@ source .venv/bin/activate  # Linux/Mac
 
 ## 🤝 Contributing
 
-To add new DCA variations:
+### Adding New DCA Strategy Variations
 
-1. Create new strategy class inheriting from `BaseStrategy`
-2. Implement `init()` and `next()` methods
-3. Add to `DCA_STRATEGY_REGISTRY` in `dca_strategies.py`
-4. Update comparison script to include new strategy
+To add new DCA strategies and make them available in the CLI:
+
+#### Step 1: Create Your Strategy Class
+Create a new strategy class in `src/strategies/dca_strategies.py`:
+
+```python
+class MyCustomDCAStrategy(BaseStrategy):
+    """
+    Your Custom DCA Strategy
+    
+    Describe your strategy here...
+    """
+    
+    # Strategy parameters
+    direction = 'long'  # DCA strategies are long-only
+    monthly_budget = 600.0
+    custom_parameter = 42
+    
+    def init(self):
+        """Initialize indicators and tracking variables."""
+        # Your initialization code
+        self.cash = self.monthly_budget
+        self.my_indicator = self.I(calculate_rsi, self.data.Close, 14)
+    
+    def next(self):
+        """Strategy logic executed on each candle."""
+        if not self.should_trade():
+            return
+        
+        # Your trading logic here
+        if not self.position:
+            # Entry logic
+            if self.my_indicator[-1] < 30:
+                self.enter_long_position()
+```
+
+#### Step 2: Register in CLI (Make it Discoverable)
+Add your strategy to the `STRATEGY_REGISTRY` in `src/strategies/templates.py`:
+
+```python
+# At the top of templates.py - add import
+from .dca_strategies import DCAMonthlyStrategy, DCASignalStrategy, MyCustomDCAStrategy
+
+# In STRATEGY_REGISTRY dictionary - add entry
+STRATEGY_REGISTRY = {
+    'rsi_mean_reversion': RSIMeanReversionStrategy,
+    'moving_average_crossover': MovingAverageCrossoverStrategy,
+    'bollinger_bands': BollingerBandsStrategy,
+    'macd': MACDStrategy,
+    'support_resistance': SupportResistanceStrategy,
+    'multi_timeframe': MultiTimeframeStrategy,
+    'monthly_dca': DCAMonthlyStrategy,
+    'signal_based_dca': DCASignalStrategy,
+    'my_custom_dca': MyCustomDCAStrategy,  # ← Add your strategy here
+}
+```
+
+#### Step 3: Verify Registration
+Check that your strategy appears in the list:
+
+```bash
+python -m src.cli.main strategy list-strategies
+```
+
+You should see your strategy with all its parameters:
+```
+my_custom_dca:
+  custom_parameter: 42
+  direction: long
+  monthly_budget: 600.0
+  ...
+```
+
+#### Step 4: Run Your Strategy
+Now you can use it via CLI:
+
+```bash
+# Single symbol backtest
+python -m src.cli.main backtest run \
+  --strategy my_custom_dca \
+  --symbol BTCUSDT \
+  --timeframe 1d \
+  --start 2020-01-01 \
+  --end 2023-12-31 \
+  --cash 10000
+
+# Multi-symbol backtest
+python -m src.cli.main backtest multi-symbol \
+  --strategy my_custom_dca \
+  --symbols BTCUSDT ETHUSDT BNBUSDT \
+  --timeframe 1d \
+  --start 2020-01-01 \
+  --end 2023-12-31
+```
+
+#### Important Notes:
+
+1. **Direction Parameter**: DCA strategies should always set `direction = 'long'` since they accumulate assets
+2. **Naming Convention**: Use descriptive snake_case names (e.g., `adaptive_dca`, `momentum_dca`)
+3. **Parameter Exposure**: Any class-level attributes (not starting with `_`) will be exposed in CLI
+4. **Documentation**: Add clear docstrings explaining your strategy logic
+5. **Testing**: Test your strategy thoroughly before using real capital
+
+### Example: Adding to Comparison Scripts
+
+To include your strategy in comparison runs (like `compare_dca_strategies.py`):
+
+```python
+# In your comparison script
+strategies_to_test = [
+    ('Monthly DCA', 'monthly_dca'),
+    ('Signal-Based DCA', 'signal_based_dca'),
+    ('My Custom DCA', 'my_custom_dca'),  # Add here
+]
+```
 
 ---
 
