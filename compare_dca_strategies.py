@@ -32,10 +32,11 @@ class DCAStrategyComparison:
         self,
         symbols: List[str] = None,
         timeframe: str = '1d',
-        start_date: str = '2023-01-01',
-        end_date: str = '2024-12-31',
+        start_date: str = '2017-01-01',
+        end_date: str = '2025-10-31',
         initial_cash: float = 10000.0,
-        monthly_contribution: float = 600.0
+        monthly_contribution: float = 600.0,
+        scale_factor: float = 1.0
     ):
         """
         Initialize the comparison runner.
@@ -45,15 +46,17 @@ class DCAStrategyComparison:
             timeframe: Data timeframe
             start_date: Backtest start date
             end_date: Backtest end date
-            initial_cash: Starting capital
-            monthly_contribution: Monthly DCA contribution
+            initial_cash: Starting capital (can be scaled)
+            monthly_contribution: Monthly DCA contribution (can be scaled)
+            scale_factor: Factor to scale results back down (default: 1.0)
         """
         self.symbols = symbols or ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'TRXUSDT']
         self.timeframe = timeframe
-        self.start_date = start_date
-        self.end_date = end_date
+        self.start_date = datetime.strptime(start_date, '%Y-%m-%d') if isinstance(start_date, str) else start_date
+        self.end_date = datetime.strptime(end_date, '%Y-%m-%d') if isinstance(end_date, str) else end_date
         self.initial_cash = initial_cash
         self.monthly_contribution = monthly_contribution
+        self.scale_factor = scale_factor
         
         # Results storage
         self.results = {
@@ -82,7 +85,7 @@ class DCAStrategyComparison:
         
         # Try to load from database
         try:
-            data = db.get_ohlcv_data(
+            data = db.get_market_data(
                 symbol=symbol,
                 timeframe=self.timeframe,
                 start_date=self.start_date,
@@ -269,13 +272,19 @@ class DCAStrategyComparison:
             
             if symbol in self.results['monthly']:
                 m = self.results['monthly'][symbol]
-                print(f"  Monthly DCA:  Return: {m['return_pct']:7.2f}% | Trades: {m['num_trades']:3d} | Win Rate: {m['win_rate']:5.1f}%")
+                # Scale monetary values back
+                scaled_start = self._scale_result(m['start_value'])
+                scaled_end = self._scale_result(m['end_value'])
+                print(f"  Monthly DCA:  ${scaled_start:,.2f} → ${scaled_end:,.2f} | Return: {m['return_pct']:7.2f}% | Trades: {m['num_trades']:3d} | Win Rate: {m['win_rate']:5.1f}%")
             else:
                 print(f"  Monthly DCA:  No data")
             
             if symbol in self.results['signal']:
                 s = self.results['signal'][symbol]
-                print(f"  Signal DCA:   Return: {s['return_pct']:7.2f}% | Trades: {s['num_trades']:3d} | Win Rate: {s['win_rate']:5.1f}%")
+                # Scale monetary values back
+                scaled_start = self._scale_result(s['start_value'])
+                scaled_end = self._scale_result(s['end_value'])
+                print(f"  Signal DCA:   ${scaled_start:,.2f} → ${scaled_end:,.2f} | Return: {s['return_pct']:7.2f}% | Trades: {s['num_trades']:3d} | Win Rate: {s['win_rate']:5.1f}%")
             else:
                 print(f"  Signal DCA:   No data")
         
@@ -315,6 +324,10 @@ class DCAStrategyComparison:
         # Save results to file
         self._save_results()
     
+    def _scale_result(self, value: float) -> float:
+        """Scale a monetary value back to real amounts."""
+        return value / self.scale_factor if self.scale_factor > 1 else value
+    
     def _calculate_portfolio_totals(self, strategy_key: str) -> Dict:
         """Calculate portfolio-level totals for a strategy."""
         results = self.results[strategy_key]
@@ -329,8 +342,15 @@ class DCAStrategyComparison:
                 'max_drawdown': 0
             }
         
+        # Sum up scaled values
         total_start = sum(r['start_value'] for r in results.values())
         total_end = sum(r['end_value'] for r in results.values())
+        
+        # Scale back monetary values
+        total_start = self._scale_result(total_start)
+        total_end = self._scale_result(total_end)
+        
+        # Return percentage stays the same
         total_return = ((total_end - total_start) / total_start * 100) if total_start > 0 else 0
         total_trades = sum(r['num_trades'] for r in results.values())
         avg_win_rate = np.mean([r['win_rate'] for r in results.values()])
@@ -398,8 +418,8 @@ class DCAStrategyComparison:
             'config': {
                 'symbols': self.symbols,
                 'timeframe': self.timeframe,
-                'start_date': self.start_date,
-                'end_date': self.end_date,
+                'start_date': self.start_date.isoformat() if isinstance(self.start_date, datetime) else self.start_date,
+                'end_date': self.end_date.isoformat() if isinstance(self.end_date, datetime) else self.end_date,
                 'initial_cash': self.initial_cash,
                 'monthly_contribution': self.monthly_contribution
             },
@@ -422,14 +442,31 @@ def main():
     print("🎯 DCA Strategy Comparison Tool")
     print("=" * 70)
     
+    # SCALING APPROACH: Use 1000x capital to avoid fractional trading issues
+    # Then scale results back down proportionally
+    SCALE_FACTOR = 1000
+    
+    base_initial_cash = 10000.0
+    base_monthly_contribution = 600.0
+    
+    scaled_initial_cash = base_initial_cash * SCALE_FACTOR
+    scaled_monthly_contribution = base_monthly_contribution * SCALE_FACTOR
+    
+    print(f"\n💡 Using scaling approach:")
+    print(f"   Real capital: ${base_initial_cash:,.0f} → Scaled: ${scaled_initial_cash:,.0f}")
+    print(f"   Real monthly: ${base_monthly_contribution:,.0f} → Scaled: ${scaled_monthly_contribution:,.0f}")
+    print(f"   Scale factor: {SCALE_FACTOR}x")
+    print(f"   (Results will be scaled back down to real amounts)")
+    
     # Configuration
     comparison = DCAStrategyComparison(
         symbols=['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'TRXUSDT'],
         timeframe='1d',
-        start_date='2023-01-01',
-        end_date='2024-10-31',
-        initial_cash=10000.0,
-        monthly_contribution=600.0
+        start_date='2017-01-01',
+        end_date='2025-10-31',
+        initial_cash=scaled_initial_cash,
+        monthly_contribution=scaled_monthly_contribution,
+        scale_factor=SCALE_FACTOR
     )
     
     # Run comparison

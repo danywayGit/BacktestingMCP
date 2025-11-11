@@ -21,18 +21,27 @@ from ..core.backtesting_engine import BaseStrategy
 # HELPER FUNCTIONS FOR TECHNICAL ANALYSIS
 # =====================================================================
 
-def calculate_ema(close_prices: pd.Series, period: int = 200) -> pd.Series:
+def calculate_ema(close_prices, period: int = 200):
     """Calculate Exponential Moving Average."""
+    # Convert to pandas Series if needed
+    if not isinstance(close_prices, pd.Series):
+        close_prices = pd.Series(close_prices)
     return ta.trend.ema_indicator(close_prices, window=period).ffill().bfill()
 
 
-def calculate_rsi(close_prices: pd.Series, period: int = 14) -> pd.Series:
+def calculate_rsi(close_prices, period: int = 14):
     """Calculate RSI indicator."""
+    # Convert to pandas Series if needed
+    if not isinstance(close_prices, pd.Series):
+        close_prices = pd.Series(close_prices)
     return ta.momentum.rsi(close_prices, window=period).ffill().bfill().fillna(50)
 
 
-def calculate_volume_avg(volume: pd.Series, period: int = 20) -> pd.Series:
+def calculate_volume_avg(volume, period: int = 20):
     """Calculate average volume."""
+    # Convert to pandas Series if needed
+    if not isinstance(volume, pd.Series):
+        volume = pd.Series(volume)
     return volume.rolling(window=period).mean().ffill().bfill()
 
 
@@ -43,7 +52,7 @@ def count_red_days(close_prices: pd.Series, lookback: int = 10) -> int:
     
     red_count = 0
     for i in range(len(close_prices) - 1, max(0, len(close_prices) - lookback - 1), -1):
-        if i > 0 and close_prices.iloc[i] < close_prices.iloc[i-1]:
+        if i > 0 and close_prices[i] < close_prices[i-1]:
             red_count += 1
         else:
             break
@@ -65,8 +74,12 @@ def is_v_shape_bottom(close_prices: pd.Series, lookback: int = 20, threshold: fl
     if len(close_prices) < lookback + 2:
         return False
     
+    # Convert to pandas Series if needed for quantile calculation
+    if not isinstance(close_prices, pd.Series):
+        close_prices = pd.Series(close_prices)
+    
     recent = close_prices.iloc[-lookback:]
-    current = close_prices.iloc[-1]
+    current = close_prices.iloc[-1]  
     prev = close_prices.iloc[-2]
     
     # Check if current price is in lowest 25% of recent range
@@ -93,6 +106,10 @@ def is_inverse_v_shape_top(close_prices: pd.Series, lookback: int = 20, threshol
     if len(close_prices) < lookback + 2:
         return False
     
+    # Convert to pandas Series if needed for quantile calculation
+    if not isinstance(close_prices, pd.Series):
+        close_prices = pd.Series(close_prices)
+    
     recent = close_prices.iloc[-lookback:]
     current = close_prices.iloc[-1]
     prev = close_prices.iloc[-2]
@@ -106,7 +123,7 @@ def is_inverse_v_shape_top(close_prices: pd.Series, lookback: int = 20, threshol
     return current >= percentile_75 and is_declining
 
 
-def calculate_price_acceleration(close_prices: pd.Series, days: int = 2) -> float:
+def calculate_price_acceleration(close_prices, days: int = 2):
     """
     Calculate price acceleration (% change over recent days).
     
@@ -116,8 +133,9 @@ def calculate_price_acceleration(close_prices: pd.Series, days: int = 2) -> floa
     if len(close_prices) < days + 1:
         return 0.0
     
-    old_price = close_prices.iloc[-(days + 1)]
-    current_price = close_prices.iloc[-1]
+    # Use array indexing instead of iloc for backtesting.py compatibility
+    old_price = close_prices[-(days + 1)]
+    current_price = close_prices[-1]
     
     if old_price == 0:
         return 0.0
@@ -321,15 +339,24 @@ class DCAMonthlyStrategy(BaseStrategy):
             buy_amount_usd = buy_size_usd * buy_multiplier
             buy_amount_usd = min(buy_amount_usd, self.cash_available)
             
-            # Calculate number of coins to buy
-            coins_to_buy = buy_amount_usd / current_price
+            # Calculate size as fraction of current equity for fractional trading
+            # This allows buying fractional amounts of expensive assets like BTC
+            current_equity = self.equity
+            size_fraction = buy_amount_usd / current_equity if current_equity > 0 else 0
             
-            # Execute buy
-            if coins_to_buy > 0:
-                self.buy(size=coins_to_buy)
+            # Ensure size is valid (between 0 and 1, or >= 1 for whole units)
+            # Cap at 0.95 to leave some buffer for fees/slippage
+            size_fraction = min(size_fraction, 0.95)
+            
+            # Execute buy (size as fraction of equity between 0 and 1)
+            if 0.001 < size_fraction < 1:  # Minimum 0.1% of equity
+                self.buy(size=size_fraction)
+                
+                # Calculate actual coins bought (approximate)
+                coins_bought = buy_amount_usd / current_price
                 
                 # Update tracking
-                self.position_data.holdings += coins_to_buy
+                self.position_data.holdings += coins_bought
                 self.position_data.total_invested += buy_amount_usd
                 self.position_data.buy_count += 1
                 self.position_data.monthly_buy_count += 1
@@ -438,7 +465,7 @@ class DCASignalStrategy(BaseStrategy):
     """
     
     # Budget parameters
-    monthly_contribution = 600.0
+    monthly_budget = 600.0  # Changed from monthly_contribution for consistency
     active_cash_pct = 70.0  # 70% for regular signals
     reserve_cash_pct = 30.0  # 30% for extreme signals
     
@@ -501,9 +528,9 @@ class DCASignalStrategy(BaseStrategy):
         self.volume_avg = self.I(calculate_volume_avg, self.data.Volume, self.volume_period)
         
         # Cash management
-        self.cash_active = self.monthly_contribution * (self.active_cash_pct / 100)
-        self.cash_reserve = self.monthly_contribution * (self.reserve_cash_pct / 100)
-        self.total_cash_accumulated = self.monthly_contribution
+        self.cash_active = self.monthly_budget * (self.active_cash_pct / 100)
+        self.cash_reserve = self.monthly_budget * (self.reserve_cash_pct / 100)
+        self.total_cash_accumulated = self.monthly_budget
         
         # Position tracking
         self.position_data = CoinPosition(
@@ -549,12 +576,12 @@ class DCASignalStrategy(BaseStrategy):
     
     def _add_monthly_contribution(self):
         """Add monthly contribution to cash pools."""
-        active_portion = self.monthly_contribution * (self.active_cash_pct / 100)
-        reserve_portion = self.monthly_contribution * (self.reserve_cash_pct / 100)
+        active_portion = self.monthly_budget * (self.active_cash_pct / 100)
+        reserve_portion = self.monthly_budget * (self.reserve_cash_pct / 100)
         
         self.cash_active += active_portion
         self.cash_reserve += reserve_portion
-        self.total_cash_accumulated += self.monthly_contribution
+        self.total_cash_accumulated += self.monthly_budget
     
     def _calculate_buy_signal_score(self, current_price: float) -> Tuple[int, Dict[str, int]]:
         """
@@ -678,36 +705,44 @@ class DCASignalStrategy(BaseStrategy):
         buy_amount_usd = self._calculate_position_size(signal_score, current_price, available_cash)
         
         if buy_amount_usd > 0:
-            # Calculate number of coins
-            coins_to_buy = buy_amount_usd / current_price
+            # Calculate size as fraction of current equity for fractional trading
+            current_equity = self.equity
+            size_fraction = buy_amount_usd / current_equity if current_equity > 0 else 0
             
-            # Execute buy
-            self.buy(size=coins_to_buy)
+            # Ensure size is valid - cap at 0.95 to leave buffer for fees
+            size_fraction = min(size_fraction, 0.95)
             
-            # Update cash pools
-            if is_extreme_signal:
-                # Use from both pools
-                if buy_amount_usd <= self.cash_active:
-                    self.cash_active -= buy_amount_usd
+            # Execute buy (size as fraction of equity between 0 and 1)
+            if 0.001 < size_fraction < 1:  # Minimum 0.1% of equity
+                self.buy(size=size_fraction)
+                
+                # Calculate actual coins bought (approximate)
+                coins_bought = buy_amount_usd / current_price
+                
+                # Update cash pools
+                if is_extreme_signal:
+                    # Use from both pools
+                    if buy_amount_usd <= self.cash_active:
+                        self.cash_active -= buy_amount_usd
+                    else:
+                        remaining = buy_amount_usd - self.cash_active
+                        self.cash_active = 0
+                        self.cash_reserve -= remaining
                 else:
-                    remaining = buy_amount_usd - self.cash_active
-                    self.cash_active = 0
-                    self.cash_reserve -= remaining
-            else:
-                # Use from active pool only
-                self.cash_active -= buy_amount_usd
-            
-            # Update tracking
-            self.position_data.holdings += coins_to_buy
-            self.position_data.total_invested += buy_amount_usd
-            self.position_data.buy_count += 1
-            self.position_data.last_buy_price = current_price
-            self.position_data.last_buy_date = current_date
-            self.buy_count_since_reset += 1
-            
-            # Check if we need to reset position sizing
-            if self.buy_count_since_reset >= self.max_buys_before_reset:
-                self.buy_count_since_reset = 0
+                    # Use from active pool only
+                    self.cash_active -= buy_amount_usd
+                
+                # Update tracking
+                self.position_data.holdings += coins_bought
+                self.position_data.total_invested += buy_amount_usd
+                self.position_data.buy_count += 1
+                self.position_data.last_buy_price = current_price
+                self.position_data.last_buy_date = current_date
+                self.buy_count_since_reset += 1
+                
+                # Check if we need to reset position sizing
+                if self.buy_count_since_reset >= self.max_buys_before_reset:
+                    self.buy_count_since_reset = 0
     
     def _calculate_position_size(self, signal_score: int, current_price: float, available_cash: float) -> float:
         """
