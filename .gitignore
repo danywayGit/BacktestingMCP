@@ -113,6 +113,5 @@ strategies/cache/
 activate.bat
 activate.sh
 
-# Test files
-test_*.py
-*_test.py
+# Test files (ignore pytest cache but keep example test files)
+# Note: test_backtest.py in examples/ is a working example, not ignored
