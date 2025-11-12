@@ -86,6 +86,10 @@ exports/
 *.jpg
 *.gif
 
+# AI-generated strategies (keep directory but not generated files)
+src/strategies/generated/*.py
+!src/strategies/generated/__init__.py
+
 # Test coverage
 htmlcov/
 .coverage

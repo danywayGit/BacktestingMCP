@@ -292,10 +292,14 @@ Your initial request was for *"a modular crypto backtesting system with venv sup
    python -m src.cli.main download-data --symbol BTCUSDT --timeframe 1m --start 2022-01-01 --end 2024-12-31
    ```
 
-### 5. **Create a Strategy**:
+### 5. **Create a Strategy with AI**:
    ```bash
-   python -m src.cli.main create-strategy --description "Buy when RSI is oversold and price is above 20-day MA"
+   python -m src.cli.main strategy create \
+     --description "Buy when RSI drops below 30 and price is above 50-day MA. Sell when RSI goes above 70." \
+     --name "RSIOversoldStrategy"
    ```
+   
+   Requires AI provider (OpenAI, Anthropic, or Ollama). See `src/ai/README.md` for setup.
 
 ### 6. **Run Backtest**:
    ```bash

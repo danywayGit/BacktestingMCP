@@ -688,22 +688,65 @@ async def get_backtest_results_tool(args: dict) -> list[types.TextContent]:
 
 
 async def create_strategy_from_description_tool(args: dict) -> list[types.TextContent]:
-    """Create strategy from natural language description."""
+    """Create strategy from natural language description using AI."""
     description = args["description"]
     strategy_name = args["strategy_name"]
     
-    # This is a placeholder for AI-assisted strategy generation
-    # In a real implementation, this would use NLP/AI to convert the description to code
+    try:
+        from ..ai.strategy_generator import StrategyGenerator
+        
+        # Generate strategy
+        generator = StrategyGenerator(provider="auto")
+        result = generator.generate_strategy(description, strategy_name)
+        
+        # Validate
+        is_valid, error = generator.validate_strategy_code(result['code'])
+        validation_status = "✅ Valid" if is_valid else f"⚠️ Validation failed: {error}"
+        
+        # Save
+        filepath = generator.save_strategy(result['code'], strategy_name)
+        
+        response = f"""✅ Strategy '{strategy_name}' generated successfully!
+
+Provider: {result['provider']}
+Model: {result['model']}
+Validation: {validation_status}
+Saved to: {filepath}
+
+GENERATED CODE:
+{'-' * 70}
+{result['code']}
+{'-' * 70}
+
+Next steps:
+1. Review the generated code in {filepath}
+2. Test it thoroughly before using with real capital
+3. Register in src/strategies/templates.py STRATEGY_REGISTRY:
+   - Add import: from .generated.{strategy_name.lower()} import {strategy_name}
+   - Add to registry: '{strategy_name.lower()}': {strategy_name}
+4. Run: python -m src.cli.main strategy list-strategies
+"""
+        
+        return [types.TextContent(type="text", text=response)]
     
-    return [types.TextContent(
-        type="text",
-        text=f"Strategy creation from description is not yet implemented.\n"
-             f"Requested strategy: {strategy_name}\n"
-             f"Description: {description}\n\n"
-             f"This feature would use AI/NLP to convert natural language descriptions "
-             f"into executable trading strategies. For now, please use the existing "
-             f"strategy templates and modify their parameters."
-    )]
+    except ImportError as e:
+        return [types.TextContent(
+            type="text",
+            text=f"❌ Error: {str(e)}\n\n"
+                 f"To use AI strategy generation, install required packages:\n"
+                 f"  For OpenAI: pip install openai\n"
+                 f"  For Anthropic: pip install anthropic\n"
+                 f"  For Ollama: pip install ollama\n\n"
+                 f"Set environment variables:\n"
+                 f"  OPENAI_API_KEY or ANTHROPIC_API_KEY"
+        )]
+    
+    except Exception as e:
+        return [types.TextContent(
+            type="text",
+            text=f"❌ Strategy generation failed: {str(e)}\n\n"
+                 f"Please check your API credentials and try again."
+        )]
 
 
 async def optimize_strategy_tool(args: dict) -> list[types.TextContent]:

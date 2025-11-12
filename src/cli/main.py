@@ -191,6 +191,79 @@ def show_parameters(strategy_name):
         click.echo(f"Error: {e}", err=True)
 
 
+@strategy.command()
+@click.option('--description', '-d', required=True, help='Natural language description of the strategy')
+@click.option('--name', '-n', required=True, help='Name for the new strategy (e.g., RSIOversoldStrategy)')
+@click.option('--provider', type=click.Choice(['openai', 'anthropic', 'ollama', 'auto']), default='auto', help='AI provider to use')
+@click.option('--model', help='Specific model to use (optional)')
+@click.option('--output', '-o', help='Output file path (optional)')
+@click.option('--register', is_flag=True, help='Automatically register in STRATEGY_REGISTRY')
+def create(description, name, provider, model, output, register):
+    """Create a trading strategy from natural language description using AI."""
+    try:
+        from ..ai.strategy_generator import StrategyGenerator
+        from pathlib import Path
+        
+        click.echo(f"🤖 Generating strategy '{name}' using {provider}...")
+        click.echo(f"Description: {description}")
+        
+        # Generate strategy
+        generator = StrategyGenerator(provider=provider)
+        result = generator.generate_strategy(description, name, model)
+        
+        click.echo(f"\n✅ Strategy generated successfully!")
+        click.echo(f"Provider: {result['provider']}")
+        click.echo(f"Model: {result['model']}")
+        
+        # Validate code
+        is_valid, error = generator.validate_strategy_code(result['code'])
+        if not is_valid:
+            click.echo(f"\n⚠️  Warning: Code validation failed: {error}", err=True)
+            click.echo("You may need to manually fix the generated code.")
+        
+        # Show preview
+        click.echo("\n" + "-" * 70)
+        click.echo("GENERATED CODE PREVIEW:")
+        click.echo("-" * 70)
+        lines = result['code'].split('\n')
+        for i, line in enumerate(lines[:20], 1):
+            click.echo(f"{i:3d}: {line}")
+        if len(lines) > 20:
+            click.echo(f"... ({len(lines) - 20} more lines)")
+        
+        # Save strategy
+        if output:
+            output_path = Path(output)
+        else:
+            output_path = None
+        
+        filepath = generator.save_strategy(result['code'], name, output_path)
+        click.echo(f"\n💾 Strategy saved to: {filepath}")
+        
+        # Registration instructions
+        if register:
+            click.echo("\n⚠️  Auto-registration not yet implemented.")
+            click.echo("Please manually add to src/strategies/templates.py:")
+            click.echo(f"  1. Add import: from .generated.{name.lower()} import {name}")
+            click.echo(f"  2. Add to STRATEGY_REGISTRY: '{name.lower()}': {name}")
+        else:
+            click.echo("\nNext steps:")
+            click.echo(f"  1. Review the generated code in {filepath}")
+            click.echo(f"  2. Test it thoroughly before using with real capital")
+            click.echo(f"  3. Register in src/strategies/templates.py STRATEGY_REGISTRY")
+            click.echo(f"  4. Run: python -m src.cli.main strategy list-strategies")
+        
+    except ImportError as e:
+        click.echo(f"\n❌ Error: {e}", err=True)
+        click.echo("\nTo use AI strategy generation, install required packages:")
+        click.echo("  For OpenAI: pip install openai")
+        click.echo("  For Anthropic: pip install anthropic")
+        click.echo("  For Ollama: pip install ollama")
+    except Exception as e:
+        click.echo(f"\n❌ Error: {e}", err=True)
+        logger.exception("Strategy creation failed")
+
+
 @cli.group()
 def backtest():
     """Backtesting commands."""
