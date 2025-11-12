@@ -283,30 +283,25 @@ Your initial request was for *"a modular crypto backtesting system with venv sup
 
 ### 3. **Download Initial Data**:
    ```bash
-   python -m src.cli.main download-data --symbol BTCUSDT --timeframe 1m --start 2022-01-01 --end 2024-12-31
-   ```
-
-### 4. **Download Initial Data**:
-   ```bash
    # Make sure virtual environment is activated first
    python -m src.cli.main download-data --symbol BTCUSDT --timeframe 1m --start 2022-01-01 --end 2024-12-31
    ```
 
-### 5. **Create a Strategy with AI**:
+### 4. **Create a Strategy with AI**:
    ```bash
    python -m src.cli.main strategy create \
      --description "Buy when RSI drops below 30 and price is above 50-day MA. Sell when RSI goes above 70." \
      --name "RSIOversoldStrategy"
    ```
    
-   Requires AI provider (OpenAI, Anthropic, or Ollama). See `src/ai/README.md` for setup.
+   Requires AI provider (OpenAI, Anthropic, or Ollama). See `docs/OLLAMA_RTX4090_SETUP.md` for setup.
 
-### 6. **Run Backtest**:
+### 5. **Run Backtest**:
    ```bash
    python -m src.cli.main backtest --strategy my_strategy --symbol BTCUSDT --timeframe 1h --start 2023-01-01 --end 2023-12-31
    ```
 
-### 7. **Start MCP Server**:
+### 6. **Start MCP Server**:
    ```bash
    python -m src.mcp.server
    ```
