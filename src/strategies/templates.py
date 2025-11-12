@@ -18,6 +18,7 @@ except ImportError:
 
 from ..core.backtesting_engine import BaseStrategy
 from .dca_strategies import DCAMonthlyStrategy, DCASignalStrategy
+from .generated.testrsistrategy import TestRSIStrategy
 
 
 def calculate_rsi(close_prices: pd.Series, period: int = 14) -> pd.Series:
@@ -38,6 +39,19 @@ def calculate_sma(close_prices: pd.Series, period: int) -> pd.Series:
     else:
         result = ta.trend.sma_indicator(close_prices, window=period)
         # Forward fill NaN values, then use the first available value
+        result = result.ffill().bfill()
+        if result.isna().all():
+            result = result.fillna(close_prices.mean())
+        return result
+
+
+def calculate_ema(close_prices: pd.Series, period: int) -> pd.Series:
+    """Calculate Exponential Moving Average using ta library."""
+    if HAS_TALIB:
+        return talib.EMA(close_prices, timeperiod=period)
+    else:
+        result = ta.trend.ema_indicator(close_prices, window=period)
+        # Forward fill NaN values
         result = result.ffill().bfill()
         if result.isna().all():
             result = result.fillna(close_prices.mean())
@@ -398,6 +412,7 @@ STRATEGY_REGISTRY = {
     'multi_timeframe': MultiTimeframeStrategy,
     'monthly_dca': DCAMonthlyStrategy,
     'signal_based_dca': DCASignalStrategy,
+    'test_rsi_strategy': TestRSIStrategy,
 }
 
 

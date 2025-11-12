@@ -88,7 +88,7 @@ class BaseStrategy(Strategy):
     def calculate_position_size(self, entry_price: float, stop_loss_price: float) -> float:
         """Calculate position size based on risk management."""
         if stop_loss_price is None or entry_price == stop_loss_price:
-            return 0.1  # Default small position
+            return 0.1  # Default 10% of equity
         
         # Calculate risk per share
         risk_per_share = abs(entry_price - stop_loss_price)
@@ -97,14 +97,20 @@ class BaseStrategy(Strategy):
         account_value = self.equity
         risk_amount = account_value * (self.risk_pct / 100)
         
-        # Calculate position size
-        position_size = risk_amount / risk_per_share
+        # Calculate position value based on risk
+        position_value = risk_amount / (risk_per_share / entry_price)
         
-        # Ensure position size doesn't exceed account
-        max_position_value = account_value * 0.95  # Leave 5% cash
-        max_shares = max_position_value / entry_price
+        # Convert to fraction of equity
+        position_fraction = position_value / account_value
         
-        return min(position_size, max_shares)
+        # Cap at 20% of equity to be conservative and avoid margin issues
+        position_fraction = min(position_fraction, 0.20)
+        
+        # Ensure minimum 1% position if we're trading
+        if position_fraction > 0 and position_fraction < 0.01:
+            position_fraction = 0.01
+        
+        return position_fraction
     
     def enter_long_position(self, stop_loss: Optional[float] = None, take_profit: Optional[float] = None):
         """Enter a long position with risk management."""
@@ -279,9 +285,6 @@ class BacktestingEngine:
         """Extract statistics from backtest result."""
         stats = {}
         
-        # Convert result to dict to access all metrics
-        result_dict = result._strategy._results if hasattr(result, '_strategy') else {}
-        
         # Standard metrics
         stats_mapping = {
             'Start': 'start_date',
@@ -315,9 +318,17 @@ class BacktestingEngine:
         
         # Extract available stats
         for original_key, new_key in stats_mapping.items():
-            if hasattr(result, original_key.replace(' ', '_').replace('[%]', '').replace('[$]', '').replace('.', '').replace('#', 'num')):
-                value = getattr(result, original_key.replace(' ', '_').replace('[%]', '').replace('[$]', '').replace('.', '').replace('#', 'num'))
-                stats[new_key] = float(value) if value is not None else 0.0
+            attr_name = original_key.replace(' ', '_').replace('[%]', '').replace('[$]', '').replace('.', '').replace('#', 'num')
+            if hasattr(result, attr_name):
+                value = getattr(result, attr_name)
+                # Handle different data types
+                if value is None:
+                    stats[new_key] = 0.0
+                elif isinstance(value, (int, float)):
+                    stats[new_key] = float(value)
+                else:
+                    # For timestamps or other types, convert to string
+                    stats[new_key] = str(value)
         
         return stats
     

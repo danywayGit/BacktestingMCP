@@ -21,13 +21,30 @@ STRATEGY_GENERATION_PROMPT = """You are an expert trading strategy developer. Ge
 
 The strategy MUST:
 1. Inherit from BaseStrategy
-2. Have an init() method to initialize indicators
-3. Have a next() method with trading logic
-4. Use self.I() to wrap indicator calculations
-5. Call self.should_trade() before trading
-6. Use self.enter_long_position() and self.enter_short_position() for entries
-7. Use self.position.close() for exits
-8. Set appropriate class-level parameters
+2. Define parameters as class attributes (NOT as params tuple) - these can be optimized
+3. Have an init() method to initialize indicators
+4. Have a next() method with trading logic
+5. Use self.I() to wrap indicator calculations
+6. Call self.should_trade() before trading
+7. Use self.enter_long_position() and self.enter_short_position() for entries
+8. Use self.position.close() for exits
+
+IMPORTANT - Parameter Format:
+Use class attributes for parameters (for optimizer compatibility):
+```python
+class MyStrategy(BaseStrategy):
+    # Strategy parameters (can be optimized)
+    rsi_period = 14
+    rsi_oversold = 30
+    rsi_overbought = 70
+    ma_period = 50
+    
+    def init(self):
+        self.rsi = self.I(calculate_rsi, self.data.Close, self.rsi_period)
+        self.ma = self.I(calculate_sma, self.data.Close, self.ma_period)
+```
+
+DO NOT use params tuple format - use class attributes directly!
 
 Available indicator functions you can use:
 - calculate_rsi(close_prices, period=14)
