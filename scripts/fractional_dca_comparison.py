@@ -326,17 +326,31 @@ class FractionalSignalDCAStrategy(FractionalDCAStrategy):
         self.current_month = None
         self.last_buy_price = 0.0
         
-        # Cash pools
+        # Cash pools (FIXED - Do not optimize)
         self.cash_active = 0.0  # 70% for regular signals
         self.cash_reserve = 0.0  # 30% for extreme signals only
-        self.active_cash_pct = 70.0
-        self.reserve_cash_pct = 30.0
+        self.active_cash_pct = 70.0  # FIXED
+        self.reserve_cash_pct = 30.0  # FIXED
         
-        # Signal thresholds
+        # Signal thresholds (OPTIMIZABLE)
         self.min_signal_score = 6
         self.extreme_signal_score = 10
+        self.strong_signal_threshold = 8  # Score threshold for strong_signal_multiplier
         
-        # Position sizing rules
+        # Indicator parameters (OPTIMIZABLE)
+        self.rsi_period = 14
+        self.ema_period = 200
+        
+        # EMA distance thresholds for scoring (OPTIMIZABLE)
+        self.ema_distance_extreme = -18.0  # 3 points
+        self.ema_distance_strong = -12.0   # 2 points
+        self.ema_distance_moderate = -8.0  # 1 point
+        
+        # RSI oversold thresholds for scoring (OPTIMIZABLE)
+        self.rsi_oversold_extreme = 35.0  # 2 points
+        self.rsi_oversold_moderate = 45.0 # 1 point
+        
+        # Position sizing rules (FIXED)
         self.base_size_thresholds = {
             (600, 1200): 10,
             (1200, 2400): 15,
@@ -368,45 +382,45 @@ class FractionalSignalDCAStrategy(FractionalDCAStrategy):
         Calculate 10-point signal score.
         
         Scoring:
-        - Distance from EMA-200: 0-3 points
-        - RSI oversold: 0-2 points
+        - Distance from EMA: 0-3 points (based on ema_distance thresholds)
+        - RSI oversold: 0-2 points (based on rsi_oversold thresholds)
         - Total: 0-10 points
         """
-        if idx < 200:
+        if idx < self.ema_period:
             return 0
         
         score = 0
         current_price = data.iloc[idx]['Close']
         
-        # EMA-200 distance scoring
-        ema_200 = data['Close'].iloc[max(0, idx-200):idx+1].ewm(span=200, adjust=False).mean().iloc[-1]
+        # EMA distance scoring (using configurable ema_period)
+        ema = data['Close'].iloc[max(0, idx-self.ema_period):idx+1].ewm(span=self.ema_period, adjust=False).mean().iloc[-1]
         
-        # RSI calculation
-        closes = data['Close'].iloc[max(0, idx-15):idx+1]
-        if len(closes) >= 15:
+        # RSI calculation (using configurable rsi_period)
+        closes = data['Close'].iloc[max(0, idx-(self.rsi_period+1)):idx+1]
+        if len(closes) >= self.rsi_period + 1:
             deltas = closes.diff()
-            gain = deltas.where(deltas > 0, 0).rolling(window=14).mean()
-            loss = -deltas.where(deltas < 0, 0).rolling(window=14).mean()
+            gain = deltas.where(deltas > 0, 0).rolling(window=self.rsi_period).mean()
+            loss = -deltas.where(deltas < 0, 0).rolling(window=self.rsi_period).mean()
             rs = gain / loss
             rsi = 100 - (100 / (1 + rs))
             rsi_value = rsi.iloc[-1]
         else:
             rsi_value = 50
         
-        # Score from EMA distance
-        if ema_200 > 0:
-            distance_pct = ((current_price - ema_200) / ema_200) * 100
-            if distance_pct <= -18:
+        # Score from EMA distance (using configurable thresholds)
+        if ema > 0:
+            distance_pct = ((current_price - ema) / ema) * 100
+            if distance_pct <= self.ema_distance_extreme:
                 score += 3
-            elif distance_pct <= -12:
+            elif distance_pct <= self.ema_distance_strong:
                 score += 2
-            elif distance_pct <= -8:
+            elif distance_pct <= self.ema_distance_moderate:
                 score += 1
         
-        # Score from RSI
-        if rsi_value < 35:
+        # Score from RSI (using configurable thresholds)
+        if rsi_value < self.rsi_oversold_extreme:
             score += 2
-        elif rsi_value < 45:
+        elif rsi_value < self.rsi_oversold_moderate:
             score += 1
         
         return score
@@ -416,11 +430,11 @@ class FractionalSignalDCAStrategy(FractionalDCAStrategy):
         Check buy signal based on scoring system.
         
         Requirements:
-        - Signal score >= 6
-        - Price below EMA-200
+        - Signal score >= min_signal_score
+        - Price below EMA (configurable period)
         - 2 red days OR 5% single-day drop
         """
-        if idx < 200:
+        if idx < self.ema_period:
             return False, 0.0
         
         current_price = data.iloc[idx]['Close']
@@ -430,9 +444,9 @@ class FractionalSignalDCAStrategy(FractionalDCAStrategy):
         if signal_score < self.min_signal_score:
             return False, 0.0
         
-        # Must be below EMA-200
-        ema_200 = data['Close'].iloc[max(0, idx-200):idx+1].ewm(span=200, adjust=False).mean().iloc[-1]
-        if current_price > ema_200:
+        # Must be below EMA (using configurable ema_period)
+        ema = data['Close'].iloc[max(0, idx-self.ema_period):idx+1].ewm(span=self.ema_period, adjust=False).mean().iloc[-1]
+        if current_price > ema:
             return False, 0.0
         
         # Check red day conditions
@@ -477,10 +491,10 @@ class FractionalSignalDCAStrategy(FractionalDCAStrategy):
             elif price_drop_pct <= -10:
                 size_multiplier += (self.price_drop_bonus_10 / 100)
         
-        # Signal strength multiplier
+        # Signal strength multiplier (using configurable strong_signal_threshold)
         if signal_score >= self.extreme_signal_score:
             size_multiplier *= self.extreme_signal_multiplier
-        elif signal_score >= 8:
+        elif signal_score >= self.strong_signal_threshold:
             size_multiplier *= self.strong_signal_multiplier
         
         buy_amount = min(base_size * size_multiplier, available_cash)
