@@ -41,23 +41,25 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 ### CLI Command
 
 ```bash
-# Basic usage (auto-detects provider)
+# Basic usage with auto-registration (recommended)
 python -m src.cli.main strategy create \
   --description "Buy when RSI drops below 30 and price is above 50-day MA. Sell when RSI goes above 70." \
-  --name "RSIOversoldStrategy"
+  --name "RSIOversoldStrategy" \
+  --register
 
-# Specify provider
+# Without auto-registration
 python -m src.cli.main strategy create \
   --description "MACD crossover with volume confirmation" \
   --name "MACDVolumeStrategy" \
   --provider openai
 
-# Use specific model
+# Use specific model with registration
 python -m src.cli.main strategy create \
   --description "Bollinger Bands breakout with ATR stop loss" \
   --name "BBBreakoutStrategy" \
   --provider anthropic \
-  --model claude-3-5-sonnet-20241022
+  --model claude-3-5-sonnet-20241022 \
+  --register
 
 # Custom output location
 python -m src.cli.main strategy create \
@@ -116,10 +118,14 @@ If using the MCP server:
   "tool": "create_strategy_from_description",
   "arguments": {
     "description": "Buy when RSI drops below 30 and price is above 50-day MA",
-    "strategy_name": "RSIOversoldStrategy"
+    "strategy_name": "RSIOversoldStrategy",
+    "auto_register": true,
+    "provider": "auto"
   }
 }
 ```
+
+The `auto_register` option (default: true) automatically adds the strategy to STRATEGY_REGISTRY.
 
 ## Example Descriptions
 

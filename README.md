@@ -303,9 +303,11 @@ Your initial request was for *"a modular crypto backtesting system with venv sup
    ```bash
    python -m src.cli.main strategy create \
      --description "Buy when RSI drops below 30 and price is above 50-day MA. Sell when RSI goes above 70." \
-     --name "RSIOversoldStrategy"
+     --name "RSIOversoldStrategy" \
+     --register
    ```
    
+   The `--register` flag automatically adds the strategy to STRATEGY_REGISTRY.
    Requires AI provider (OpenAI, Anthropic, or Ollama). See `docs/OLLAMA_RTX4090_SETUP.md` for setup.
 
 ### 5. **Run Backtest**:

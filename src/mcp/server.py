@@ -223,7 +223,7 @@ async def handle_list_tools() -> list[types.Tool]:
         
         types.Tool(
             name="create_strategy_from_description",
-            description="Create a trading strategy from natural language description",
+            description="Create a trading strategy from natural language description using AI",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -233,7 +233,18 @@ async def handle_list_tools() -> list[types.Tool]:
                     },
                     "strategy_name": {
                         "type": "string",
-                        "description": "Name for the new strategy"
+                        "description": "Name for the new strategy (e.g., RSIOversoldStrategy)"
+                    },
+                    "auto_register": {
+                        "type": "boolean",
+                        "description": "Automatically register strategy in STRATEGY_REGISTRY",
+                        "default": True
+                    },
+                    "provider": {
+                        "type": "string",
+                        "enum": ["openai", "anthropic", "ollama", "auto"],
+                        "description": "AI provider to use",
+                        "default": "auto"
                     }
                 },
                 "required": ["description", "strategy_name"]
@@ -691,12 +702,14 @@ async def create_strategy_from_description_tool(args: dict) -> list[types.TextCo
     """Create strategy from natural language description using AI."""
     description = args["description"]
     strategy_name = args["strategy_name"]
+    auto_register = args.get("auto_register", True)
+    provider = args.get("provider", "auto")
     
     try:
         from ..ai.strategy_generator import StrategyGenerator
         
         # Generate strategy
-        generator = StrategyGenerator(provider="auto")
+        generator = StrategyGenerator(provider=provider)
         result = generator.generate_strategy(description, strategy_name)
         
         # Validate
@@ -706,12 +719,26 @@ async def create_strategy_from_description_tool(args: dict) -> list[types.TextCo
         # Save
         filepath = generator.save_strategy(result['code'], strategy_name)
         
+        # Auto-register if requested
+        registration_status = ""
+        if auto_register:
+            try:
+                from ..cli.main import _auto_register_strategy
+                _auto_register_strategy(strategy_name)
+                registration_status = f"✅ Registered as '{strategy_name.lower()}' in STRATEGY_REGISTRY"
+            except Exception as reg_error:
+                registration_status = f"⚠️ Auto-registration failed: {reg_error}\n" \
+                                      f"   Manually add to src/strategies/templates.py"
+        else:
+            registration_status = "ℹ️ Not registered (auto_register=false)"
+        
         response = f"""✅ Strategy '{strategy_name}' generated successfully!
 
 Provider: {result['provider']}
 Model: {result['model']}
 Validation: {validation_status}
 Saved to: {filepath}
+Registration: {registration_status}
 
 GENERATED CODE:
 {'-' * 70}
@@ -720,11 +747,8 @@ GENERATED CODE:
 
 Next steps:
 1. Review the generated code in {filepath}
-2. Test it thoroughly before using with real capital
-3. Register in src/strategies/templates.py STRATEGY_REGISTRY:
-   - Add import: from .generated.{strategy_name.lower()} import {strategy_name}
-   - Add to registry: '{strategy_name.lower()}': {strategy_name}
-4. Run: python -m src.cli.main strategy list-strategies
+2. Test with: python -m src.cli.main strategy list-strategies
+3. Run backtest: python -m src.cli.main backtest run --strategy {strategy_name.lower()} --symbol BTCUSDT --timeframe 1h --start 2024-01-01 --end 2024-06-01
 """
         
         return [types.TextContent(type="text", text=response)]

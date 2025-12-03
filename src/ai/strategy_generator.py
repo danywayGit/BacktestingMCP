@@ -413,10 +413,29 @@ def generate_strategy_interactive():
         if save == 'y':
             filepath = generator.save_strategy(result['code'], strategy_name)
             print(f"\n✅ Strategy saved to: {filepath}")
-            print("\nNext steps:")
-            print(f"  1. Review and test the code in {filepath}")
-            print(f"  2. Register it in src/strategies/templates.py STRATEGY_REGISTRY")
-            print(f"  3. Run: python -m src.cli.main strategy list-strategies")
+            
+            # Ask about registration
+            register = input("\n📝 Auto-register in STRATEGY_REGISTRY? (y/n): ").strip().lower()
+            if register == 'y':
+                try:
+                    from .templates_registrar import auto_register_strategy
+                    auto_register_strategy(strategy_name)
+                    print(f"\n✅ Strategy '{strategy_name}' registered successfully!")
+                    print(f"Run: python -m src.cli.main strategy list-strategies")
+                except ImportError:
+                    # Fallback to CLI module
+                    try:
+                        from ..cli.main import _auto_register_strategy
+                        _auto_register_strategy(strategy_name)
+                        print(f"\n✅ Strategy '{strategy_name}' registered successfully!")
+                        print(f"Run: python -m src.cli.main strategy list-strategies")
+                    except Exception as e:
+                        print(f"\n⚠️ Auto-registration failed: {e}")
+                        print("Please manually add to src/strategies/templates.py STRATEGY_REGISTRY")
+            else:
+                print("\nNext steps:")
+                print(f"  1. Review and test the code in {filepath}")
+                print(f"  2. Register with: python -m src.cli.main strategy create -d '...' -n {strategy_name} --register")
         else:
             print("\n❌ Strategy not saved")
     
