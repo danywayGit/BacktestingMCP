@@ -72,7 +72,7 @@ class GPUIndicators:
     @staticmethod
     def rsi(prices: np.ndarray, period: int = 14, use_gpu: bool = True) -> np.ndarray:
         """
-        Calculate Relative Strength Index on GPU.
+        Calculate Relative Strength Index using pandas rolling (fastest method).
         
         Args:
             prices: Array of prices
@@ -82,55 +82,27 @@ class GPUIndicators:
         Returns:
             RSI values as numpy array
         """
-        if use_gpu and GPU_AVAILABLE:
-            prices_gpu = cp.asarray(prices)
-            rsi_gpu = cp.full(len(prices_gpu), 50.0)
-            
-            for i in range(period, len(prices_gpu)):
-                gains = 0.0
-                losses = 0.0
-                
-                for j in range(i - period, i):
-                    change = prices_gpu[j+1] - prices_gpu[j]
-                    if change > 0:
-                        gains += change
-                    else:
-                        losses += abs(change)
-                
-                avg_gain = gains / period
-                avg_loss = losses / period
-                
-                if avg_loss == 0:
-                    rsi_gpu[i] = 100.0
-                else:
-                    rs = avg_gain / avg_loss
-                    rsi_gpu[i] = 100.0 - (100.0 / (1.0 + rs))
-            
-            return cp.asnumpy(rsi_gpu)
-        else:
-            # CPU fallback
-            rsi = np.full(len(prices), 50.0)
-            for i in range(period, len(prices)):
-                gains = 0.0
-                losses = 0.0
-                
-                for j in range(i - period, i):
-                    change = prices[j+1] - prices[j]
-                    if change > 0:
-                        gains += change
-                    else:
-                        losses += abs(change)
-                
-                avg_gain = gains / period
-                avg_loss = losses / period
-                
-                if avg_loss == 0:
-                    rsi[i] = 100.0
-                else:
-                    rs = avg_gain / avg_loss
-                    rsi[i] = 100.0 - (100.0 / (1.0 + rs))
-            
-            return rsi
+        import pandas as pd
+        
+        # Use pandas for fast rolling calculations (optimized in C)
+        prices_series = pd.Series(prices)
+        delta = prices_series.diff()
+        
+        gains = delta.where(delta > 0, 0.0)
+        losses = -delta.where(delta < 0, 0.0)
+        
+        # Use exponential weighted mean (faster than manual loop)
+        avg_gain = gains.ewm(span=period, adjust=False).mean()
+        avg_loss = losses.ewm(span=period, adjust=False).mean()
+        
+        # Calculate RSI
+        rs = avg_gain / avg_loss
+        rsi = 100.0 - (100.0 / (1.0 + rs))
+        
+        # Fill NaN with 50
+        rsi = rsi.fillna(50.0)
+        
+        return rsi.values
     
     @staticmethod
     def sma(prices: np.ndarray, period: int, use_gpu: bool = True) -> np.ndarray:

@@ -19,10 +19,12 @@ from datetime import datetime
 import sqlite3
 import warnings
 from itertools import product
+from tqdm import tqdm
 warnings.filterwarnings('ignore')
 
 # Import GPU optimizer
 from src.optimization import GPUOptimizer, check_gpu_status, GPU_AVAILABLE
+from src.optimization.gpu_backtest import GPUBacktester
 
 # Import strategy
 import importlib.util
@@ -67,6 +69,7 @@ def load_data(db_path, symbol, start_date, end_date):
 def backtest_with_params(prices, params, indicators, full_df):
     """
     Run backtest with given parameters using pre-calculated indicators.
+    OPTIMIZED: Use pre-calculated indicators instead of recalculating on every bar.
     
     Args:
         prices: Price array (not used, kept for compatibility)
@@ -77,6 +80,16 @@ def backtest_with_params(prices, params, indicators, full_df):
     Returns:
         Result dictionary with performance metrics
     """
+    # Add pre-calculated indicators to the dataframe
+    df_with_indicators = full_df.copy()
+    
+    # Add RSI and EMA for this parameter combination
+    rsi_key = params['rsi_period']
+    ema_key = params['ema_period']
+    
+    df_with_indicators['RSI'] = indicators['rsi'][rsi_key]
+    df_with_indicators['EMA'] = indicators['ema'][ema_key]
+    
     # Create custom strategy with these parameters
     class CustomSignalDCA(FractionalSignalDCAStrategy):
         def __init__(self, symbol, initial_cash, monthly_contribution, commission=0.001):
@@ -92,6 +105,38 @@ def backtest_with_params(prices, params, indicators, full_df):
             self.ema_distance_strong = params['ema_distance_strong']
             self.strong_signal_multiplier = params['strong_signal_multiplier']
             self.extreme_signal_multiplier = params['extreme_signal_multiplier']
+        
+        def _calculate_signal_score(self, data, idx):
+            """Override to use pre-calculated indicators."""
+            if idx < self.rsi_period:
+                return 0
+            
+            score = 0
+            current_price = data.iloc[idx]['Close']
+            
+            # Use pre-calculated EMA
+            ema = data.iloc[idx]['EMA']
+            
+            # Use pre-calculated RSI
+            rsi_value = data.iloc[idx]['RSI']
+            
+            # Score from EMA distance
+            if ema > 0:
+                distance_pct = ((current_price - ema) / ema) * 100
+                if distance_pct <= self.ema_distance_extreme:
+                    score += 3
+                elif distance_pct <= self.ema_distance_strong:
+                    score += 2
+                elif distance_pct <= self.ema_distance_moderate:
+                    score += 1
+            
+            # Score from RSI
+            if rsi_value < self.rsi_oversold_extreme:
+                score += 2
+            elif rsi_value < self.rsi_oversold_moderate:
+                score += 1
+            
+            return score
     
     strategy = CustomSignalDCA(
         symbol='BTCUSDT',
@@ -100,11 +145,11 @@ def backtest_with_params(prices, params, indicators, full_df):
         commission=0.001
     )
     
-    # Run backtest
-    result = strategy.run_backtest(full_df)
-    analytics = calculate_analytics(result, full_df)
+    # Run backtest with pre-calculated indicators
+    result = strategy.run_backtest(df_with_indicators)
     
-    # Combine results
+    # OPTIMIZATION: Skip analytics calculation during hot loop
+    # Only calculate basic metrics we need for ranking
     result_dict = params.copy()
     result_dict.update({
         'total_return_pct': result['total_return'],
@@ -112,10 +157,11 @@ def backtest_with_params(prices, params, indicators, full_df):
         'total_trades': result['total_trades'],
         'buy_trades': result['buy_trades'],
         'sell_trades': result['sell_trades'],
-        'win_rate': analytics['win_rate'],
-        'sharpe_ratio': analytics['sharpe_ratio'],
-        'max_drawdown': analytics['max_drawdown'],
-        'profit_factor': analytics['profit_factor']
+        # Set placeholders - will calculate for top results only
+        'win_rate': 0.0,
+        'sharpe_ratio': 0.0,
+        'max_drawdown': 0.0,
+        'profit_factor': 0.0
     })
     
     return result_dict
@@ -143,28 +189,30 @@ def main():
     # Load data
     db_path = 'data/crypto.db'
     symbol = 'BTCUSDT'
-    start_date = '2023-01-01'
-    end_date = '2024-12-31'
+    start_date = '2017-01-01'
+    end_date = '2025-10-31'
     
     print(f"Loading {symbol} data from {start_date} to {end_date}...")
     df = load_data(db_path, symbol, start_date, end_date)
     prices = df['Close'].values
-    print(f"✓ Loaded {len(df)} candles")
+    print(f"✓ Loaded {len(df):,} candles")
+    print(f"  Date range: {df.index[0]} to {df.index[-1]}")
+    print(f"  Price range: ${df['Close'].min():,.2f} - ${df['Close'].max():,.2f}")
     print()
     
-    # Define parameter grid
+    # Define parameter grid - COMPREHENSIVE BUT MANAGEABLE
     param_grid = {
-        'rsi_period': [14, 21],
-        'ema_period': [150, 200, 250],
-        'min_signal_score': [3, 4, 5, 6],
-        'strong_signal_threshold': [7, 8],
-        'extreme_signal_score': [9, 10, 11],
-        'rsi_oversold_extreme': [28, 30, 33, 35],
-        'rsi_oversold_moderate': [38, 40, 43, 45],
-        'ema_distance_extreme': [-22, -20, -18, -16],
-        'ema_distance_strong': [-16, -14, -12, -10],
-        'strong_signal_multiplier': [1.1, 1.2, 1.3, 1.4],
-        'extreme_signal_multiplier': [1.3, 1.4, 1.5, 1.6]
+        'rsi_period': [14, 18, 21],  # 3 values
+        'ema_period': [150, 200, 250],  # 3 values
+        'min_signal_score': [3, 4, 5, 6],  # 4 values
+        'strong_signal_threshold': [7, 8, 9],  # 3 values
+        'extreme_signal_score': [9, 10, 11],  # 3 values
+        'rsi_oversold_extreme': [28, 30, 33, 35],  # 4 values
+        'rsi_oversold_moderate': [38, 40, 43, 45],  # 4 values
+        'ema_distance_extreme': [-22, -20, -18, -16],  # 4 values
+        'ema_distance_strong': [-16, -14, -12, -10],  # 4 values
+        'strong_signal_multiplier': [1.1, 1.2, 1.3, 1.4, 1.5],  # 5 values
+        'extreme_signal_multiplier': [1.3, 1.4, 1.5, 1.6, 1.7]  # 5 values
     }
     
     # Generate valid parameter combinations
@@ -218,31 +266,32 @@ def main():
     print(f"✓ All indicators calculated in {indicator_time:.2f}s")
     print()
     
-    # Run optimization
+    # Run optimization using GPU BATCH PROCESSING
     print("=" * 70)
-    print("PHASE 2: Running optimization with actual strategy logic")
+    print("PHASE 2: Running GPU-accelerated batch optimization")
     print("=" * 70)
     print()
     
     start_time = datetime.now()
-    results = []
     
-    for i, params in enumerate(param_combinations, 1):
-        try:
-            result = backtest_with_params(prices, params, indicators, df)
-            results.append(result)
-            
-            if i % 100 == 0 or i == total:
-                elapsed = (datetime.now() - start_time).total_seconds()
-                rate = i / elapsed if elapsed > 0 else 0
-                eta = (total - i) / rate if rate > 0 else 0
-                print(f"Progress: {i}/{total} ({i*100//total}%) - {rate:.1f} tests/sec - ETA: {eta:.0f}s")
-        
-        except Exception as e:
-            print(f"Error with params {params}: {e}")
-            continue
+    # Initialize GPU backtester
+    gpu_backtester = GPUBacktester(use_gpu=True)
+    
+    # Run ALL backtests in parallel on GPU
+    results = gpu_backtester.run_dca_strategy_batch(
+        prices_cpu=prices,
+        rsi_values=indicators['rsi'],
+        ema_values=indicators['ema'],
+        param_combinations=param_combinations,
+        initial_cash=5000.0,
+        monthly_contribution=1000.0,
+        commission=0.001
+    )
     
     optimization_time = (datetime.now() - start_time).total_seconds()
+    
+    # Cleanup GPU
+    gpu_backtester.cleanup()
     
     # Cleanup GPU
     optimizer.cleanup()
@@ -267,6 +316,39 @@ def main():
     # Convert to DataFrame and analyze
     results_df = pd.DataFrame(results)
     results_df = results_df.sort_values('total_return_pct', ascending=False)
+    
+    # Calculate detailed analytics for top 10 results only
+    print("\nCalculating detailed analytics for top 10 results...")
+    top_10_indices = results_df.head(10).index
+    
+    for idx in top_10_indices:
+        # Re-run with analytics for top results
+        params = results_df.loc[idx, list(param_grid.keys())].to_dict()
+        
+        class CustomSignalDCA(FractionalSignalDCAStrategy):
+            def __init__(self, symbol, initial_cash, monthly_contribution, commission=0.001):
+                super().__init__(symbol, initial_cash, monthly_contribution, commission)
+                self.rsi_period = params['rsi_period']
+                self.ema_period = params['ema_period']
+                self.min_signal_score = params['min_signal_score']
+                self.strong_signal_threshold = params['strong_signal_threshold']
+                self.extreme_signal_score = params['extreme_signal_score']
+                self.rsi_oversold_extreme = params['rsi_oversold_extreme']
+                self.rsi_oversold_moderate = params['rsi_oversold_moderate']
+                self.ema_distance_extreme = params['ema_distance_extreme']
+                self.ema_distance_strong = params['ema_distance_strong']
+                self.strong_signal_multiplier = params['strong_signal_multiplier']
+                self.extreme_signal_multiplier = params['extreme_signal_multiplier']
+        
+        strategy = CustomSignalDCA('BTCUSDT', 5000.0, 1000.0, 0.001)
+        result = strategy.run_backtest(df)
+        analytics = calculate_analytics(result, df)
+        
+        # Update with detailed analytics
+        results_df.loc[idx, 'win_rate'] = analytics['win_rate']
+        results_df.loc[idx, 'sharpe_ratio'] = analytics['sharpe_ratio']
+        results_df.loc[idx, 'max_drawdown'] = analytics['max_drawdown']
+        results_df.loc[idx, 'profit_factor'] = analytics['profit_factor']
     
     # Display top 10 results
     print("=" * 70)

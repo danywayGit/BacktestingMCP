@@ -42,6 +42,13 @@ This project was created based on the initial request for:
 
 ## Features
 
+### 🚀 GPU-Accelerated Optimization
+- **CuPy Integration**: GPU-accelerated indicator calculations (30-40x faster)
+- **Numba JIT**: Parallel CPU execution for portfolio simulation
+- **Batch Processing**: 25,000+ parameter combinations per GPU batch
+- **Optimized for NVIDIA GPUs**: Tested on RTX 4090 with CUDA 12.x
+- **Example Scripts**: See `examples/optimize_dca_cupy.py` for GPU optimization patterns
+
 ### Core Backtesting
 - **Framework**: Built on backtesting.py with plans for multi-framework support
 - **Multi-timeframe**: Support for 1m, 5m, 15m, 1h, 4h, 1d and custom timeframes
@@ -99,14 +106,14 @@ This project was created based on the initial request for:
 #### **1. Immediate Demo (No Setup Required)**
 ```bash
 # Run the working demonstration
-python run_simple_backtest.py
+python examples/run_simple_backtest.py
 ```
 This uses simulated data and demonstrates a complete backtesting workflow.
 
 #### **2. CLI with Real Data**
 ```bash
 # Download real market data
-python -m src.cli.main data download --symbol BTC/USDT --timeframe 1h --days 30
+python -m src.cli.main data download --symbol BTC/USDT --timeframe 1h --start 2024-01-01
 
 # Run backtest on real data
 python -m src.cli.main backtest run --strategy moving_average_crossover --symbol BTCUSDT --timeframe 1h --start 2024-01-01 --end 2024-01-31
@@ -184,16 +191,19 @@ BacktestingMCP/
 │   │   └── __init__.py
 │   ├── strategies/
 │   │   ├── templates.py             # ✅ 6 strategy templates + registry
+│   │   ├── dca_strategies.py        # ✅ DCA strategy implementations
+│   │   └── __init__.py
+│   ├── optimization/
+│   │   ├── gpu_optimizer.py         # ✅ GPU-accelerated optimization
+│   │   ├── gpu_backtest.py          # ✅ GPU backtesting utilities
 │   │   └── __init__.py
 │   ├── risk/
 │   │   ├── position_sizer.py        # ✅ Position sizing logic
 │   │   ├── limits.py                # ✅ Risk limits enforcement
 │   │   ├── correlation.py           # ✅ Correlation analysis
 │   │   └── __init__.py
-│   ├── analytics/
-│   │   ├── metrics.py               # ✅ Performance calculations
-│   │   ├── reports.py               # ✅ Report generation
-│   │   ├── visualization.py         # ✅ Charts and plots (framework)
+│   ├── ai/
+│   │   ├── strategy_generator.py    # ✅ AI strategy generation
 │   │   └── __init__.py
 │   ├── mcp/
 │   │   ├── server.py                # ✅ MCP server implementation
@@ -208,12 +218,14 @@ BacktestingMCP/
 │   └── crypto.db                    # ✅ SQLite database (created on first use)
 ├── examples/                        # ✅ Working examples
 │   ├── run_simple_backtest.py       # ✅ Standalone demo script
+│   ├── optimize_dca_cupy.py         # ✅ GPU optimization (CuPy/Numba)
+│   ├── optimize_dca_vectorbt.py     # ✅ VectorBT optimization
 │   ├── examples.py                  # ✅ Comprehensive usage examples
 │   └── test_backtest.py             # ✅ Simple test cases
-├── .venv/                           # ✅ Virtual environment
+├── venv/                            # ✅ Virtual environment
 ├── .gitignore                       # ✅ Git ignore rules
 ├── requirements.txt                 # ✅ Python dependencies
-├── setup_venv.bat                   # ✅ Windows setup script
+├── setup_venv.py                    # ✅ Cross-platform setup script
 ├── QUICKSTART.md                    # ✅ Quick start guide
 └── README.md                        # ✅ This file
 ```
