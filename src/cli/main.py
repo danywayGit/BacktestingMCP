@@ -191,6 +191,78 @@ def show_parameters(strategy_name):
         click.echo(f"Error: {e}", err=True)
 
 
+def _auto_register_strategy(strategy_name: str) -> None:
+    """
+    Automatically register a generated strategy in templates.py.
+    Adds import statement and STRATEGY_REGISTRY entry.
+    """
+    import re
+    from pathlib import Path
+    
+    # Path to templates.py
+    templates_path = Path(__file__).parent.parent / 'strategies' / 'templates.py'
+    
+    if not templates_path.exists():
+        raise FileNotFoundError(f"templates.py not found at {templates_path}")
+    
+    content = templates_path.read_text(encoding='utf-8')
+    
+    # Check if already registered
+    strategy_key = strategy_name.lower()
+    if f"'{strategy_key}'" in content or f'"{strategy_key}"' in content:
+        raise ValueError(f"Strategy '{strategy_key}' is already registered")
+    
+    # Add import after existing generated imports
+    # Look for pattern: from .generated.xxx import XXX
+    import_line = f"from .generated.{strategy_name.lower()} import {strategy_name}"
+    
+    # Find the last generated import or the main imports section
+    generated_import_pattern = r'(from \.generated\.[\w]+ import [\w]+)'
+    matches = list(re.finditer(generated_import_pattern, content))
+    
+    if matches:
+        # Insert after last generated import
+        last_match = matches[-1]
+        insert_pos = last_match.end()
+        content = content[:insert_pos] + f"\n{import_line}" + content[insert_pos:]
+    else:
+        # Insert after the DCA imports
+        dca_import_pattern = r'(from \.dca_strategies import [\w, ]+)'
+        dca_match = re.search(dca_import_pattern, content)
+        if dca_match:
+            insert_pos = dca_match.end()
+            content = content[:insert_pos] + f"\n{import_line}" + content[insert_pos:]
+        else:
+            raise ValueError("Could not find insertion point for import")
+    
+    # Add to STRATEGY_REGISTRY
+    registry_pattern = r"(STRATEGY_REGISTRY\s*=\s*\{[^}]+)"
+    registry_match = re.search(registry_pattern, content, re.DOTALL)
+    
+    if not registry_match:
+        raise ValueError("Could not find STRATEGY_REGISTRY in templates.py")
+    
+    # Find the last entry in the registry
+    registry_content = registry_match.group(1)
+    # Insert before the closing brace
+    new_entry = f"    '{strategy_key}': {strategy_name},\n"
+    
+    # Find where to insert (before the closing })
+    registry_end = content.find('}', registry_match.end() - 1)
+    if registry_end == -1:
+        raise ValueError("Could not find end of STRATEGY_REGISTRY")
+    
+    # Check if there's a trailing comma
+    before_brace = content[:registry_end].rstrip()
+    if not before_brace.endswith(','):
+        content = before_brace + ',\n' + new_entry + content[registry_end:]
+    else:
+        content = content[:registry_end] + new_entry + content[registry_end:]
+    
+    # Write back
+    templates_path.write_text(content, encoding='utf-8')
+
+
 @strategy.command()
 @click.option('--description', '-d', required=True, help='Natural language description of the strategy')
 @click.option('--name', '-n', required=True, help='Name for the new strategy (e.g., RSIOversoldStrategy)')
@@ -240,18 +312,23 @@ def create(description, name, provider, model, output, register):
         filepath = generator.save_strategy(result['code'], name, output_path)
         click.echo(f"\n💾 Strategy saved to: {filepath}")
         
-        # Registration instructions
+        # Registration
         if register:
-            click.echo("\n⚠️  Auto-registration not yet implemented.")
-            click.echo("Please manually add to src/strategies/templates.py:")
-            click.echo(f"  1. Add import: from .generated.{name.lower()} import {name}")
-            click.echo(f"  2. Add to STRATEGY_REGISTRY: '{name.lower()}': {name}")
+            try:
+                _auto_register_strategy(name)
+                click.echo(f"\n✅ Strategy '{name}' registered successfully!")
+                click.echo(f"Run: python -m src.cli.main strategy list-strategies")
+            except Exception as reg_error:
+                click.echo(f"\n⚠️  Auto-registration failed: {reg_error}")
+                click.echo("Please manually add to src/strategies/templates.py:")
+                click.echo(f"  1. Add import: from .generated.{name.lower()} import {name}")
+                click.echo(f"  2. Add to STRATEGY_REGISTRY: '{name.lower()}': {name}")
         else:
             click.echo("\nNext steps:")
             click.echo(f"  1. Review the generated code in {filepath}")
             click.echo(f"  2. Test it thoroughly before using with real capital")
-            click.echo(f"  3. Register in src/strategies/templates.py STRATEGY_REGISTRY")
-            click.echo(f"  4. Run: python -m src.cli.main strategy list-strategies")
+            click.echo(f"  3. Register with: python -m src.cli.main strategy create -d '...' -n {name} --register")
+            click.echo(f"  4. Or manually add to src/strategies/templates.py STRATEGY_REGISTRY")
         
     except ImportError as e:
         click.echo(f"\n❌ Error: {e}", err=True)

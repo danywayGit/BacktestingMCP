@@ -750,23 +750,93 @@ Next steps:
 
 
 async def optimize_strategy_tool(args: dict) -> list[types.TextContent]:
-    """Optimize strategy parameters."""
-    # This is a placeholder for parameter optimization
-    # In a real implementation, this would use optimization libraries like Optuna
+    """Optimize strategy parameters using GPU acceleration."""
+    import asyncio
     
     strategy_name = args["strategy_name"]
     symbol = args["symbol"]
-    parameter_ranges = args["parameter_ranges"]
+    parameter_ranges = args.get("parameter_ranges", {})
+    start_date = args.get("start_date", "2021-01-01")
+    end_date = args.get("end_date", "2025-12-01")
+    timeframe = args.get("timeframe", "1h")
+    top_n = args.get("top_n", 10)
     
-    return [types.TextContent(
-        type="text",
-        text=f"Strategy optimization is not yet implemented.\n"
-             f"Strategy: {strategy_name}\n"
-             f"Symbol: {symbol}\n"
-             f"Parameter ranges: {json.dumps(parameter_ranges, indent=2)}\n\n"
-             f"This feature would use optimization algorithms (grid search, genetic algorithms, "
-             f"or Bayesian optimization) to find the best parameter combinations for a strategy."
-    )]
+    try:
+        from ..optimization.gpu_optimizer import run_dca_optimization, GPU_AVAILABLE
+        
+        if not GPU_AVAILABLE:
+            return [types.TextContent(
+                type="text",
+                text="⚠️ GPU acceleration not available. CuPy is required.\n"
+                     "Install with: pip install cupy-cuda12x"
+            )]
+        
+        # Run optimization in thread pool to avoid blocking
+        def run_optimization():
+            return run_dca_optimization(
+                symbol=symbol,
+                start_date=start_date,
+                end_date=end_date,
+                timeframe=timeframe,
+                param_ranges=parameter_ranges,
+                top_n=top_n
+            )
+        
+        loop = asyncio.get_event_loop()
+        results = await loop.run_in_executor(None, run_optimization)
+        
+        if 'error' in results:
+            return [types.TextContent(
+                type="text",
+                text=f"❌ Optimization failed: {results['error']}"
+            )]
+        
+        # Format results
+        output_lines = [
+            f"✅ GPU-Accelerated Optimization Complete!",
+            f"",
+            f"📊 **Summary**",
+            f"- Symbol: {results['symbol']}",
+            f"- Timeframe: {results['timeframe']}",
+            f"- Period: {results['start_date']} to {results['end_date']}",
+            f"- Data points: {results.get('data_points', 'N/A'):,}",
+            f"- Valid combinations tested: {results['valid_combinations']:,}",
+            f"- Optimization time: {results['optimization_time_seconds']:.2f}s",
+            f"- Throughput: {results['throughput_tests_per_second']:.1f} tests/sec",
+            f"",
+            f"📈 **Statistics**",
+            f"- Best return: {results['stats']['best_return_pct']:.2f}%",
+            f"- Worst return: {results['stats']['worst_return_pct']:.2f}%",
+            f"- Mean return: {results['stats']['mean_return_pct']:.2f}%",
+            f"- Median return: {results['stats']['median_return_pct']:.2f}%",
+            f"",
+            f"🏆 **Top {len(results['top_results'])} Results**",
+        ]
+        
+        for i, result in enumerate(results['top_results'], 1):
+            output_lines.append(
+                f"\n#{i}: Return: {result['total_return_pct']:.2f}%, "
+                f"Trades: {result['total_trades']}, "
+                f"RSI: {result['rsi_period']}, EMA: {result['ema_period']}"
+            )
+        
+        return [types.TextContent(
+            type="text",
+            text="\n".join(output_lines)
+        )]
+        
+    except ImportError as e:
+        return [types.TextContent(
+            type="text",
+            text=f"❌ GPU optimizer not available: {str(e)}\n"
+                 f"Ensure CuPy and Numba are installed."
+        )]
+    except Exception as e:
+        logger.exception("Optimization failed")
+        return [types.TextContent(
+            type="text",
+            text=f"❌ Optimization error: {str(e)}"
+        )]
 
 
 async def main():
