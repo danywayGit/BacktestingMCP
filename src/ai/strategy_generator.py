@@ -323,7 +323,11 @@ class StrategyGenerator:
         return filepath
     
     def _add_imports(self, code: str) -> str:
-        """Add necessary imports to the strategy code."""
+        """Add necessary imports to the strategy code.
+        
+        Note: Generated strategies are saved to src/strategies/generated/
+        Strategies must be self-contained to avoid circular imports with templates.py
+        """
         imports = '''"""
 AI-generated trading strategy.
 """
@@ -333,13 +337,58 @@ import numpy as np
 from backtesting import Strategy
 from backtesting.lib import crossover
 
-from ..core.backtesting_engine import BaseStrategy
-from ..strategies.templates import (
-    calculate_rsi,
-    calculate_sma,
-    calculate_bbands,
-    calculate_macd
-)
+from ...core.backtesting_engine import BaseStrategy
+
+# Import ta library for indicator calculations
+import ta
+
+
+def calculate_rsi(close_prices, period: int = 14):
+    """Calculate RSI indicator."""
+    if not isinstance(close_prices, pd.Series):
+        close_prices = pd.Series(close_prices)
+    return ta.momentum.rsi(close_prices, window=period).ffill().bfill().fillna(50)
+
+
+def calculate_ema(close_prices, period: int = 200):
+    """Calculate Exponential Moving Average."""
+    if not isinstance(close_prices, pd.Series):
+        close_prices = pd.Series(close_prices)
+    return ta.trend.ema_indicator(close_prices, window=period).ffill().bfill()
+
+
+def calculate_sma(close_prices, period: int = 20):
+    """Calculate Simple Moving Average."""
+    if not isinstance(close_prices, pd.Series):
+        close_prices = pd.Series(close_prices)
+    return ta.trend.sma_indicator(close_prices, window=period).ffill().bfill()
+
+
+def calculate_atr(high, low, close, period: int = 14):
+    """Calculate Average True Range."""
+    if not isinstance(high, pd.Series):
+        high = pd.Series(high)
+    if not isinstance(low, pd.Series):
+        low = pd.Series(low)
+    if not isinstance(close, pd.Series):
+        close = pd.Series(close)
+    return ta.volatility.average_true_range(high, low, close, window=period).ffill().bfill().fillna(0)
+
+
+def calculate_bbands(close_prices, period: int = 20, std: int = 2):
+    """Calculate Bollinger Bands."""
+    if not isinstance(close_prices, pd.Series):
+        close_prices = pd.Series(close_prices)
+    bb = ta.volatility.BollingerBands(close_prices, window=period, window_dev=std)
+    return bb.bollinger_hband().ffill(), bb.bollinger_mavg().ffill(), bb.bollinger_lband().ffill()
+
+
+def calculate_macd(close_prices, fast: int = 12, slow: int = 26, signal: int = 9):
+    """Calculate MACD."""
+    if not isinstance(close_prices, pd.Series):
+        close_prices = pd.Series(close_prices)
+    macd_obj = ta.trend.MACD(close_prices, window_fast=fast, window_slow=slow, window_sign=signal)
+    return macd_obj.macd().fillna(0), macd_obj.macd_signal().fillna(0), macd_obj.macd_diff().fillna(0)
 
 
 '''

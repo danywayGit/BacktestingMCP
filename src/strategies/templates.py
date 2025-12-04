@@ -19,6 +19,7 @@ except ImportError:
 from ..core.backtesting_engine import BaseStrategy
 from .dca_strategies import DCAMonthlyStrategy, DCASignalStrategy
 from .generated.testrsistrategy import TestRSIStrategy
+from .generated.emacrossrsistrategy import EMAcrossRSIStrategy
 
 
 def calculate_rsi(close_prices: pd.Series, period: int = 14) -> pd.Series:
@@ -413,6 +414,7 @@ STRATEGY_REGISTRY = {
     'monthly_dca': DCAMonthlyStrategy,
     'signal_based_dca': DCASignalStrategy,
     'test_rsi_strategy': TestRSIStrategy,
+    'emacrossrsistrategy': EMAcrossRSIStrategy,
 }
 
 
