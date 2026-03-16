@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """
-Launcher script for the Advanced Crypto Backtesting System.
-This script ensures the virtual environment is activated before running the main application.
+BacktestingMCP — Interactive Launcher
+
+Run this script to access all features through a simple menu.
+If the virtual environment is not active it will re-launch itself
+inside the venv automatically.
 """
 
 import os
@@ -10,98 +13,199 @@ import subprocess
 import platform
 from pathlib import Path
 
-
-def is_venv_activated():
-    """Check if virtual environment is activated."""
-    return hasattr(sys, 'real_prefix') or (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix)
+ROOT = Path(__file__).parent
 
 
-def venv_exists():
-    """Check if virtual environment exists."""
-    venv_path = Path("venv")
+# ---------------------------------------------------------------------------
+# Venv helpers
+# ---------------------------------------------------------------------------
+
+def _in_venv() -> bool:
+    return hasattr(sys, "real_prefix") or (
+        hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix
+    )
+
+
+def _venv_python() -> str:
     if platform.system() == "Windows":
-        return (venv_path / "Scripts" / "python.exe").exists()
+        return str(ROOT / "venv" / "Scripts" / "python.exe")
+    return str(ROOT / "venv" / "bin" / "python")
+
+
+def _ensure_venv():
+    """Re-launch inside the venv if we're not already there."""
+    if _in_venv():
+        return  # already good
+    venv_py = _venv_python()
+    if not Path(venv_py).exists():
+        print("Virtual environment not found.")
+        print("Run:  python setup_venv.py   to create it, then try again.")
+        sys.exit(1)
+    # Re-exec this script with the venv interpreter
+    os.execv(venv_py, [venv_py] + sys.argv)
+
+
+# ---------------------------------------------------------------------------
+# CLI wrapper
+# ---------------------------------------------------------------------------
+
+def _cli(*args):
+    """Run a src.cli.main command and wait for it to finish."""
+    subprocess.run([sys.executable, "-m", "src.cli.main"] + list(args))
+
+
+def _run_example(script: str):
+    """Run an examples/ script."""
+    subprocess.run([sys.executable, str(ROOT / "examples" / script)])
+
+
+def _run_tool(script: str):
+    """Run a tools/ script."""
+    subprocess.run([sys.executable, str(ROOT / "tools" / script)])
+
+
+# ---------------------------------------------------------------------------
+# Menu actions
+# ---------------------------------------------------------------------------
+
+def menu_download():
+    print("\n--- Download Market Data ---")
+    symbol    = input("Symbol  [BTC/USDT]: ").strip() or "BTC/USDT"
+    timeframe = input("Timeframe [1h]: ").strip() or "1h"
+    start     = input("Start date [2024-01-01]: ").strip() or "2024-01-01"
+    end       = input("End date   [2024-12-31]: ").strip() or "2024-12-31"
+    _cli("data", "download",
+         "--symbol", symbol,
+         "--timeframe", timeframe,
+         "--start", start,
+         "--end", end)
+
+
+def menu_list_data():
+    print("\n--- Available Data ---")
+    _cli("data", "list-data")
+
+
+def menu_run_backtest():
+    print("\n--- Run a Backtest ---")
+    print("Available strategies (run option 3 to list all):")
+    strats = [
+        "moving_average_crossover", "rsi_mean_reversion",
+        "ema_rsi_combination", "bollinger_band_bounce",
+        "atr_breakout", "momentum_oscillator",
+    ]
+    for s in strats:
+        print(f"  • {s}")
+    strategy  = input("\nStrategy [moving_average_crossover]: ").strip() or "moving_average_crossover"
+    symbol    = input("Symbol   [BTCUSDT]: ").strip() or "BTCUSDT"
+    timeframe = input("Timeframe [1h]: ").strip() or "1h"
+    start     = input("Start date [2024-01-01]: ").strip() or "2024-01-01"
+    end       = input("End date   [2024-12-31]: ").strip() or "2024-12-31"
+    cash      = input("Starting cash [10000]: ").strip() or "10000"
+    _cli("backtest", "run",
+         "--strategy", strategy,
+         "--symbol", symbol,
+         "--timeframe", timeframe,
+         "--start", start,
+         "--end", end,
+         "--cash", cash)
+
+
+def menu_list_strategies():
+    print("\n--- Available Strategies ---")
+    _cli("strategy", "list-strategies")
+
+
+def menu_gpu_optimization():
+    print("\n--- GPU Optimization ---")
+    print("1 - DCA optimization  (02_gpu_optimization.py, ~1145 tests/sec)")
+    print("2 - EMA Crossover     (03_ema_crossover.py)")
+    choice = input("Which? [1]: ").strip() or "1"
+    if choice == "2":
+        _run_example("03_ema_crossover.py")
     else:
-        return (venv_path / "bin" / "python").exists()
+        _run_example("02_gpu_optimization.py")
 
 
-def get_venv_python():
-    """Get the virtual environment Python executable."""
-    if platform.system() == "Windows":
-        return "venv\\Scripts\\python.exe"
-    else:
-        return "venv/bin/python"
+def menu_ai_strategy():
+    print("\n--- Generate AI Strategy ---")
+    name        = input("Strategy name  [MyStrategy]: ").strip() or "MyStrategy"
+    description = input("Describe the strategy: ").strip()
+    if not description:
+        description = "Buy when RSI drops below 30 and price is above the 200-day MA. Sell when RSI exceeds 70."
+    provider    = input("Provider [openai/anthropic/ollama] [openai]: ").strip() or "openai"
+    _cli("strategy", "create",
+         "--name", name,
+         "--description", description,
+         "--provider", provider,
+         "--register")
 
 
-def get_activation_command():
-    """Get the virtual environment activation command."""
-    if platform.system() == "Windows":
-        return "venv\\Scripts\\activate"
-    else:
-        return "source venv/bin/activate"
+def menu_mcp_server():
+    print("\n--- Start MCP Server ---")
+    print("Starting MCP server on localhost:8000  (Ctrl+C to stop)")
+    subprocess.run([sys.executable, "-m", "src.mcp.server"])
+
+
+def menu_check_gpu():
+    print()
+    _run_tool("check_gpu.py")
+
+
+def menu_check_db():
+    print()
+    _run_tool("check_db.py")
+
+
+def menu_tutorial():
+    print()
+    _run_example("00_tutorial.py")
+
+
+# ---------------------------------------------------------------------------
+# Main menu loop
+# ---------------------------------------------------------------------------
+
+MENU = [
+    ("1", "Download market data",         menu_download),
+    ("2", "List available data",           menu_list_data),
+    ("3", "List strategies",               menu_list_strategies),
+    ("4", "Run a backtest",                menu_run_backtest),
+    ("5", "GPU optimization",              menu_gpu_optimization),
+    ("6", "Generate AI strategy",          menu_ai_strategy),
+    ("7", "Start MCP server",              menu_mcp_server),
+    ("8", "Check GPU status",              menu_check_gpu),
+    ("9", "Inspect database",              menu_check_db),
+    ("t", "Run tutorial walkthrough",      menu_tutorial),
+    ("q", "Quit",                          None),
+]
+
+
+def print_menu():
+    print("\n" + "=" * 50)
+    print("  BacktestingMCP")
+    print("=" * 50)
+    for key, label, _ in MENU:
+        print(f"  {key}  {label}")
+    print("=" * 50)
 
 
 def main():
-    """Main launcher function."""
-    script_name = sys.argv[0]
-    print(f"🚀 Advanced Crypto Backtesting System Launcher")
-    print("=" * 60)
-    
-    # Check if we're already in a virtual environment
-    if is_venv_activated():
-        print("✅ Virtual environment is activated")
-        
-        # Import and run the examples
-        try:
-            import examples
-            examples.main()
-        except ImportError as e:
-            print(f"❌ Error importing examples: {e}")
-            print("Make sure you're in the correct directory")
-        except Exception as e:
-            print(f"❌ Error running examples: {e}")
-        return
-    
-    # Check if virtual environment exists
-    if not venv_exists():
-        print("❌ Virtual environment not found")
-        print("\n📋 To set up the virtual environment:")
-        print("1. Run: python setup_venv.py")
-        print("2. Then run this script again")
-        return
-    
-    # Virtual environment exists but not activated
-    print("⚠️  Virtual environment found but not activated")
-    print(f"\n📋 To activate manually:")
-    activation_cmd = get_activation_command()
-    print(f"   {activation_cmd}")
-    
-    if platform.system() == "Windows":
-        print("   or simply run: activate.bat")
-    else:
-        print("   or simply run: ./activate.sh")
-    
-    # Ask if user wants to run in virtual environment
-    response = input("\nDo you want to run in the virtual environment now? (Y/n): ").lower().strip()
-    
-    if response in ['', 'y', 'yes']:
-        print("\n🔄 Running in virtual environment...")
-        
-        # Get virtual environment Python
-        venv_python = get_venv_python()
-        
-        # Re-run this script with virtual environment Python
-        try:
-            # Run examples.py directly with venv Python
-            result = subprocess.run([venv_python, "examples.py"], check=True)
-            print("✅ Completed successfully!")
-        except subprocess.CalledProcessError as e:
-            print(f"❌ Error running in virtual environment: {e}")
-        except FileNotFoundError:
-            print(f"❌ Virtual environment Python not found: {venv_python}")
-    else:
-        print("👋 Exiting. Activate the virtual environment and try again.")
+    _ensure_venv()
+    while True:
+        print_menu()
+        choice = input("  Choose: ").strip().lower()
+        for key, _, action in MENU:
+            if choice == key:
+                if action is None:
+                    print("Goodbye.")
+                    sys.exit(0)
+                action()
+                break
+        else:
+            print(f"  Unknown option '{choice}' — try again.")
 
 
 if __name__ == "__main__":
     main()
+

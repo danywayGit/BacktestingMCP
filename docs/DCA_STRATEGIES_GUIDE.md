@@ -127,7 +127,7 @@ Triggers:
 
 3. **RSI(14)** > 65
 
-4. **Profit** ≥15% from average cost
+4. **Profit** ≥50% from average cost
 
 5. **Holding period** ≥30 days
 

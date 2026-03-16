@@ -22,16 +22,15 @@ try:
     device = cp.cuda.Device()
     props = cp.cuda.runtime.getDeviceProperties(device.id)
     gpu_name = props['name'].decode('utf-8')
-    print(f"✓ GPU Acceleration Available: {gpu_name}")
-    print(f"✓ CUDA Version: {cp.cuda.runtime.runtimeGetVersion()}")
+    print(f"[GPU] Available: {gpu_name}  (CUDA {cp.cuda.runtime.runtimeGetVersion()})")
 except ImportError:
     GPU_AVAILABLE = False
     cp = np  # Fallback to NumPy
-    print("⚠️  CuPy not available - falling back to CPU (NumPy)")
+    print("[GPU] CuPy not available - falling back to CPU (NumPy)")
 except Exception as e:
     GPU_AVAILABLE = False
     cp = np
-    print(f"⚠️  GPU initialization error: {e} - falling back to CPU")
+    print(f"[GPU] Initialization error: {e} - falling back to CPU")
 
 
 class GPUIndicators:
@@ -185,12 +184,12 @@ class GPUOptimizer:
             device = cp.cuda.Device()
             props = cp.cuda.runtime.getDeviceProperties(device.id)
             gpu_name = props['name'].decode('utf-8')
-            print(f"✓ GPU Optimizer initialized with {gpu_name}")
+            print(f"[GPU] Optimizer initialized: {gpu_name}")
             # Get GPU memory info
             mempool = cp.get_default_memory_pool()
-            print(f"✓ GPU Memory: {mempool.total_bytes() / 1024**3:.2f} GB total")
+            print(f"[GPU] VRAM: {mempool.total_bytes() / 1024**3:.2f} GB")
         else:
-            print("⚠️  GPU Optimizer using CPU fallback")
+            print("[GPU] Using CPU fallback")
     
     def pre_calculate_indicators(
         self,
@@ -220,7 +219,7 @@ class GPUOptimizer:
         )
         
         elapsed = (datetime.now() - start_time).total_seconds()
-        print(f"✓ Indicators calculated in {elapsed:.2f}s")
+        print(f"[GPU] Indicators calculated in {elapsed:.2f}s")
         
         return indicators
     
@@ -272,7 +271,7 @@ class GPUOptimizer:
                 print(f"Error with params {params}: {e}")
                 continue
         
-        print(f"\n✓ Optimization complete: {len(results)}/{total} successful")
+        print(f"\n[OK] Optimization complete: {len(results)}/{total} successful")
         return results
     
     def cleanup(self):
@@ -280,7 +279,7 @@ class GPUOptimizer:
         if self.use_gpu and GPU_AVAILABLE:
             mempool = cp.get_default_memory_pool()
             mempool.free_all_blocks()
-            print("✓ GPU memory cleaned up")
+            print("[GPU] Memory cleaned up")
 
 
 # Utility functions for easy integration
