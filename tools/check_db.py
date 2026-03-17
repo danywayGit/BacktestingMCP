@@ -1,6 +1,8 @@
 import sqlite3
+import os
 
-conn = sqlite3.connect('data/crypto.db')
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+conn = sqlite3.connect(os.path.join(_ROOT, 'data', 'crypto.db'))
 cursor = conn.cursor()
 
 # Get tables

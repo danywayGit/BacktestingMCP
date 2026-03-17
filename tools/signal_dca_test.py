@@ -1,7 +1,8 @@
 """Quick test to understand Signal DCA behavior"""
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'scripts'))
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _ROOT)
 
 import sqlite3
 import pandas as pd
@@ -9,8 +10,8 @@ import importlib.util
 
 # Load fractional module
 spec = importlib.util.spec_from_file_location(
-    "fractional_dca_comparison", 
-    "scripts/fractional_dca_comparison.py"
+    "fractional_dca_comparison",
+    os.path.join(_ROOT, "scripts", "fractional_dca_comparison.py")
 )
 frac_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(frac_module)

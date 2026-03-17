@@ -49,19 +49,35 @@ def _ensure_venv():
 # CLI wrapper
 # ---------------------------------------------------------------------------
 
+def _subprocess_env() -> dict:
+    """Return env with PYTHONPATH=project root so all scripts find src/."""
+    env = os.environ.copy()
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = str(ROOT) + (os.pathsep + existing if existing else "")
+    return env
+
+
 def _cli(*args):
     """Run a src.cli.main command and wait for it to finish."""
-    subprocess.run([sys.executable, "-m", "src.cli.main"] + list(args))
+    subprocess.run([sys.executable, "-m", "src.cli.main"] + list(args), cwd=ROOT)
 
 
 def _run_example(script: str):
-    """Run an examples/ script."""
-    subprocess.run([sys.executable, str(ROOT / "examples" / script)])
+    """Run an examples/ script from the project root."""
+    subprocess.run(
+        [sys.executable, str(ROOT / "examples" / script)],
+        cwd=ROOT,
+        env=_subprocess_env(),
+    )
 
 
 def _run_tool(script: str):
-    """Run a tools/ script."""
-    subprocess.run([sys.executable, str(ROOT / "tools" / script)])
+    """Run a tools/ script from the project root."""
+    subprocess.run(
+        [sys.executable, str(ROOT / "tools" / script)],
+        cwd=ROOT,
+        env=_subprocess_env(),
+    )
 
 
 # ---------------------------------------------------------------------------

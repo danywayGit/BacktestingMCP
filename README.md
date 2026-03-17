@@ -123,11 +123,11 @@ python examples/01_basic_backtest.py
 ## Python API
 
 ```python
-from src import backtest_engine, Database, list_strategies
+from src import backtest_engine, database, list_available_strategies
 from src import GPUOptimizer, check_gpu_status, StrategyGenerator
 
 # List strategies
-print(list_strategies())
+print(list_available_strategies())
 
 # Run a backtest
 result = backtest_engine.run_backtest(

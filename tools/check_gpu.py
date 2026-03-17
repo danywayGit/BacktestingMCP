@@ -4,7 +4,8 @@ Quick test to verify GPU acceleration is working correctly.
 
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent))
+# Insert the project root (parent of tools/) so 'src' is importable
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 print("=" * 70)
 print("GPU ACCELERATION TEST")
