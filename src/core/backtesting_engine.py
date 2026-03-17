@@ -9,6 +9,9 @@ import numpy as np
 from typing import Dict, List, Optional, Any, Callable
 from datetime import datetime, timezone
 import logging
+import os
+import time
+import threading
 from dataclasses import dataclass, field
 
 from ..data.database import db
@@ -17,6 +20,30 @@ from ..data.timeframe_converter import convert_data_for_backtesting
 from config.settings import settings, TimeFrame, Direction, RiskConfig, TradingConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _fmt_duration(secs: float) -> str:
+    """Format seconds to a human-readable string."""
+    secs = max(0, int(secs))
+    if secs < 60:
+        return f"{secs}s"
+    if secs < 3600:
+        return f"{secs // 60}m {secs % 60:02d}s"
+    h, r = divmod(secs, 3600)
+    return f"{h}h {r // 60:02d}m"
+
+
+# Map user-friendly objective names to backtesting.py stat keys.
+# 'max_drawdown_pct' is handled separately (minimized by negating).
+OPTIMIZATION_OBJECTIVES: Dict[str, str] = {
+    'sharpe_ratio':      'Sharpe Ratio',
+    'total_return_pct':  'Return [%]',
+    'sortino_ratio':     'Sortino Ratio',
+    'calmar_ratio':      'Calmar Ratio',
+    'profit_factor':     'Profit Factor',
+    'win_rate_pct':      'Win Rate [%]',
+    'sqn':               'SQN',
+}
 
 
 @dataclass
@@ -316,20 +343,20 @@ class BacktestingEngine:
             'SQN': 'sqn'
         }
         
-        # Extract available stats
+        # Extract stats directly from the backtesting.py Series by key
+        import math
         for original_key, new_key in stats_mapping.items():
-            attr_name = original_key.replace(' ', '_').replace('[%]', '').replace('[$]', '').replace('.', '').replace('#', 'num')
-            if hasattr(result, attr_name):
-                value = getattr(result, attr_name)
-                # Handle different data types
-                if value is None:
-                    stats[new_key] = 0.0
-                elif isinstance(value, (int, float)):
-                    stats[new_key] = float(value)
-                else:
-                    # For timestamps or other types, convert to string
-                    stats[new_key] = str(value)
-        
+            try:
+                value = result[original_key]
+            except (KeyError, TypeError):
+                continue
+            if value is None or (isinstance(value, float) and math.isnan(value)):
+                stats[new_key] = 0.0
+            elif isinstance(value, (int, float)):
+                stats[new_key] = float(value)
+            else:
+                stats[new_key] = str(value)
+
         return stats
     
     def _extract_trades(self, result) -> List[Dict[str, Any]]:
@@ -346,7 +373,7 @@ class BacktestingEngine:
                     'entry_price': float(trade.get('EntryPrice', 0)),
                     'exit_price': float(trade.get('ExitPrice', 0)),
                     'size': float(trade.get('Size', 0)),
-                    'return_pct': float(trade.get('ReturnPct', 0)),
+                    'return_pct': float(trade.get('ReturnPct', 0)) * 100,  # fraction → percentage
                     'duration': str(trade.get('Duration', '')),
                     'direction': 'long' if trade.get('Size', 0) > 0 else 'short'
                 }
@@ -400,7 +427,191 @@ class BacktestingEngine:
                 continue
         
         return results
-    
+
+    def run_walk_forward(
+            self,
+            strategy_class: type,
+            symbol: str,
+            timeframe: TimeFrame,
+            start_date: datetime,
+            end_date: datetime,
+            train_ratio: float = 0.7,
+            parameters: Optional[Dict[str, Any]] = None,
+            cash: float = 10000,
+            commission: Optional[float] = None):
+        """Walk-forward validation: split data into train/test and run backtests on each.
+
+        Returns:
+            tuple: (train_result, test_result, split_date)
+        """
+        from datetime import timedelta
+
+        total_days = (end_date - start_date).days
+        split_days = int(total_days * train_ratio)
+        split_date = start_date + timedelta(days=split_days)
+
+        logger.info(
+            f"Walk-forward: train {start_date.date()} → {split_date.date()}, "
+            f"test {split_date.date()} → {end_date.date()}"
+        )
+
+        train_result = self.run_backtest(
+            strategy_class=strategy_class, symbol=symbol, timeframe=timeframe,
+            start_date=start_date, end_date=split_date,
+            parameters=parameters, cash=cash, commission=commission,
+        )
+        test_result = self.run_backtest(
+            strategy_class=strategy_class, symbol=symbol, timeframe=timeframe,
+            start_date=split_date, end_date=end_date,
+            parameters=parameters, cash=cash, commission=commission,
+        )
+        return train_result, test_result, split_date
+
+    def run_optimization(
+            self,
+            strategy_class: type,
+            symbol: str,
+            timeframe: TimeFrame,
+            start_date: datetime,
+            end_date: datetime,
+            param_grid: Dict[str, list],
+            objective: str = 'sharpe_ratio',
+            cash: float = 10000,
+            commission: Optional[float] = None,
+            top_n: int = 10,
+            max_tries: Optional[int] = None) -> tuple:
+        """Optimize strategy parameters using backtesting.py's grid optimizer.
+
+        Args:
+            param_grid: dict mapping parameter names to lists of values to try,
+                        e.g. {'rsi_period': [10, 14, 20], 'rsi_oversold': [25, 30, 35]}
+            objective:  metric to maximise (see OPTIMIZATION_OBJECTIVES keys);
+                        use 'max_drawdown_pct' to minimise drawdown instead.
+            max_tries:  randomly sample this many combinations instead of exhaustive search.
+
+        Returns:
+            tuple: (best_stats, best_params, top_results, n_combos)
+        """
+        data = self.get_data(symbol, timeframe, start_date, end_date)
+        if data.empty:
+            raise ValueError(f"No data available for {symbol} {timeframe}")
+
+        bt = Backtest(
+            data=data,
+            strategy=strategy_class,
+            cash=cash,
+            commission=commission or self.trading_config.commission,
+            exclusive_orders=True,
+        )
+
+        # Resolve objective
+        if objective == 'max_drawdown_pct':
+            bt_objective = lambda s: -abs(s['Max. Drawdown [%]'])
+        else:
+            bt_objective = OPTIMIZATION_OBJECTIVES.get(objective)
+            if bt_objective is None:
+                raise ValueError(
+                    f"Unknown objective '{objective}'. "
+                    f"Choose from: {list(OPTIMIZATION_OBJECTIVES.keys()) + ['max_drawdown_pct']}"
+                )
+
+        # Count combinations
+        n_combos = 1
+        for v in param_grid.values():
+            if hasattr(v, '__len__'):
+                n_combos *= len(v)
+
+        effective = min(n_combos, max_tries) if max_tries else n_combos
+        logger.info(
+            f"Optimising {strategy_class.__name__} on {symbol}: {n_combos:,} combinations"
+            + (f" (sampling {effective:,})" if max_tries else "")
+        )
+
+        # Suppress tqdm in probe + worker processes (workers inherit env on spawn)
+        _old_tqdm_disable = os.environ.get('TQDM_DISABLE')
+        os.environ['TQDM_DISABLE'] = '1'
+
+        # Timing probe: run one combination to estimate total duration
+        probe_params = {k: v[0] for k, v in param_grid.items()}
+        t_probe = time.perf_counter()
+        bt.run(**probe_params)
+        single_run = time.perf_counter() - t_probe
+        cpu_count = max(os.cpu_count() or 1, 1)
+        est_secs = single_run * effective / cpu_count
+        print(f"  Single run  : {single_run:.3f}s  |  {cpu_count} CPU cores")
+        print(f"  Combinations: {effective:,}  |  Estimated time: {_fmt_duration(est_secs)}")
+        print()
+
+        # Patch tqdm.auto so we control progress display in the main process
+        import tqdm.auto as _tqdm_auto_mod
+        _orig_tqdm_cls = _tqdm_auto_mod.tqdm
+        _done = [0]
+        _update_interval = max(1, min(25, max(effective // 20, 1)))
+        t_start = time.perf_counter()
+
+        class _CleanTqdm(_orig_tqdm_cls):
+            def __init__(self, *args, **kwargs):
+                kwargs['disable'] = True          # suppress all tqdm display
+                super().__init__(*args, **kwargs)
+                desc = kwargs.get('desc', '') or ''
+                tot = kwargs.get('total') or (self.total if hasattr(self, 'total') else None)
+                # Identify outer Backtest.optimize bar by description or total count
+                self._is_outer = 'optimize' in str(desc).lower() or tot == effective
+
+            def update(self, n=1):
+                super().update(n)
+                if self._is_outer:
+                    _done[0] += n
+                    done = _done[0]
+                    total = effective
+                    remaining = max(total - done, 0)
+                    if done % _update_interval == 0 or done >= total:
+                        elapsed = time.perf_counter() - t_start
+                        rate = done / elapsed if elapsed > 0 else 0
+                        eta = remaining / rate if rate > 0 else 0
+                        pct = done / total * 100 if total else 0
+                        w = len(str(total))
+                        print(
+                            f"\r  {done:>{w}}/{total}  ({pct:.0f}%)"
+                            f"  ·  {remaining} remaining"
+                            f"  ·  ETA {_fmt_duration(eta)}   ",
+                            end='', flush=True,
+                        )
+
+        _tqdm_auto_mod.tqdm = _CleanTqdm
+        try:
+            best_stats, heatmap = bt.optimize(
+                **param_grid,
+                maximize=bt_objective,
+                return_heatmap=True,
+                **({"max_tries": max_tries} if max_tries else {}),
+            )
+        finally:
+            _tqdm_auto_mod.tqdm = _orig_tqdm_cls
+            if _old_tqdm_disable is None:
+                os.environ.pop('TQDM_DISABLE', None)
+            else:
+                os.environ['TQDM_DISABLE'] = _old_tqdm_disable
+            print()  # newline after progress line
+
+        elapsed_total = time.perf_counter() - t_start
+        print(f"  Done in {_fmt_duration(elapsed_total)}")
+        logger.info(f"Optimisation complete in {_fmt_duration(elapsed_total)}")
+
+        top_results = heatmap.sort_values(ascending=False).head(top_n)
+
+        # Extract best parameter values from the heatmap index
+        best_idx = heatmap.idxmax()
+        param_names = list(param_grid.keys())
+        if len(param_names) == 1:
+            best_params = {param_names[0]: best_idx}
+        elif isinstance(best_idx, tuple):
+            best_params = dict(zip(param_names, best_idx))
+        else:
+            best_params = {param_names[0]: best_idx}
+
+        return best_stats, best_params, top_results, n_combos
+
     def run_multi_timeframe_backtest(self,
                                    strategy_class: type,
                                    symbol: str,

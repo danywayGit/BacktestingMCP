@@ -390,29 +390,67 @@ def run(strategy, symbol, timeframe, start, end, cash, commission, parameters, d
         )
         
         # Display results
-        click.echo(f"\nBacktest Results for {strategy} on {symbol}")
-        click.echo("=" * 50)
-        
-        for metric, value in result.stats.items():
-            if isinstance(value, float):
-                click.echo(f"{metric}: {value:.4f}")
-            else:
-                click.echo(f"{metric}: {value}")
-        
-        click.echo(f"\nTotal trades: {len(result.trades)}")
-        
+        s = result.stats
+        pnl_dollar = s.get('final_equity', cash) - cash
+        W = 62
+
+        click.echo()
+        click.echo("=" * W)
+        click.echo(f"  BACKTEST RESULTS  —  {strategy.upper()}  on  {symbol}  {timeframe}")
+        click.echo(f"  Period : {start}  to  {end}")
+        click.echo(f"  Cash   : ${cash:,.0f}   Commission: {commission*100:.2f}%")
+        click.echo("=" * W)
+
+        click.echo("  RETURNS")
+        click.echo(f"    {'P&L ($)':<28}  ${pnl_dollar:>+12,.2f}")
+        click.echo(f"    {'P&L (%)':<28}  {s.get('total_return_pct', 0):>+12.2f} %")
+        click.echo(f"    {'Buy & Hold return':<28}  {s.get('buy_hold_return_pct', 0):>+12.2f} %")
+        click.echo(f"    {'Annualized return':<28}  {s.get('annualized_return_pct', 0):>+12.2f} %")
+        click.echo(f"    {'Final equity':<28}  ${s.get('final_equity', cash):>12,.2f}")
+        click.echo(f"    {'Peak equity':<28}  ${s.get('peak_equity', cash):>12,.2f}")
+
+        click.echo("  RISK & QUALITY")
+        click.echo(f"    {'Sharpe ratio':<28}  {s.get('sharpe_ratio', 0):>13.4f}")
+        click.echo(f"    {'Sortino ratio':<28}  {s.get('sortino_ratio', 0):>13.4f}")
+        click.echo(f"    {'Calmar ratio':<28}  {s.get('calmar_ratio', 0):>13.4f}")
+        click.echo(f"    {'SQN':<28}  {s.get('sqn', 0):>13.4f}")
+        click.echo(f"    {'Volatility (ann.)':<28}  {s.get('volatility_pct', 0):>12.2f} %")
+        click.echo(f"    {'Max drawdown':<28}  {s.get('max_drawdown_pct', 0):>12.2f} %")
+        click.echo(f"    {'Avg drawdown':<28}  {s.get('avg_drawdown_pct', 0):>12.2f} %")
+        click.echo(f"    {'Max DD duration':<28}  {s.get('max_drawdown_duration', 'N/A'):>13}")
+
+        click.echo("  TRADE STATISTICS")
+        click.echo(f"    {'# Trades':<28}  {int(s.get('num_trades', 0)):>13,}")
+        click.echo(f"    {'Win rate':<28}  {s.get('win_rate_pct', 0):>12.2f} %")
+        click.echo(f"    {'Profit factor':<28}  {s.get('profit_factor', 0):>13.4f}")
+        click.echo(f"    {'Expectancy / trade':<28}  {s.get('expectancy_pct', 0):>12.2f} %")
+        click.echo(f"    {'Avg trade':<28}  {s.get('avg_trade_pct', 0):>12.2f} %")
+        click.echo(f"    {'Best trade':<28}  {s.get('best_trade_pct', 0):>+12.2f} %")
+        click.echo(f"    {'Worst trade':<28}  {s.get('worst_trade_pct', 0):>+12.2f} %")
+        click.echo(f"    {'Avg trade duration':<28}  {s.get('avg_trade_duration', 'N/A'):>13}")
+        click.echo(f"    {'Exposure time':<28}  {s.get('exposure_time_pct', 0):>12.2f} %")
+
+        click.echo("=" * W)
+
         if result.trades:
-            # Show first few trades
-            click.echo("\nSample trades:")
-            for i, trade in enumerate(result.trades[:5]):
-                click.echo(f"  {i+1}: {trade['direction']} at {trade['entry_price']:.4f}, "
-                          f"return: {trade['return_pct']:.2f}%")
-            
-            if len(result.trades) > 5:
-                click.echo(f"  ... and {len(result.trades) - 5} more trades")
-        
+            n = len(result.trades)
+            show = min(10, n)
+            click.echo(f"  LAST {show} TRADES  (of {n} total)")
+            click.echo(f"  {'#':<4} {'Dir':<6} {'Entry':>12} {'Exit':>12} {'Return %':>10}  Duration")
+            click.echo("  " + "-" * 58)
+            for i, trade in enumerate(result.trades[-show:], n - show + 1):
+                click.echo(
+                    f"  {i:<4} {trade.get('direction','?'):<6} "
+                    f"{trade.get('entry_price', 0):>12.4f} "
+                    f"{trade.get('exit_price',  0):>12.4f} "
+                    f"{trade.get('return_pct',  0):>+9.2f}%  "
+                    f"{trade.get('duration', '')}"
+                )
+            click.echo("=" * W)
+
         if save:
-            click.echo(f"\n✓ Results saved to database with ID: {result.strategy_name}")
+            click.echo(f"\n  Results saved (strategy: {result.strategy_name})")
+        click.echo()
         
     except Exception as e:
         click.echo(f"Error running backtest: {e}", err=True)
@@ -490,6 +528,228 @@ def multi_symbol(strategy, symbols, all_major, timeframe, start, end, cash, para
         click.echo(f"Error running multi-symbol backtest: {e}", err=True)
 
 
+@backtest.command('walk-forward')
+@click.option('--strategy', '-s', required=True, help='Strategy name')
+@click.option('--symbol', required=True, help='Trading symbol (e.g., BTCUSDT)')
+@click.option('--timeframe', '-t', default='1h',
+              type=click.Choice(['1m', '5m', '15m', '30m', '1h', '4h', '12h', '1d', '1w']))
+@click.option('--start', required=True, help='Start date (YYYY-MM-DD)')
+@click.option('--end', required=True, help='End date (YYYY-MM-DD)')
+@click.option('--train-ratio', default=0.7, type=float, show_default=True,
+              help='Fraction of the period used for training (0.0–1.0)')
+@click.option('--cash', default=10000, type=float, show_default=True, help='Starting cash')
+@click.option('--commission', default=0.001, type=float, show_default=True,
+              help='Commission per trade (0.001 = 0.1%%)')
+@click.option('--parameters', '-p', help='Fixed strategy parameters as JSON string')
+def walk_forward(strategy, symbol, timeframe, start, end, train_ratio, cash, commission, parameters):
+    """Walk-forward validation: compare train vs test metrics to detect overfitting."""
+    try:
+        raw_params = json.loads(parameters) if parameters else {}
+        # Coerce string values to int/float (typed JSON vs. copy-paste from optimization)
+        strategy_params = {}
+        for k, v in raw_params.items():
+            if isinstance(v, str):
+                try:
+                    strategy_params[k] = int(v) if '.' not in v else float(v)
+                except ValueError:
+                    strategy_params[k] = v
+            else:
+                strategy_params[k] = v
+        start_date = datetime.strptime(start, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+        end_date   = datetime.strptime(end,   '%Y-%m-%d').replace(tzinfo=timezone.utc)
+        strategy_class = get_strategy_class(strategy)
+
+        click.echo(f"\nWalk-Forward Validation: {strategy} on {symbol} {timeframe}")
+        click.echo(f"Full period : {start} to {end}  "
+                   f"(train {train_ratio*100:.0f}% / test {100 - train_ratio*100:.0f}%)")
+        click.echo("Running backtests...")
+
+        train_result, test_result, split_date = engine.run_walk_forward(
+            strategy_class=strategy_class,
+            symbol=symbol,
+            timeframe=TimeFrame(timeframe),
+            start_date=start_date,
+            end_date=end_date,
+            train_ratio=train_ratio,
+            parameters=strategy_params,
+            cash=cash,
+            commission=commission,
+        )
+
+        split_str = split_date.strftime('%Y-%m-%d')
+        click.echo(f"\nTrain: {start} to {split_str}")
+        click.echo(f"Test : {split_str} to {end}\n")
+
+        # Metrics to compare: (stats_key, display_label, lower_is_better)
+        # lower_is_better=None means "informational only, no degradation calc"
+        display_metrics = [
+            ('total_return_pct',    'Total Return %',  False),
+            ('buy_hold_return_pct', 'Buy & Hold %',    False),
+            ('sharpe_ratio',        'Sharpe Ratio',    False),
+            ('sortino_ratio',       'Sortino Ratio',   False),
+            ('profit_factor',       'Profit Factor',   False),
+            ('max_drawdown_pct',    'Max Drawdown %',  True),
+            ('win_rate_pct',        'Win Rate %',      False),
+            ('sqn',                 'SQN',             False),
+            ('num_trades',          'Num Trades',      None),
+        ]
+
+        click.echo(f"{'Metric':<22} {'Train':>10} {'Test':>10} {'Change':>10}  Status")
+        click.echo("-" * 62)
+
+        issues = 0
+        for key, label, lower_is_better in display_metrics:
+            train_val = train_result.stats.get(key, 0)
+            test_val  = test_result.stats.get(key, 0)
+
+            if lower_is_better is None or not isinstance(train_val, (int, float)):
+                tv = int(train_val) if isinstance(train_val, float) else train_val
+                vv = int(test_val)  if isinstance(test_val,  float) else test_val
+                click.echo(f"{label:<22} {tv:>10} {vv:>10}")
+                continue
+
+            degr = ((test_val - train_val) / abs(train_val) * 100) if train_val != 0 else 0.0
+
+            # A result is bad if the metric degrades by >40% in the wrong direction
+            is_bad = (lower_is_better and degr > 40) or (not lower_is_better and degr < -40)
+            status = "WARN" if is_bad else "OK"
+            if is_bad:
+                issues += 1
+
+            click.echo(f"{label:<22} {train_val:>10.2f} {test_val:>10.2f} {degr:>+9.1f}%  {status}")
+
+        click.echo("-" * 62)
+        if issues == 0:
+            click.echo("\nVerdict: ACCEPTABLE — metrics hold within threshold on out-of-sample data.")
+        elif issues <= 2:
+            click.echo(f"\nVerdict: MARGINAL — {issues} metric(s) degrade >40% on test data. Use cautiously.")
+        else:
+            click.echo(f"\nVerdict: LIKELY OVERFIT — {issues} metrics collapse on test data. Simplify strategy.")
+
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
+        logger.exception("Walk-forward failed")
+
+
+@backtest.command()
+@click.option('--strategy', '-s', required=True, help='Strategy name')
+@click.option('--symbol', required=True, help='Trading symbol (e.g., BTCUSDT)')
+@click.option('--timeframe', '-t', default='1h',
+              type=click.Choice(['1m', '5m', '15m', '30m', '1h', '4h', '12h', '1d', '1w']))
+@click.option('--start', required=True, help='Start date (YYYY-MM-DD)')
+@click.option('--end', required=True, help='End date (YYYY-MM-DD)')
+@click.option('--objective', '-o', default='sharpe_ratio', show_default=True,
+              type=click.Choice([
+                  'sharpe_ratio', 'total_return_pct', 'sortino_ratio',
+                  'calmar_ratio', 'profit_factor', 'win_rate_pct',
+                  'sqn', 'max_drawdown_pct',
+              ]),
+              help='Metric to maximise (max_drawdown_pct is minimised)')
+@click.option('--param-grid', required=True,
+              help='JSON parameter grid, e.g. \'{"rsi_period":[10,14,20],"rsi_oversold":[25,30,35]}\'')
+@click.option('--cash', default=10000, type=float, show_default=True, help='Starting cash')
+@click.option('--commission', default=0.001, type=float, show_default=True,
+              help='Commission per trade (0.001 = 0.1%%)')
+@click.option('--top-n', default=10, type=int, show_default=True,
+              help='Number of top results to display')
+@click.option('--max-tries', default=None, type=int,
+              help='Randomly sample this many combinations instead of exhaustive search')
+def optimize(strategy, symbol, timeframe, start, end, objective, param_grid, cash, commission, top_n, max_tries):
+    """Optimize strategy parameters against a target metric (Sharpe, SQN, Profit Factor, etc.)."""
+    try:
+        from ..core.backtesting_engine import OPTIMIZATION_OBJECTIVES
+
+        grid = json.loads(param_grid)
+        start_date = datetime.strptime(start, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+        end_date   = datetime.strptime(end,   '%Y-%m-%d').replace(tzinfo=timezone.utc)
+        strategy_class = get_strategy_class(strategy)
+
+        n_combos = 1
+        for v in grid.values():
+            if isinstance(v, list):
+                n_combos *= len(v)
+
+        click.echo(f"\nOptimising: {strategy} on {symbol} {timeframe}")
+        click.echo(f"Period    : {start} to {end}")
+        click.echo(f"Objective : {objective}")
+        click.echo(f"Grid      : " + ", ".join(f"{k}={v}" for k, v in grid.items()))
+        click.echo(f"Combos    : {n_combos}")
+        click.echo("Running...\n")
+
+        best_stats, best_params, top_results, _ = engine.run_optimization(
+            strategy_class=strategy_class,
+            symbol=symbol,
+            timeframe=TimeFrame(timeframe),
+            start_date=start_date,
+            end_date=end_date,
+            param_grid=grid,
+            objective=objective,
+            cash=cash,
+            commission=commission,
+            top_n=top_n,
+            max_tries=max_tries,
+        )
+
+        click.echo("Best parameters:")
+        for param, val in best_params.items():
+            click.echo(f"  {param} = {val}")
+
+        click.echo("\nBest result metrics:")
+        bt_to_display = [
+            ('Return [%]',         'total_return_pct'),
+            ('Sharpe Ratio',       'sharpe_ratio'),
+            ('Sortino Ratio',      'sortino_ratio'),
+            ('Profit Factor',      'profit_factor'),
+            ('Max. Drawdown [%]',  'max_drawdown_pct'),
+            ('Win Rate [%]',       'win_rate_pct'),
+            ('SQN',                'sqn'),
+            ('# Trades',           'num_trades'),
+        ]
+        for bt_key, display_key in bt_to_display:
+            val = best_stats.get(bt_key)
+            if val is not None:
+                try:
+                    click.echo(f"  {display_key:<22}: {float(val):.4f}")
+                except (TypeError, ValueError):
+                    click.echo(f"  {display_key:<22}: {val}")
+
+        click.echo(f"\nTop {min(top_n, len(top_results))} combinations (by {objective}):")
+        click.echo(f"  {'Rank':<5} {'Score':>10}  Parameters")
+        click.echo("  " + "-" * 60)
+        for rank, (idx, score) in enumerate(top_results.items(), 1):
+            param_names = list(grid.keys())
+            if isinstance(idx, tuple):
+                param_str = ", ".join(f"{k}={v}" for k, v in zip(param_names, idx))
+            else:
+                param_str = f"{param_names[0]}={idx}" if param_names else str(idx)
+            click.echo(f"  {rank:<5} {score:>10.4f}  {param_str}")
+
+        # Print best params as clean JSON for easy copy-paste into walk-forward
+        import json as _json
+        def _to_native(v):
+            # Convert numpy scalars (int64, float32, etc.) to plain Python types
+            if hasattr(v, 'item'):
+                v = v.item()
+            if isinstance(v, float) and v == int(v):
+                return int(v)
+            return v
+        best_json = _json.dumps({k: _to_native(v) for k, v in best_params.items()})
+        click.echo(f"\n{'='*62}")
+        click.echo("  BEST PARAMETERS (copy-paste into walk-forward option 6):")
+        click.echo(f"  {best_json}")
+        click.echo(f"{'='*62}")
+        click.echo("\nTip: Use 'backtest walk-forward' with these params to validate out-of-sample.")
+
+    except json.JSONDecodeError:
+        click.echo(
+            "Error: --param-grid must be valid JSON, e.g. '{\"rsi_period\":[10,14,20]}'",
+            err=True,
+        )
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
+        logger.exception("Optimisation failed")
+
+
 @cli.group()
 def results():
     """View backtest results."""
@@ -513,20 +773,39 @@ def list_results(strategy, symbol, limit):
             click.echo("No backtest results found")
             return
         
-        click.echo("Recent Backtest Results")
-        click.echo("=" * 100)
-        click.echo(f"{'ID':<4} {'Strategy':<20} {'Symbol':<10} {'TF':<4} {'Return %':<10} {'Sharpe':<8} {'Date':<12}")
-        click.echo("-" * 100)
-        
+        W = 110
+        click.echo()
+        click.echo("=" * W)
+        click.echo("  RECENT BACKTEST RESULTS")
+        click.echo("=" * W)
+        hdr = (f"  {'ID':<4} {'Strategy':<22} {'Symbol':<10} {'TF':<5}"
+               f" {'Return %':>9} {'P&L ($)':>12} {'Max DD%':>8}"
+               f" {'Win%':>6} {'Sharpe':>7} {'SQN':>7}"
+               f" {'Trades':>7} {'PF':>7}  {'Date':<10}")
+        click.echo(hdr)
+        click.echo("  " + "-" * (W - 2))
+
         for result in results:
-            metrics = result['metrics']
-            click.echo(f"{result['id']:<4} "
-                      f"{result['strategy_name']:<20} "
-                      f"{result['symbol']:<10} "
-                      f"{result['timeframe']:<4} "
-                      f"{metrics.get('total_return_pct', 0):<10.2f} "
-                      f"{metrics.get('sharpe_ratio', 0):<8.2f} "
-                      f"{result['created_at'][:10]:<12}")
+            m = result['metrics']
+            cash_used = m.get('initial_cash', 10000)
+            pnl = m.get('final_equity', cash_used) - cash_used
+            click.echo(
+                f"  {result['id']:<4} "
+                f"{result['strategy_name']:<22} "
+                f"{result['symbol']:<10} "
+                f"{result['timeframe']:<5}"
+                f" {m.get('total_return_pct', 0):>+9.2f}"
+                f" {pnl:>+12,.2f}"
+                f" {m.get('max_drawdown_pct', 0):>8.2f}"
+                f" {m.get('win_rate_pct', 0):>6.1f}"
+                f" {m.get('sharpe_ratio', 0):>7.3f}"
+                f" {m.get('sqn', 0):>7.3f}"
+                f" {int(m.get('num_trades', 0)):>7,}"
+                f" {m.get('profit_factor', 0):>7.3f}"
+                f"  {result['created_at'][:10]:<10}"
+            )
+        click.echo("=" * W)
+        click.echo()
         
     except Exception as e:
         click.echo(f"Error listing results: {e}", err=True)

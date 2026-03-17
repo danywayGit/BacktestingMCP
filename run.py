@@ -104,20 +104,23 @@ def menu_list_data():
 
 def menu_run_backtest():
     print("\n--- Run a Backtest ---")
-    print("Available strategies (run option 3 to list all):")
-    strats = [
-        "moving_average_crossover", "rsi_mean_reversion",
-        "ema_rsi_combination", "bollinger_band_bounce",
-        "atr_breakout", "momentum_oscillator",
-    ]
+    print("Available strategies:")
+    try:
+        sys.path.insert(0, str(ROOT))
+        from src.strategies.templates import list_available_strategies
+        strats = list_available_strategies()
+    except Exception:
+        strats = []
     for s in strats:
         print(f"  • {s}")
+    if not strats:
+        print("  (could not load strategy list — run option 3 to see all)")
     strategy  = input("\nStrategy [moving_average_crossover]: ").strip() or "moving_average_crossover"
     symbol    = input("Symbol   [BTCUSDT]: ").strip() or "BTCUSDT"
     timeframe = input("Timeframe [1h]: ").strip() or "1h"
     start     = input("Start date [2024-01-01]: ").strip() or "2024-01-01"
     end       = input("End date   [2024-12-31]: ").strip() or "2024-12-31"
-    cash      = input("Starting cash [10000]: ").strip() or "10000"
+    cash      = input("Starting cash [1000000]: ").strip() or "1000000"
     _cli("backtest", "run",
          "--strategy", strategy,
          "--symbol", symbol,
@@ -132,15 +135,220 @@ def menu_list_strategies():
     _cli("strategy", "list-strategies")
 
 
-def menu_gpu_optimization():
-    print("\n--- GPU Optimization ---")
-    print("1 - DCA optimization  (02_gpu_optimization.py, ~1145 tests/sec)")
-    print("2 - EMA Crossover     (03_ema_crossover.py)")
-    choice = input("Which? [1]: ").strip() or "1"
-    if choice == "2":
-        _run_example("03_ema_crossover.py")
+def _get_strategy_params(strategy_name: str) -> dict:
+    """Return {param_name: default_value} for numeric class-level params."""
+    try:
+        sys.path.insert(0, str(ROOT))
+        from src.strategies.templates import STRATEGY_REGISTRY
+        import backtesting
+        cls = STRATEGY_REGISTRY.get(strategy_name.lower())
+        if cls is None:
+            return {}
+        bt_attrs = set(dir(backtesting.Strategy))
+        params = {}
+        for klass in reversed(cls.__mro__):
+            if klass is object:
+                continue
+            for name, val in vars(klass).items():
+                if name.startswith('_') or name in bt_attrs or callable(val):
+                    continue
+                if isinstance(val, (int, float)):
+                    params[name] = val
+        return params
+    except Exception:
+        return {}
+
+
+def _count_combinations(param_grid: dict) -> int:
+    n = 1
+    for v in param_grid.values():
+        n *= len(v)
+    return n
+
+
+def menu_optimize_strategy():
+    print("\n--- Optimize a Strategy ---")
+    print("Builds the parameter grid interactively and calls: backtest optimize")
+    print()
+
+    print("Available strategies:")
+    try:
+        sys.path.insert(0, str(ROOT))
+        from src.strategies.templates import list_available_strategies
+        strats = list_available_strategies()
+    except Exception:
+        strats = []
+    for s in strats:
+        print(f"  \u2022 {s}")
+    if not strats:
+        print("  (could not load strategy list)")
+
+    strategy   = input("\nStrategy  [emacrossrsistrategy]: ").strip() or "emacrossrsistrategy"
+    symbol     = input("Symbol    [BTCUSDT]: ").strip() or "BTCUSDT"
+    timeframe  = input("Timeframe [4h]: ").strip() or "4h"
+    start      = input("Start date [2021-01-01]: ").strip() or "2021-01-01"
+    end        = input("End date   [2024-01-01]: ").strip() or "2024-01-01"
+    cash       = input("Starting cash [10000]: ").strip() or "10000"
+    commission = input("Commission    [0.001]: ").strip() or "0.001"
+    top_n      = input("Show top N results [10]: ").strip() or "10"
+
+    objectives = [
+        "sqn", "sharpe_ratio", "sortino_ratio", "calmar_ratio",
+        "profit_factor", "total_return_pct", "win_rate_pct", "max_drawdown_pct",
+    ]
+    print("\nOptimization objective:")
+    for i, obj in enumerate(objectives, 1):
+        print(f"  {i}  {obj}")
+    obj_input = input("Objective [1 = sqn]: ").strip() or "1"
+    try:
+        objective = objectives[int(obj_input) - 1]
+    except (ValueError, IndexError):
+        objective = obj_input if obj_input in objectives else "sqn"
+    print(f"  \u2192 {objective}")
+
+    # Parameter grid builder
+    params = _get_strategy_params(strategy)
+    param_grid = {}
+
+    if params:
+        print(f"\nParameters for '{strategy}':")
+        print("  Press Enter to skip a param, or enter comma-separated values to test.")
+        print("  Example:  8,13,21   or   0.5,1.0,1.5")
+        print()
+        print(f"  {'Parameter':<26} {'Default':>10}  Values to test")
+        print("  " + "-" * 62)
+        for name, default in params.items():
+            val_input = input(f"  {name:<26} {str(default):>10}  \u2192 ").strip()
+            if val_input:
+                try:
+                    values = [float(v.strip()) if '.' in v else int(v.strip())
+                              for v in val_input.split(',')]
+                    param_grid[name] = values
+                except ValueError:
+                    print(f"    (skipped \u2014 invalid values for '{name}')")
     else:
-        _run_example("02_gpu_optimization.py")
+        print("\nCould not introspect strategy parameters.")
+        raw = input('Enter --param-grid as JSON (e.g. {"ema_fast":[8,13,21]}): ').strip()
+        if raw:
+            try:
+                import json as _json
+                param_grid = _json.loads(raw)
+            except Exception:
+                print("  (invalid JSON \u2014 skipped)")
+
+    if not param_grid:
+        print("\n  No parameters selected \u2014 nothing to optimize.")
+        return
+
+    import json
+    grid_json = json.dumps(param_grid)
+    n_combos = _count_combinations(param_grid)
+    print(f"\n  Param grid  : {grid_json}")
+    print(f"  Objective   : {objective}")
+    print(f"\n  Combinations: {n_combos:,}")
+
+    max_tries_arg = None
+    if n_combos > 50_000:
+        print(f"\n  WARNING: {n_combos:,} combinations is very large and will take a long time.")
+        print("  Tip: Use random sampling to test a manageable subset first.")
+        print("  Recommended: 500\u20132,000 for a quick run, 5,000\u201310,000 for a thorough run.")
+        sample = input(f"  Sample how many? (Enter = all {n_combos:,}, or type e.g. 2000): ").strip()
+        if sample.isdigit() and int(sample) > 0:
+            max_tries_arg = int(sample)
+            print(f"  \u2192 Will randomly sample {max_tries_arg:,} combinations.")
+    elif n_combos > 5_000:
+        print(f"  Note: {n_combos:,} combinations may take several minutes.")
+        sample = input("  Sample a subset? (Enter = all, or type e.g. 2000): ").strip()
+        if sample.isdigit() and int(sample) > 0:
+            max_tries_arg = int(sample)
+            print(f"  \u2192 Will randomly sample {max_tries_arg:,} combinations.")
+
+    confirm = input("\nRun optimization? [Y/n]: ").strip().lower()
+    if confirm == 'n':
+        print("  Cancelled.")
+        return
+
+    args = ["backtest", "optimize",
+            "--strategy", strategy,
+            "--symbol", symbol,
+            "--timeframe", timeframe,
+            "--start", start,
+            "--end", end,
+            "--objective", objective,
+            "--param-grid", grid_json,
+            "--cash", cash,
+            "--commission", commission,
+            "--top-n", top_n]
+    if max_tries_arg:
+        args += ["--max-tries", str(max_tries_arg)]
+    _cli(*args)
+
+
+def menu_walk_forward():
+    print("\n--- Check for Overfitting (Walk-Forward) ---")
+    print("Splits the period into train/test, runs both, and compares results.")
+    print("Tip: paste the best parameters found by option 5 (optimization).")
+    print()
+
+    print("Available strategies:")
+    try:
+        sys.path.insert(0, str(ROOT))
+        from src.strategies.templates import list_available_strategies
+        strats = list_available_strategies()
+    except Exception:
+        strats = []
+    for s in strats:
+        print(f"  \u2022 {s}")
+
+    strategy    = input("\nStrategy  [emacrossrsistrategy]: ").strip() or "emacrossrsistrategy"
+    symbol      = input("Symbol    [BTCUSDT]: ").strip() or "BTCUSDT"
+    timeframe   = input("Timeframe [4h]: ").strip() or "4h"
+    start       = input("Start date [2021-01-01]: ").strip() or "2021-01-01"
+    end         = input("End date   [2025-01-01]: ").strip() or "2025-01-01"
+    train_ratio = input("Train ratio [0.7]  (0.7 = 70% train / 30% test): ").strip() or "0.7"
+    cash        = input("Starting cash [10000]: ").strip() or "10000"
+    commission  = input("Commission    [0.001]: ").strip() or "0.001"
+
+    print("\nStrategy parameters from optimization (press Enter to use defaults):")
+    print("  Tip: copy the JSON line printed at the end of option 5, OR enter values below.")
+    print()
+    raw_json = input("  Paste JSON (or press Enter to enter params one by one): ").strip()
+
+    params_json = None
+    if raw_json:
+        params_json = raw_json
+    else:
+        params = _get_strategy_params(strategy)
+        param_grid = {}
+        if params:
+            print(f"\n  {'Parameter':<26} {'Default':>10}  Value to use")
+            print("  " + "-" * 56)
+            for name, default in params.items():
+                val_input = input(f"  {name:<26} {str(default):>10}  → ").strip()
+                if val_input:
+                    try:
+                        param_grid[name] = float(val_input) if '.' in val_input else int(val_input)
+                    except ValueError:
+                        param_grid[name] = val_input
+        if param_grid:
+            import json as _json
+            params_json = _json.dumps(param_grid)
+            print(f"\n  Using: {params_json}")
+
+    args = ["backtest", "walk-forward",
+            "--strategy", strategy,
+            "--symbol", symbol,
+            "--timeframe", timeframe,
+            "--start", start,
+            "--end", end,
+            "--train-ratio", train_ratio,
+            "--cash", cash,
+            "--commission", commission]
+
+    if params_json:
+        args += ["--parameters", params_json]
+
+    _cli(*args)
 
 
 def menu_ai_strategy():
@@ -183,17 +391,18 @@ def menu_tutorial():
 # ---------------------------------------------------------------------------
 
 MENU = [
-    ("1", "Download market data",         menu_download),
-    ("2", "List available data",           menu_list_data),
-    ("3", "List strategies",               menu_list_strategies),
-    ("4", "Run a backtest",                menu_run_backtest),
-    ("5", "GPU optimization",              menu_gpu_optimization),
-    ("6", "Generate AI strategy",          menu_ai_strategy),
-    ("7", "Start MCP server",              menu_mcp_server),
-    ("8", "Check GPU status",              menu_check_gpu),
-    ("9", "Inspect database",              menu_check_db),
-    ("t", "Run tutorial walkthrough",      menu_tutorial),
-    ("q", "Quit",                          None),
+    ("1", "Download market data",                 menu_download),
+    ("2", "List available data",                  menu_list_data),
+    ("3", "List strategies",                      menu_list_strategies),
+    ("4", "Run a backtest",                       menu_run_backtest),
+    ("5", "Optimize a strategy",                  menu_optimize_strategy),
+    ("6", "Check for overfitting (walk-forward)", menu_walk_forward),
+    ("7", "Generate AI strategy",                 menu_ai_strategy),
+    ("8", "Start MCP server",                     menu_mcp_server),
+    ("9", "Check GPU status",                     menu_check_gpu),
+    ("0", "Inspect database",                     menu_check_db),
+    ("t", "Run tutorial walkthrough",             menu_tutorial),
+    ("q", "Quit",                                 None),
 ]
 
 

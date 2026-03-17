@@ -222,7 +222,7 @@ class StrategyGenerator:
         response = ollama.chat(
             model=model,
             messages=[
-                {"role": "system", "content": "You are an expert Python developer specializing in trading algorithms."},
+                {"role": "system", "content": "You are an expert Python developer specializing in trading algorithms, financial markets, quantitative analysis, trading strategies, and risk management."},
                 {"role": "user", "content": prompt}
             ]
         )

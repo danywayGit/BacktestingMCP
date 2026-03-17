@@ -70,6 +70,19 @@ python -m src.cli.main backtest run \
   --start 2024-01-01 --end 2024-06-01 \
   --cash 10000
 
+# Optimize parameters (target Sharpe ratio)
+python -m src.cli.main backtest optimize \
+  --strategy rsi_mean_reversion --symbol BTCUSDT --timeframe 1h \
+  --start 2020-01-01 --end 2022-12-31 \
+  --objective sharpe_ratio \
+  --param-grid '{"rsi_period":[10,14,20],"rsi_oversold":[25,30,35]}'
+
+# Walk-forward validation (70% train / 30% test)
+python -m src.cli.main backtest walk-forward \
+  --strategy rsi_mean_reversion --symbol BTCUSDT --timeframe 1h \
+  --start 2020-01-01 --end 2025-12-31 \
+  --train-ratio 0.7
+
 # Multi-symbol comparison
 python -m src.cli.main backtest multi-symbol \
   --strategy rsi_mean_reversion \
@@ -95,6 +108,8 @@ python -m src.cli.main <group> <command> [options]
 | `strategy` | `show-parameters` | Show parameters for a strategy |
 | `strategy` | `create` | Generate a strategy from natural language (AI) |
 | `backtest` | `run` | Run a single backtest |
+| `backtest` | `optimize` | Sweep a parameter grid, target Sharpe / SQN / Profit Factor / etc. |
+| `backtest` | `walk-forward` | Train/test split — detect overfitting |
 | `backtest` | `multi-symbol` | Backtest across multiple symbols |
 | `results` | `list-results` | View recent backtest results |
 
@@ -170,7 +185,8 @@ BacktestingMCP/
 ├── config/
 │   └── settings.py          # All configuration (timeframes, risk, MCP, etc.)
 ├── docs/
-│   ├── GPU_GUIDE.md         # GPU setup and performance guide
+│   ├── GPU_GUIDE.md              # GPU setup and performance guide
+│   ├── STRATEGY_WORKFLOW_FAQ.md  # Strategy creation → optimization → validation FAQ
 │   ├── DCA_STRATEGIES_GUIDE.md
 │   ├── PARAMETER_FORMAT_GUIDE.md
 │   └── OLLAMA_RTX4090_SETUP.md
