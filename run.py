@@ -115,19 +115,61 @@ def menu_run_backtest():
         print(f"  • {s}")
     if not strats:
         print("  (could not load strategy list — run option 3 to see all)")
-    strategy  = input("\nStrategy [moving_average_crossover]: ").strip() or "moving_average_crossover"
+    strategy  = input("\nStrategy [emacrossrsistrategy]: ").strip() or "emacrossrsistrategy"
     symbol    = input("Symbol   [BTCUSDT]: ").strip() or "BTCUSDT"
-    timeframe = input("Timeframe [1h]: ").strip() or "1h"
+    timeframe = input("Timeframe [4h]: ").strip() or "4h"
     start     = input("Start date [2020-01-01]: ").strip() or "2020-01-01"
     end       = input("End date   [2025-12-31]: ").strip() or "2025-12-31"
     cash      = input("Starting cash [1000000]: ").strip() or "1000000"
-    _cli("backtest", "run",
-         "--strategy", strategy,
-         "--symbol", symbol,
-         "--timeframe", timeframe,
-         "--start", start,
-         "--end", end,
-         "--cash", cash)
+
+    # Optional strategy parameters
+    params = _get_strategy_params(strategy)
+    params_json = None
+    if params:
+        print("\nStrategy parameters (press Enter to use defaults):")
+        raw_json = input("  Paste JSON  (or press Enter to enter values one by one): ").strip()
+        if raw_json:
+            params_json = raw_json
+        else:
+            chosen = {}
+            print(f"  {'Parameter':<26} {'Default':>10}  Value")
+            print("  " + "-" * 50)
+            for name, default in params.items():
+                val = input(f"  {name:<26} {str(default):>10}  → ").strip()
+                if val:
+                    try:
+                        chosen[name] = float(val) if "." in val else int(val)
+                    except ValueError:
+                        chosen[name] = val
+            if chosen:
+                import json as _json
+                params_json = _json.dumps(chosen)
+                print(f"  Using: {params_json}")
+
+    print("\nTrading direction:")
+    print("  1  both (long + short)")
+    print("  2  long only")
+    print("  3  short only")
+    dir_input = input("Direction [1]: ").strip() or "1"
+    direction = {"1": "both", "2": "long", "3": "short"}.get(dir_input, "both")
+    print(f"  → {direction}")
+
+    save_input = input("\nSave results to database? [y/N]: ").strip().lower()
+    save = save_input == "y"
+
+    args = ["backtest", "run",
+            "--strategy", strategy,
+            "--symbol", symbol,
+            "--timeframe", timeframe,
+            "--start", start,
+            "--end", end,
+            "--cash", cash,
+            "--direction", direction]
+    if params_json:
+        args += ["--parameters", params_json]
+    if save:
+        args += ["--save"]
+    _cli(*args)
 
 
 def menu_list_strategies():
@@ -166,6 +208,83 @@ def _count_combinations(param_grid: dict) -> int:
     return n
 
 
+def _to_ccxt_symbol(symbol: str) -> str:
+    """Convert BTCUSDT → BTC/USDT for CCXT / the download command."""
+    if '/' in symbol:
+        return symbol
+    for quote in ('USDT', 'BUSD', 'USDC', 'BTC', 'ETH', 'BNB'):
+        if symbol.endswith(quote):
+            return symbol[:-len(quote)] + '/' + quote
+    return symbol[:3] + '/' + symbol[3:]  # fallback
+
+
+def _check_and_ensure_data(symbol: str, timeframe: str, start: str, end: str) -> bool:
+    """
+    Check whether the DB contains data for symbol/timeframe over the requested
+    period.  Inform the user and optionally trigger a download.
+    Returns False only if the user explicitly chooses to abort.
+    """
+    try:
+        sys.path.insert(0, str(ROOT))
+        from src.data.database import db
+        from datetime import datetime, timezone, timedelta
+    except Exception as e:
+        print(f"  (could not check database: {e})")
+        return True
+
+    db_symbol = symbol.replace('/', '')
+    try:
+        req_start = datetime.strptime(start, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+        req_end   = datetime.strptime(end,   '%Y-%m-%d').replace(tzinfo=timezone.utc)
+    except ValueError:
+        return True  # bad date — let the CLI report it
+
+    print()
+    print(f"  Checking database for {db_symbol} {timeframe} ...")
+    try:
+        db_start, db_end = db.get_available_data_range(db_symbol, timeframe)
+    except Exception as e:
+        print(f"  (database check failed: {e})")
+        return True
+
+    TOLERANCE = timedelta(days=7)
+
+    if db_start is None:
+        print(f"  ✗  No data found for {db_symbol} {timeframe} in the database.")
+    else:
+        start_ok = db_start <= req_start + TOLERANCE
+        end_ok   = db_end   >= req_end   - TOLERANCE
+        if start_ok and end_ok:
+            print(f"  ✓  Data OK: {db_start.strftime('%Y-%m-%d')} → {db_end.strftime('%Y-%m-%d')}")
+            return True
+        parts = []
+        if not start_ok:
+            days = (req_start - db_start).days
+            parts.append(f"starts {abs(days)}d late ({db_start.strftime('%Y-%m-%d')})")
+        if not end_ok:
+            days = (req_end - db_end).days
+            parts.append(f"ends {days}d early ({db_end.strftime('%Y-%m-%d')})")
+        print(f"  ⚠  Partial data — {', '.join(parts)}.")
+        print(f"     Requested : {start} → {end}")
+
+    print()
+    choice = input("  [d] Download missing data   [c] Continue anyway   [q] Quit: ").strip().lower()
+    if choice == 'q':
+        print("  Cancelled.")
+        return False
+    if choice == 'd':
+        ccxt_sym = _to_ccxt_symbol(symbol)
+        print(f"\n  Downloading {ccxt_sym} {timeframe}  {start} → {end} ...\n")
+        _cli("data", "download",
+             "--symbol", ccxt_sym,
+             "--timeframe", timeframe,
+             "--start", start,
+             "--end", end)
+        print()
+    # 'c' or anything else → continue without downloading
+    return True
+
+
 def menu_optimize_strategy():
     print("\n--- Optimize a Strategy ---")
     print("Builds the parameter grid interactively and calls: backtest optimize")
@@ -188,6 +307,8 @@ def menu_optimize_strategy():
     timeframe  = input("Timeframe [4h]: ").strip() or "4h"
     start      = input("Start date [2020-01-01]: ").strip() or "2020-01-01"
     end        = input("End date   [2026-01-01]: ").strip() or "2026-01-01"
+    if not _check_and_ensure_data(symbol, timeframe, start, end):
+        return
     cash       = input("Starting cash [1000000]: ").strip() or "1000000"
     commission = input("Commission    [0.001]: ").strip() or "0.001"
     top_n      = input("Show top N results [10]: ").strip() or "10"
@@ -305,6 +426,8 @@ def menu_walk_forward():
     timeframe   = input("Timeframe [4h]: ").strip() or "4h"
     start       = input("Start date [2020-01-01]: ").strip() or "2020-01-01"
     end         = input("End date   [2025-01-01]: ").strip() or "2025-01-01"
+    if not _check_and_ensure_data(symbol, timeframe, start, end):
+        return
     train_ratio = input("Train ratio [0.7]  (0.7 = 70% train / 30% test): ").strip() or "0.7"
     cash        = input("Starting cash [1000000]: ").strip() or "1000000"
     commission  = input("Commission    [0.001]: ").strip() or "0.001"

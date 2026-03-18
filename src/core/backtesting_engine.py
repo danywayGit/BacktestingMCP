@@ -11,7 +11,6 @@ from datetime import datetime, timezone
 import logging
 import os
 import time
-import threading
 from dataclasses import dataclass, field
 
 from ..data.database import db
@@ -527,10 +526,6 @@ class BacktestingEngine:
             + (f" (sampling {effective:,})" if max_tries else "")
         )
 
-        # Suppress tqdm in probe + worker processes (workers inherit env on spawn)
-        _old_tqdm_disable = os.environ.get('TQDM_DISABLE')
-        os.environ['TQDM_DISABLE'] = '1'
-
         # Timing probe: run one combination to estimate total duration
         probe_params = {k: v[0] for k, v in param_grid.items()}
         t_probe = time.perf_counter()
@@ -542,43 +537,41 @@ class BacktestingEngine:
         print(f"  Combinations: {effective:,}  |  Estimated time: {_fmt_duration(est_secs)}")
         print()
 
-        # Patch tqdm.auto so we control progress display in the main process
-        import tqdm.auto as _tqdm_auto_mod
-        _orig_tqdm_cls = _tqdm_auto_mod.tqdm
+        # On Windows backtesting.Pool falls back to multiprocessing.dummy (threads),
+        # so patching backtesting.backtesting._tqdm affects workers too (shared namespace).
+        import backtesting.backtesting as _bt_bt_mod
+        _orig_bt_tqdm = _bt_bt_mod._tqdm
         _done = [0]
+        # mirrors backtesting._util._batch formula: clip(n // cpu_count, 1, 300)
+        _batch_size = max(1, min(effective // max(cpu_count, 1), 300))
         _update_interval = max(1, min(25, max(effective // 20, 1)))
         t_start = time.perf_counter()
 
-        class _CleanTqdm(_orig_tqdm_cls):
-            def __init__(self, *args, **kwargs):
-                kwargs['disable'] = True          # suppress all tqdm display
-                super().__init__(*args, **kwargs)
-                desc = kwargs.get('desc', '') or ''
-                tot = kwargs.get('total') or (self.total if hasattr(self, 'total') else None)
-                # Identify outer Backtest.optimize bar by description or total count
-                self._is_outer = 'optimize' in str(desc).lower() or tot == effective
-
-            def update(self, n=1):
-                super().update(n)
-                if self._is_outer:
-                    _done[0] += n
+        def _clean_tqdm(iterable, desc="", total=None, **kwargs):
+            if "optimize" not in str(desc).lower():
+                return iterable  # suppress inner Backtest.run bars silently
+            # Outer Backtest.optimize bar - wrap to print clean counter
+            def _gen():
+                for item in iterable:
+                    yield item
+                    _done[0] = min(_done[0] + _batch_size, effective)
                     done = _done[0]
-                    total = effective
-                    remaining = max(total - done, 0)
-                    if done % _update_interval == 0 or done >= total:
+                    remaining = max(effective - done, 0)
+                    if done % _update_interval == 0 or done >= effective:
                         elapsed = time.perf_counter() - t_start
                         rate = done / elapsed if elapsed > 0 else 0
                         eta = remaining / rate if rate > 0 else 0
-                        pct = done / total * 100 if total else 0
-                        w = len(str(total))
+                        pct = done / effective * 100 if effective else 0
+                        w = len(str(effective))
                         print(
-                            f"\r  {done:>{w}}/{total}  ({pct:.0f}%)"
+                            f"\r  {done:>{w}}/{effective}  ({pct:.0f}%)"
                             f"  ·  {remaining} remaining"
                             f"  ·  ETA {_fmt_duration(eta)}   ",
-                            end='', flush=True,
+                            end="", flush=True,
                         )
+            return _gen()
 
-        _tqdm_auto_mod.tqdm = _CleanTqdm
+        _bt_bt_mod._tqdm = _clean_tqdm
         try:
             best_stats, heatmap = bt.optimize(
                 **param_grid,
@@ -587,11 +580,7 @@ class BacktestingEngine:
                 **({"max_tries": max_tries} if max_tries else {}),
             )
         finally:
-            _tqdm_auto_mod.tqdm = _orig_tqdm_cls
-            if _old_tqdm_disable is None:
-                os.environ.pop('TQDM_DISABLE', None)
-            else:
-                os.environ['TQDM_DISABLE'] = _old_tqdm_disable
+            _bt_bt_mod._tqdm = _orig_bt_tqdm
             print()  # newline after progress line
 
         elapsed_total = time.perf_counter() - t_start
