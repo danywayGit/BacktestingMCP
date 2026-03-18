@@ -118,8 +118,8 @@ def menu_run_backtest():
     strategy  = input("\nStrategy [moving_average_crossover]: ").strip() or "moving_average_crossover"
     symbol    = input("Symbol   [BTCUSDT]: ").strip() or "BTCUSDT"
     timeframe = input("Timeframe [1h]: ").strip() or "1h"
-    start     = input("Start date [2024-01-01]: ").strip() or "2024-01-01"
-    end       = input("End date   [2024-12-31]: ").strip() or "2024-12-31"
+    start     = input("Start date [2020-01-01]: ").strip() or "2020-01-01"
+    end       = input("End date   [2025-12-31]: ").strip() or "2025-12-31"
     cash      = input("Starting cash [1000000]: ").strip() or "1000000"
     _cli("backtest", "run",
          "--strategy", strategy,
@@ -186,9 +186,9 @@ def menu_optimize_strategy():
     strategy   = input("\nStrategy  [emacrossrsistrategy]: ").strip() or "emacrossrsistrategy"
     symbol     = input("Symbol    [BTCUSDT]: ").strip() or "BTCUSDT"
     timeframe  = input("Timeframe [4h]: ").strip() or "4h"
-    start      = input("Start date [2021-01-01]: ").strip() or "2021-01-01"
-    end        = input("End date   [2024-01-01]: ").strip() or "2024-01-01"
-    cash       = input("Starting cash [10000]: ").strip() or "10000"
+    start      = input("Start date [2020-01-01]: ").strip() or "2020-01-01"
+    end        = input("End date   [2026-01-01]: ").strip() or "2026-01-01"
+    cash       = input("Starting cash [1000000]: ").strip() or "1000000"
     commission = input("Commission    [0.001]: ").strip() or "0.001"
     top_n      = input("Show top N results [10]: ").strip() or "10"
 
@@ -303,10 +303,10 @@ def menu_walk_forward():
     strategy    = input("\nStrategy  [emacrossrsistrategy]: ").strip() or "emacrossrsistrategy"
     symbol      = input("Symbol    [BTCUSDT]: ").strip() or "BTCUSDT"
     timeframe   = input("Timeframe [4h]: ").strip() or "4h"
-    start       = input("Start date [2021-01-01]: ").strip() or "2021-01-01"
+    start       = input("Start date [2020-01-01]: ").strip() or "2020-01-01"
     end         = input("End date   [2025-01-01]: ").strip() or "2025-01-01"
     train_ratio = input("Train ratio [0.7]  (0.7 = 70% train / 30% test): ").strip() or "0.7"
-    cash        = input("Starting cash [10000]: ").strip() or "10000"
+    cash        = input("Starting cash [1000000]: ").strip() or "1000000"
     commission  = input("Commission    [0.001]: ").strip() or "0.001"
 
     print("\nStrategy parameters from optimization (press Enter to use defaults):")
