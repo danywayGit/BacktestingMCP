@@ -9,6 +9,7 @@ Optimized for NVIDIA RTX 4090 (CUDA 12.x) using CuPy + Numba (~1,145 optimizatio
 
 - **6 built-in strategy templates** — MA Crossover, RSI Mean Reversion, EMA+RSI, Bollinger Bands, ATR Breakout, Momentum
 - **DCA strategies** — fixed monthly or signal-based Dollar-Cost Averaging
+- **Breakout scanners** — scan symbols for unusual-volume and breakout setups
 - **GPU optimization** — CuPy + Numba JIT for parameter sweeps, automatic CPU fallback
 - **Data management** — Binance/CCXT historical data download, SQLite storage, incremental updates
 - **Risk management** — ATR/volatility/Kelly position sizing, daily/weekly loss limits, correlation tracking
@@ -52,6 +53,8 @@ python run.py
   7  Start MCP server
   8  Check GPU status
   9  Inspect database
+  a  Run market scanner
+  b  Compare breakout strategies
   t  Run tutorial walkthrough
   q  Quit
 ==================================================
@@ -88,6 +91,18 @@ python -m src.cli.main backtest multi-symbol \
   --strategy rsi_mean_reversion \
   --symbols BTCUSDT ETHUSDT BNBUSDT \
   --timeframe 1h --start 2024-01-01 --end 2024-06-01
+
+# Scan symbols for breakout candidates
+python -m src.cli.main scan run \
+  --scan all \
+  --symbols BTCUSDT ETHUSDT SOLUSDT \
+  --timeframe 1h --start 2024-01-01 --end 2024-06-01
+
+# Compare all built-in breakout strategies on one symbol
+python -m src.cli.main backtest compare-breakouts \
+  --symbol BTCUSDT --timeframe 1h \
+  --start 2024-01-01 --end 2024-06-01 \
+  --sort-by sharpe_ratio
 ```
 
 ---
@@ -111,7 +126,32 @@ python -m src.cli.main <group> <command> [options]
 | `backtest` | `optimize` | Sweep a parameter grid, target Sharpe / SQN / Profit Factor / etc. |
 | `backtest` | `walk-forward` | Train/test split — detect overfitting |
 | `backtest` | `multi-symbol` | Backtest across multiple symbols |
+| `backtest` | `compare-breakouts` | Run and rank all built-in breakout strategies on one symbol |
+| `scan` | `run` | Run one or all breakout scans on latest candle(s) for selected symbols |
 | `results` | `list-results` | View recent backtest results |
+
+### Scan command quick notes
+
+- Available scan types: `unusual_volume_breakout`, `new_local_high_breakout`, `resistance_breakout`, `ascending_triangle_breakout`, `all`
+- Use `--symbols` for specific symbols or `--all-major` to scan the built-in major list
+- Optional `--parameters` accepts JSON to override scan thresholds
+
+Scanner profile guidance:
+
+- Apply predefined parameter bundles for scanner thresholds and breakout strictness.
+- Aggressive finds more signals with looser filters.
+- Conservative finds fewer signals with stricter confirmation.
+- Normal sits between the two.
+
+Example with parameter overrides:
+
+```bash
+python -m src.cli.main scan run \
+  --scan unusual_volume_breakout \
+  --symbols BTCUSDT \
+  --timeframe 1h --start 2024-01-01 --end 2024-06-01 \
+  --parameters '{"volume_multiplier": 1.8, "breakout_lookback": 30}'
+```
 
 ---
 

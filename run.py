@@ -474,6 +474,94 @@ def menu_walk_forward():
     _cli(*args)
 
 
+def menu_scan_market():
+    print("\n--- Scan Market (Breakout Filters) ---")
+    print("Scan types:")
+    scan_types = [
+        "all",
+        "unusual_volume_breakout",
+        "new_local_high_breakout",
+        "resistance_breakout",
+        "ascending_triangle_breakout",
+    ]
+    for i, scan_name in enumerate(scan_types, 1):
+        print(f"  {i}  {scan_name}")
+
+    scan_input = input("Scan type [1 = all]: ").strip() or "1"
+    try:
+        scan_name = scan_types[int(scan_input) - 1]
+    except (ValueError, IndexError):
+        scan_name = "all"
+
+    timeframe = input("Timeframe [1h]: ").strip() or "1h"
+    start = input("Start date [2024-01-01]: ").strip() or "2024-01-01"
+    end = input("End date   [2024-12-31]: ").strip() or "2024-12-31"
+
+    print("\nSymbol mode:")
+    print("  1  Single symbol")
+    print("  2  Multiple symbols (comma separated)")
+    print("  3  All major symbols")
+    symbol_mode = input("Choose [1]: ").strip() or "1"
+
+    args = [
+        "scan", "run",
+        "--scan", scan_name,
+        "--timeframe", timeframe,
+        "--start", start,
+        "--end", end,
+    ]
+
+    if symbol_mode == "3":
+        args.append("--all-major")
+    elif symbol_mode == "2":
+        symbols_raw = input("Symbols [BTCUSDT,ETHUSDT]: ").strip() or "BTCUSDT,ETHUSDT"
+        symbols = [s.strip() for s in symbols_raw.split(",") if s.strip()]
+        for symbol in symbols:
+            args += ["--symbols", symbol]
+    else:
+        symbol = input("Symbol [BTCUSDT]: ").strip() or "BTCUSDT"
+        args += ["--symbols", symbol]
+
+    params_json = input("Optional parameters JSON [Enter to skip]: ").strip()
+    if params_json:
+        args += ["--parameters", params_json]
+
+    _cli(*args)
+
+
+def menu_compare_breakouts():
+    print("\n--- Compare Breakout Strategies ---")
+    symbol = input("Symbol [BTCUSDT]: ").strip() or "BTCUSDT"
+    timeframe = input("Timeframe [1h]: ").strip() or "1h"
+    start = input("Start date [2024-01-01]: ").strip() or "2024-01-01"
+    end = input("End date   [2024-12-31]: ").strip() or "2024-12-31"
+    if not _check_and_ensure_data(symbol, timeframe, start, end):
+        return
+    cash = input("Starting cash [10000]: ").strip() or "10000"
+    commission = input("Commission [0.001]: ").strip() or "0.001"
+
+    print("\nSort by:")
+    sort_options = ["sharpe_ratio", "total_return_pct", "profit_factor", "win_rate_pct", "num_trades"]
+    for i, option in enumerate(sort_options, 1):
+        print(f"  {i}  {option}")
+    sort_input = input("Choose [1]: ").strip() or "1"
+    try:
+        sort_by = sort_options[int(sort_input) - 1]
+    except (ValueError, IndexError):
+        sort_by = "sharpe_ratio"
+
+    _cli(
+        "backtest", "compare-breakouts",
+        "--symbol", symbol,
+        "--timeframe", timeframe,
+        "--start", start,
+        "--end", end,
+        "--cash", cash,
+        "--commission", commission,
+        "--sort-by", sort_by,
+    )
+
+
 def menu_ai_strategy():
     print("\n--- Generate AI Strategy ---")
     name        = input("Strategy name  [MyStrategy]: ").strip() or "MyStrategy"
@@ -524,6 +612,8 @@ MENU = [
     ("8", "Start MCP server",                     menu_mcp_server),
     ("9", "Check GPU status",                     menu_check_gpu),
     ("0", "Inspect database",                     menu_check_db),
+    ("a", "Run market scanner",                   menu_scan_market),
+    ("b", "Compare breakout strategies",          menu_compare_breakouts),
     ("t", "Run tutorial walkthrough",             menu_tutorial),
     ("q", "Quit",                                 None),
 ]

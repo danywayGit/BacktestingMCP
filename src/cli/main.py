@@ -14,6 +14,7 @@ from ..core.backtesting_engine import engine
 from ..data.downloader import downloader, download_crypto_data, update_all_crypto_data
 from ..data.database import db
 from ..strategies.templates import get_strategy_class, list_available_strategies, get_strategy_parameters
+from ..strategies.scanner import evaluate_scan, SCAN_TYPES
 from config.settings import settings, TimeFrame, Direction, CRYPTO_PAIRS
 
 # Setup logging
@@ -528,6 +529,81 @@ def multi_symbol(strategy, symbols, all_major, timeframe, start, end, cash, para
         click.echo(f"Error running multi-symbol backtest: {e}", err=True)
 
 
+@backtest.command('compare-breakouts')
+@click.option('--symbol', required=True, help='Trading symbol (e.g., BTCUSDT)')
+@click.option('--timeframe', '-t', default='1h',
+              type=click.Choice(['1m', '5m', '15m', '30m', '1h', '4h', '12h', '1d', '1w']))
+@click.option('--start', required=True, help='Start date (YYYY-MM-DD)')
+@click.option('--end', required=True, help='End date (YYYY-MM-DD)')
+@click.option('--cash', default=10000, type=float, show_default=True, help='Starting cash')
+@click.option('--commission', default=0.001, type=float, show_default=True,
+              help='Commission per trade (0.001 = 0.1%%)')
+@click.option('--sort-by', default='sharpe_ratio', show_default=True,
+              type=click.Choice(['sharpe_ratio', 'total_return_pct', 'profit_factor', 'win_rate_pct', 'num_trades']))
+def compare_breakouts(symbol, timeframe, start, end, cash, commission, sort_by):
+    """Run and rank all built-in momentum breakout strategies on the same dataset."""
+    try:
+        breakout_strategies = [
+            'unusual_volume_breakout',
+            'new_local_high_breakout',
+            'resistance_breakout',
+            'ascending_triangle_breakout',
+        ]
+
+        start_date = datetime.strptime(start, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+        end_date = datetime.strptime(end, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+        tf = TimeFrame(timeframe)
+
+        rows = []
+        for strategy_name in breakout_strategies:
+            strategy_class = get_strategy_class(strategy_name)
+            result = engine.run_backtest(
+                strategy_class=strategy_class,
+                symbol=symbol,
+                timeframe=tf,
+                start_date=start_date,
+                end_date=end_date,
+                cash=cash,
+                commission=commission,
+            )
+            s = result.stats
+            rows.append({
+                'strategy': strategy_name,
+                'total_return_pct': float(s.get('total_return_pct', 0) or 0),
+                'sharpe_ratio': float(s.get('sharpe_ratio', 0) or 0),
+                'profit_factor': float(s.get('profit_factor', 0) or 0),
+                'win_rate_pct': float(s.get('win_rate_pct', 0) or 0),
+                'num_trades': int(s.get('num_trades', 0) or 0),
+                'max_drawdown_pct': float(s.get('max_drawdown_pct', 0) or 0),
+            })
+
+        reverse = True
+        rows_sorted = sorted(rows, key=lambda r: r.get(sort_by, 0), reverse=reverse)
+
+        click.echo()
+        click.echo(f"Breakout Comparison on {symbol} {timeframe}  ({start} -> {end})")
+        click.echo('=' * 100)
+        click.echo(f"{'Rank':<6}{'Strategy':<30}{'Return %':>10}{'Sharpe':>10}{'PF':>10}{'Win %':>10}{'Trades':>10}{'MaxDD %':>12}")
+        click.echo('-' * 100)
+
+        for idx, row in enumerate(rows_sorted, 1):
+            click.echo(
+                f"{idx:<6}{row['strategy']:<30}"
+                f"{row['total_return_pct']:>10.2f}"
+                f"{row['sharpe_ratio']:>10.3f}"
+                f"{row['profit_factor']:>10.3f}"
+                f"{row['win_rate_pct']:>10.2f}"
+                f"{row['num_trades']:>10d}"
+                f"{row['max_drawdown_pct']:>12.2f}"
+            )
+        click.echo('=' * 100)
+        click.echo()
+
+    except Exception as e:
+        click.echo(f"Error running breakout comparison: {e}", err=True)
+        logger.exception('Breakout comparison failed')
+
+
 @backtest.command('walk-forward')
 @click.option('--strategy', '-s', required=True, help='Strategy name')
 @click.option('--symbol', required=True, help='Trading symbol (e.g., BTCUSDT)')
@@ -748,6 +824,93 @@ def optimize(strategy, symbol, timeframe, start, end, objective, param_grid, cas
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
         logger.exception("Optimisation failed")
+
+
+@cli.group()
+def scan():
+    """Run breakout scanners to find candidate symbols."""
+    pass
+
+
+@scan.command('run')
+@click.option('--scan', 'scan_name', required=True,
+              type=click.Choice(['all'] + SCAN_TYPES),
+              help='Scan type to evaluate')
+@click.option('--symbols', multiple=True, help='Trading symbols (can specify multiple)')
+@click.option('--all-major', is_flag=True, help='Scan all major crypto pairs')
+@click.option('--timeframe', '-t', default='1h',
+              type=click.Choice(['1m', '5m', '15m', '30m', '1h', '4h', '12h', '1d', '1w']))
+@click.option('--start', required=True, help='Start date (YYYY-MM-DD)')
+@click.option('--end', required=True, help='End date (YYYY-MM-DD)')
+@click.option('--parameters', '-p', help='Optional scan parameters as JSON string')
+def run_scan(scan_name, symbols, all_major, timeframe, start, end, parameters):
+    """Evaluate one or all breakout scans on the latest candle for selected symbols."""
+    try:
+        if all_major:
+            symbol_list = CRYPTO_PAIRS[:20]
+        else:
+            symbol_list = list(symbols)
+
+        if not symbol_list:
+            click.echo('Please specify symbols or use --all-major flag')
+            return
+
+        scan_params = json.loads(parameters) if parameters else {}
+        start_date = datetime.strptime(start, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+        end_date = datetime.strptime(end, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+        tf = TimeFrame(timeframe)
+
+        click.echo()
+        click.echo(f"Scanner: {scan_name}")
+        click.echo(f"Period : {start} to {end}")
+        click.echo(f"TF     : {timeframe}")
+        click.echo('-' * 90)
+
+        hits = []
+        for symbol in symbol_list:
+            try:
+                data = engine.get_data(symbol, tf, start_date, end_date)
+                if data.empty:
+                    click.echo(f"{symbol:<10} no_data")
+                    continue
+
+                result = evaluate_scan(data, scan_name, scan_params)
+                if scan_name == 'all':
+                    triggered_scans = [name for name, details in result.items() if details.get('triggered')]
+                    if triggered_scans:
+                        hits.append((symbol, ','.join(triggered_scans)))
+                        click.echo(f"{symbol:<10} HIT  {','.join(triggered_scans)}")
+                    else:
+                        click.echo(f"{symbol:<10} no_match")
+                else:
+                    if result.get('triggered'):
+                        hits.append((symbol, scan_name))
+                        close_price = result.get('close', float('nan'))
+                        breakout_level = result.get('breakout_level', float('nan'))
+                        rel_volume = result.get('relative_volume', float('nan'))
+                        click.echo(
+                            f"{symbol:<10} HIT  close={close_price:.4f} "
+                            f"breakout={breakout_level:.4f} rel_vol={rel_volume:.2f}"
+                        )
+                    else:
+                        reason = result.get('reason', 'conditions_not_met')
+                        click.echo(f"{symbol:<10} no_match ({reason})")
+            except Exception as symbol_error:
+                click.echo(f"{symbol:<10} error: {symbol_error}")
+
+        click.echo('-' * 90)
+        click.echo(f"Hits: {len(hits)} / {len(symbol_list)}")
+        if hits:
+            click.echo('Matched symbols:')
+            for sym, detail in hits:
+                click.echo(f"  {sym}: {detail}")
+        click.echo()
+
+    except json.JSONDecodeError:
+        click.echo("Error: --parameters must be valid JSON", err=True)
+    except Exception as e:
+        click.echo(f"Error running scanner: {e}", err=True)
+        logger.exception('Scanner run failed')
 
 
 @cli.group()
