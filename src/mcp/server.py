@@ -501,7 +501,7 @@ async def run_backtest_tool(args: dict) -> list[types.TextContent]:
         start_date = args["start_date"]
         end_date = args["end_date"]
         parameters = args.get("parameters", {})
-        cash = args.get("cash", 10000)
+        cash = args.get("cash", 1_000_000)
         commission = args.get("commission", 0.001)
         direction = args.get("direction", "both")
         
@@ -574,7 +574,7 @@ async def run_multi_symbol_backtest_tool(args: dict) -> list[types.TextContent]:
         start_date = args["start_date"]
         end_date = args["end_date"]
         parameters = args.get("parameters", {})
-        cash_per_symbol = args.get("cash_per_symbol", 10000)
+        cash_per_symbol = args.get("cash_per_symbol", 1_000_000)
         
         # Parse dates
         start_dt = datetime.strptime(start_date, '%Y-%m-%d').replace(tzinfo=timezone.utc)

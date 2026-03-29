@@ -192,13 +192,51 @@ def show_parameters(strategy_name):
         click.echo(f"Error: {e}", err=True)
 
 
+@strategy.command('list-models')
+def list_models():
+    """List available Ollama models with recommendations for RTX 4090."""
+    try:
+        from ..ai.strategy_generator import StrategyGenerator
+
+        generator = StrategyGenerator(provider='ollama')
+        models = generator.list_ollama_models()
+
+        if not models:
+            click.echo("\n⚠️  No Ollama models found. Is Ollama running?")
+            click.echo("  Start it with: ollama serve")
+            return
+
+        best = generator._select_best_ollama_model()
+        click.echo(f"\nInstalled Ollama models ({len(models)}):")
+        click.echo(f"{'#':>3}  {'Model':<45} {'Size':>8}  Note")
+        click.echo("-" * 75)
+        for i, m in enumerate(models, 1):
+            tag = "⭐ recommended" if m['name'] == best else ""
+            click.echo(f"{i:>3}  {m['name']:<45} {m['size_gb']:>6.1f} GB  {tag}")
+        click.echo(f"\nAuto-selected model: {best}")
+        click.echo("Use --model to override: strategy create --provider ollama --model <name>")
+
+    except ImportError as e:
+        click.echo(f"\n❌ Error: {e}", err=True)
+        click.echo("Install ollama package: pip install ollama")
+    except Exception as e:
+        click.echo(f"\n❌ Error: {e}", err=True)
+
+
 def _auto_register_strategy(strategy_name: str) -> None:
     """
     Automatically register a generated strategy in templates.py.
     Adds import statement and STRATEGY_REGISTRY entry.
+    Names are sanitized to valid Python identifiers.
     """
     import re
     from pathlib import Path
+    from ..ai.strategy_generator import StrategyGenerator
+
+    # Sanitize names to valid Python identifiers
+    class_name = StrategyGenerator._sanitize_class_name(strategy_name)
+    module_name = StrategyGenerator._sanitize_module_name(strategy_name)
+    registry_key = module_name  # lowercase, underscored
     
     # Path to templates.py
     templates_path = Path(__file__).parent.parent / 'strategies' / 'templates.py'
@@ -209,13 +247,11 @@ def _auto_register_strategy(strategy_name: str) -> None:
     content = templates_path.read_text(encoding='utf-8')
     
     # Check if already registered
-    strategy_key = strategy_name.lower()
-    if f"'{strategy_key}'" in content or f'"{strategy_key}"' in content:
-        raise ValueError(f"Strategy '{strategy_key}' is already registered")
+    if f"'{registry_key}'" in content or f'"{registry_key}"' in content:
+        raise ValueError(f"Strategy '{registry_key}' is already registered")
     
     # Add import after existing generated imports
-    # Look for pattern: from .generated.xxx import XXX
-    import_line = f"from .generated.{strategy_name.lower()} import {strategy_name}"
+    import_line = f"from .generated.{module_name} import {class_name}"
     
     # Find the last generated import or the main imports section
     generated_import_pattern = r'(from \.generated\.[\w]+ import [\w]+)'
@@ -246,7 +282,7 @@ def _auto_register_strategy(strategy_name: str) -> None:
     # Find the last entry in the registry
     registry_content = registry_match.group(1)
     # Insert before the closing brace
-    new_entry = f"    '{strategy_key}': {strategy_name},\n"
+    new_entry = f"    '{registry_key}': {class_name},\n"
     
     # Find where to insert (before the closing })
     registry_end = content.find('}', registry_match.end() - 1)
@@ -354,7 +390,7 @@ def backtest():
 @click.option('--timeframe', '-t', default='1h', type=click.Choice(['1m', '5m', '15m', '30m', '1h', '4h', '12h', '1d', '1w']))
 @click.option('--start', required=True, help='Start date (YYYY-MM-DD)')
 @click.option('--end', required=True, help='End date (YYYY-MM-DD)')
-@click.option('--cash', default=10000, type=float, help='Starting cash amount')
+@click.option('--cash', default=1_000_000, type=float, help='Starting cash amount')
 @click.option('--commission', default=0.001, type=float, help='Trading commission (0.001 = 0.1%)')
 @click.option('--parameters', '-p', help='Strategy parameters as JSON string')
 @click.option('--direction', type=click.Choice(['long', 'short', 'both']), default='both', help='Trading direction')
@@ -464,7 +500,7 @@ def run(strategy, symbol, timeframe, start, end, cash, commission, parameters, d
 @click.option('--timeframe', '-t', default='1h', type=click.Choice(['1m', '5m', '15m', '30m', '1h', '4h', '12h', '1d', '1w']))
 @click.option('--start', required=True, help='Start date (YYYY-MM-DD)')
 @click.option('--end', required=True, help='End date (YYYY-MM-DD)')
-@click.option('--cash', default=10000, type=float, help='Starting cash per symbol')
+@click.option('--cash', default=1_000_000, type=float, help='Starting cash per symbol')
 @click.option('--parameters', '-p', help='Strategy parameters as JSON string')
 @click.option('--sort-by', default='total_return_pct', help='Sort results by metric')
 def multi_symbol(strategy, symbols, all_major, timeframe, start, end, cash, parameters, sort_by):
@@ -535,7 +571,7 @@ def multi_symbol(strategy, symbols, all_major, timeframe, start, end, cash, para
               type=click.Choice(['1m', '5m', '15m', '30m', '1h', '4h', '12h', '1d', '1w']))
 @click.option('--start', required=True, help='Start date (YYYY-MM-DD)')
 @click.option('--end', required=True, help='End date (YYYY-MM-DD)')
-@click.option('--cash', default=10000, type=float, show_default=True, help='Starting cash')
+@click.option('--cash', default=1_000_000, type=float, show_default=True, help='Starting cash')
 @click.option('--commission', default=0.001, type=float, show_default=True,
               help='Commission per trade (0.001 = 0.1%%)')
 @click.option('--sort-by', default='sharpe_ratio', show_default=True,
@@ -613,7 +649,7 @@ def compare_breakouts(symbol, timeframe, start, end, cash, commission, sort_by):
 @click.option('--end', required=True, help='End date (YYYY-MM-DD)')
 @click.option('--train-ratio', default=0.7, type=float, show_default=True,
               help='Fraction of the period used for training (0.0–1.0)')
-@click.option('--cash', default=10000, type=float, show_default=True, help='Starting cash')
+@click.option('--cash', default=1_000_000, type=float, show_default=True, help='Starting cash')
 @click.option('--commission', default=0.001, type=float, show_default=True,
               help='Commission per trade (0.001 = 0.1%%)')
 @click.option('--parameters', '-p', help='Fixed strategy parameters as JSON string')
@@ -723,7 +759,7 @@ def walk_forward(strategy, symbol, timeframe, start, end, train_ratio, cash, com
               help='Metric to maximise (max_drawdown_pct is minimised)')
 @click.option('--param-grid', required=True,
               help='JSON parameter grid, e.g. \'{"rsi_period":[10,14,20],"rsi_oversold":[25,30,35]}\'')
-@click.option('--cash', default=10000, type=float, show_default=True, help='Starting cash')
+@click.option('--cash', default=1_000_000, type=float, show_default=True, help='Starting cash')
 @click.option('--commission', default=0.001, type=float, show_default=True,
               help='Commission per trade (0.001 = 0.1%%)')
 @click.option('--top-n', default=10, type=int, show_default=True,

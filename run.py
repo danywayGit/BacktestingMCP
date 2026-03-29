@@ -537,7 +537,7 @@ def menu_compare_breakouts():
     end = input("End date   [2024-12-31]: ").strip() or "2024-12-31"
     if not _check_and_ensure_data(symbol, timeframe, start, end):
         return
-    cash = input("Starting cash [10000]: ").strip() or "10000"
+    cash = input("Starting cash [1000000]: ").strip() or "1000000"
     commission = input("Commission [0.001]: ").strip() or "0.001"
 
     print("\nSort by:")
@@ -569,10 +569,35 @@ def menu_ai_strategy():
     if not description:
         description = "Buy when RSI drops below 30 and price is above the 200-day MA. Sell when RSI exceeds 70."
     provider    = input("Provider [openai/anthropic/ollama] [openai]: ").strip() or "openai"
+
+    model_args = ()
+    if provider == "ollama":
+        try:
+            from src.ai.strategy_generator import StrategyGenerator
+            gen = StrategyGenerator(provider="ollama")
+            models = gen.list_ollama_models()
+            if models:
+                best = gen._select_best_ollama_model()
+                print(f"\nInstalled Ollama models:")
+                for i, m in enumerate(models, 1):
+                    tag = " ⭐ recommended" if m['name'] == best else ""
+                    print(f"  {i}. {m['name']} ({m['size_gb']} GB){tag}")
+                print(f"  0. Auto-select best (→ {best})")
+                mc = input(f"Choose model (0-{len(models)}, default: 0): ").strip() or "0"
+                if mc != "0" and mc.isdigit() and 1 <= int(mc) <= len(models):
+                    model_args = ("--model", models[int(mc) - 1]['name'])
+                else:
+                    model_args = ("--model", best)
+            else:
+                print("⚠️  Could not list models. Will use auto-detection.")
+        except Exception as e:
+            print(f"⚠️  Could not query models: {e}")
+
     _cli("strategy", "create",
          "--name", name,
          "--description", description,
          "--provider", provider,
+         *model_args,
          "--register")
 
 

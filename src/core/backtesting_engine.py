@@ -136,6 +136,15 @@ class BaseStrategy(Strategy):
         if position_fraction > 0 and position_fraction < 0.01:
             position_fraction = 0.01
         
+        # For expensive assets (e.g. BTC), check if fractional sizing would result
+        # in 0 whole units. If so, return absolute unit count instead of fraction.
+        # backtesting.py truncates fractional sizing to int units, so
+        # int(equity * fraction / price) must be >= 1.
+        units = int(account_value * position_fraction / entry_price)
+        if units < 1 and account_value >= entry_price:
+            # Can afford at least 1 unit — return 1 as absolute size
+            return 1
+        
         return position_fraction
     
     def enter_long_position(self, stop_loss: Optional[float] = None, take_profit: Optional[float] = None):
@@ -239,7 +248,7 @@ class BacktestingEngine:
                     start_date: datetime,
                     end_date: datetime,
                     parameters: Optional[Dict[str, Any]] = None,
-                    cash: float = 10000,
+                    cash: float = 1_000_000,
                     commission: Optional[float] = None) -> BacktestResult:
         """Run a single backtest."""
         
@@ -403,7 +412,7 @@ class BacktestingEngine:
                                  start_date: datetime,
                                  end_date: datetime,
                                  parameters: Optional[Dict[str, Any]] = None,
-                                 cash_per_symbol: float = 10000) -> Dict[str, BacktestResult]:
+                                 cash_per_symbol: float = 1_000_000) -> Dict[str, BacktestResult]:
         """Run backtests on multiple symbols."""
         results = {}
         
@@ -436,7 +445,7 @@ class BacktestingEngine:
             end_date: datetime,
             train_ratio: float = 0.7,
             parameters: Optional[Dict[str, Any]] = None,
-            cash: float = 10000,
+            cash: float = 1_000_000,
             commission: Optional[float] = None):
         """Walk-forward validation: split data into train/test and run backtests on each.
 
@@ -475,7 +484,7 @@ class BacktestingEngine:
             end_date: datetime,
             param_grid: Dict[str, list],
             objective: str = 'sharpe_ratio',
-            cash: float = 10000,
+            cash: float = 1_000_000,
             commission: Optional[float] = None,
             top_n: int = 10,
             max_tries: Optional[int] = None) -> tuple:
@@ -608,7 +617,7 @@ class BacktestingEngine:
                                    start_date: datetime,
                                    end_date: datetime,
                                    parameters: Optional[Dict[str, Any]] = None,
-                                   cash: float = 10000) -> Dict[TimeFrame, BacktestResult]:
+                                   cash: float = 1_000_000) -> Dict[TimeFrame, BacktestResult]:
         """Run backtests on multiple timeframes."""
         results = {}
         
