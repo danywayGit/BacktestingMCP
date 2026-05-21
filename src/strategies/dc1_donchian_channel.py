@@ -68,6 +68,7 @@ class DC1DonchianChannelStrategy(BaseStrategy):
 
     # === Parameters ===
     donchian_length       = 20
+    donchian_exit_length  = 10
     adx_threshold         = 25
     adx_exit              = 20
     sl_atr_mult           = 2.0
@@ -84,6 +85,8 @@ class DC1DonchianChannelStrategy(BaseStrategy):
     def init(self):
         self.dc_upper = self.I(_calc_donchian_upper, self.data.High, self.donchian_length)
         self.dc_lower = self.I(_calc_donchian_lower, self.data.Low,  self.donchian_length)
+        self.dc_exit_upper = self.I(_calc_donchian_upper, self.data.High, self.donchian_exit_length)
+        self.dc_exit_lower = self.I(_calc_donchian_lower, self.data.Low,  self.donchian_exit_length)
         self.atr      = self.I(_calc_atr, self.data.High, self.data.Low, self.data.Close, self.atr_period)
         self.adx      = self.I(_calc_adx, self.data.High, self.data.Low, self.data.Close, self.adx_period)
         self.vol_sma  = self.I(_calc_vol_sma, self.data.Volume, self.vol_avg_period)
@@ -102,6 +105,7 @@ class DC1DonchianChannelStrategy(BaseStrategy):
         self._entry_price     = None
         self._entry_stop_dist = None
         self._bars_held       = 0
+        self._bars_since_exit = 0
 
     def next(self):
         if not self.should_trade():
@@ -120,7 +124,6 @@ class DC1DonchianChannelStrategy(BaseStrategy):
 
         # ── In-position management ─────────────────────────────────────────────
         if self.position:
-            self._bars_held += 1
             is_long  = self.position.is_long
             is_short = not is_long
 
@@ -148,8 +151,15 @@ class DC1DonchianChannelStrategy(BaseStrategy):
             # Exit conditions (in priority order)
             exit_reason = None
 
+            # 0. Initial stop loss guard (before trail activates)
+            if not self._trail_active and exit_reason is None:
+                if is_long  and close <= self._entry_price - self._entry_stop_dist:
+                    exit_reason = "initial_stop"
+                elif not is_long and close >= self._entry_price + self._entry_stop_dist:
+                    exit_reason = "initial_stop"
+
             # 1. Trailing stop hit
-            if self._trail_active and self._trail_stop is not None:
+            if self._trail_active and self._trail_stop is not None and exit_reason is None:
                 if is_long  and close <= self._trail_stop:
                     exit_reason = "trail_stop_long"
                 elif is_short and close >= self._trail_stop:
@@ -159,21 +169,25 @@ class DC1DonchianChannelStrategy(BaseStrategy):
             if exit_reason is None and adx < self.adx_exit:
                 exit_reason = "adx_exit"
 
-            # 3. Price returned inside channel (re-entered from breakout side)
+            # 3. Price returned inside exit channel (classic Turtle 10-bar channel)
             if exit_reason is None:
-                if is_long  and close < upper:
+                dc_exit_upper = float(self.dc_exit_upper[-1])
+                dc_exit_lower = float(self.dc_exit_lower[-1])
+                if is_long  and close < dc_exit_lower:
                     exit_reason = "donchian_exit_long"
-                elif is_short and close > lower:
+                elif is_short and close > dc_exit_upper:
                     exit_reason = "donchian_exit_short"
 
             # 4. Max holding period
             if exit_reason is None and self._bars_held >= self.max_hold_bars:
                 exit_reason = "max_hold"
 
+            # Increment bars_held AFTER exit checks (so entry bar = 0, exits at exactly max_hold_bars)
+            self._bars_held += 1
+
             if exit_reason:
                 self.position.close()
                 self._reset_trade_state()
-                self._bars_since_exit = 0
             return
 
         # ── No position — increment cooldown counter ───────────────────────────
@@ -207,7 +221,6 @@ class DC1DonchianChannelStrategy(BaseStrategy):
             self._bars_held       = 0
             self._trail_active    = False
             self._trail_stop      = None
-            self._bars_since_exit = 9999
 
         # Short entry
         elif close < lower and strong_trend and high_vol:
@@ -218,4 +231,3 @@ class DC1DonchianChannelStrategy(BaseStrategy):
             self._bars_held       = 0
             self._trail_active    = False
             self._trail_stop      = None
-            self._bars_since_exit = 9999
