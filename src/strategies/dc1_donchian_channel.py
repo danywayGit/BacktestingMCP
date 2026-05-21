@@ -159,11 +159,11 @@ class DC1DonchianChannelStrategy(BaseStrategy):
             if exit_reason is None and adx < self.adx_exit:
                 exit_reason = "adx_exit"
 
-            # 3. Price returned inside channel (opposite signal)
+            # 3. Price returned inside channel (re-entered from breakout side)
             if exit_reason is None:
-                if is_long  and close < lower:
+                if is_long  and close < upper:
                     exit_reason = "donchian_exit_long"
-                elif is_short and close > upper:
+                elif is_short and close > lower:
                     exit_reason = "donchian_exit_short"
 
             # 4. Max holding period
@@ -198,8 +198,6 @@ class DC1DonchianChannelStrategy(BaseStrategy):
         stop_dist = atr * self.sl_atr_mult
         if stop_dist <= 0:
             return
-        risk_amt = self.equity * self.risk_pct / 100.0
-
         # Long entry
         if close > upper and strong_trend and high_vol:
             sl_price = close - stop_dist
