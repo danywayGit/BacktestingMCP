@@ -20,6 +20,19 @@ from ..core.backtesting_engine import BaseStrategy
 from .dca_strategies import DCAMonthlyStrategy, DCASignalStrategy
 from .generated.testrsistrategy import TestRSIStrategy
 from .generated.emacrossrsistrategy import EMAcrossRSIStrategy
+from .generated.buyafterpullbacktrendcontinuation import BuyAfterPullbackTrendContinuation
+from .generated.discord_v1_trend import DiscordV1TrendStrategy
+from .generated.discord_v2_meanreversion import DiscordV2MeanReversionStrategy
+from .generated.discord_v3_trendlong import DiscordV3TrendLongStrategy
+from .generated.telegram_trend_momentum import TelegramTrendMomentumStrategy
+from .swing1_ema_wave_volume import Swing1EmaWaveVolumeStrategy
+from .swing2_bb_squeeze_breakout import Swing2BBSqueezeBreakoutStrategy
+from .swing3_supertrend_adx import Swing3SupertrendADXStrategy
+from .swing4_macd_divergence import Swing4MACDDivergenceStrategy
+from .swing5_keltner_breakout import Swing5KeltnerBreakoutStrategy
+from .swing6_mtf_ema_stack import Swing6MTFEMAStackStrategy
+from .ema_rejection_v1 import EmaRejectionV1Strategy
+from .aggr_pullback import AggrPullbackStrategy
 
 
 def calculate_rsi(close_prices: pd.Series, period: int = 14) -> pd.Series:
@@ -679,6 +692,20 @@ STRATEGY_REGISTRY = {
     'signal_based_dca': DCASignalStrategy,
     'test_rsi_strategy': TestRSIStrategy,
     'emacrossrsistrategy': EMAcrossRSIStrategy,
+    'buyafterpullbacktrendcontinuation': BuyAfterPullbackTrendContinuation,
+    'discord_v1_trend': DiscordV1TrendStrategy,
+    'discord_v2_meanreversion': DiscordV2MeanReversionStrategy,
+    'discord_v3_trendlong': DiscordV3TrendLongStrategy,
+    'telegram_trend_momentum': TelegramTrendMomentumStrategy,
+    # --- Custom swing strategies ---
+    'swing1_ema_wave_volume':    Swing1EmaWaveVolumeStrategy,
+    'swing2_bb_squeeze':         Swing2BBSqueezeBreakoutStrategy,
+    'swing3_supertrend_adx':     Swing3SupertrendADXStrategy,
+    'swing4_macd_divergence':    Swing4MACDDivergenceStrategy,
+    'swing5_keltner_breakout':   Swing5KeltnerBreakoutStrategy,
+    'swing6_mtf_ema_stack':      Swing6MTFEMAStackStrategy,
+    'ema_rejection_v1':          EmaRejectionV1Strategy,
+    'aggr_pullback':             AggrPullbackStrategy,
 }
 
 

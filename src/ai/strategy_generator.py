@@ -98,12 +98,14 @@ class StrategyGenerator:
         
         Args:
             description: Natural language description of the strategy
-            strategy_name: Name for the generated strategy
+            strategy_name: Name for the generated strategy (will be sanitized to valid Python identifier)
             model: Specific model to use (optional)
         
         Returns:
             Dictionary with 'code', 'class_name', and 'explanation'
         """
+        # Sanitize strategy_name to a valid Python identifier
+        strategy_name = self._sanitize_class_name(strategy_name)
         try:
             if self.provider == "openai":
                 return self._generate_openai(description, strategy_name, model)
@@ -203,6 +205,64 @@ class StrategyGenerator:
             "model": model
         }
     
+    def list_ollama_models(self) -> list:
+        """List locally available Ollama models.
+        
+        Returns:
+            List of dicts with 'name' and 'size_gb' keys, or empty list if unavailable.
+        """
+        try:
+            import ollama
+            response = ollama.list()
+            models = []
+            for m in response.models:
+                name = m.model
+                size_bytes = m.size or 0
+                size_gb = round(size_bytes / (1024 ** 3), 1)
+                models.append({'name': name, 'size_gb': size_gb})
+            return models
+        except Exception as e:
+            logger.warning(f"Could not list Ollama models: {e}")
+            return []
+
+    # Priority list: best coding models for RTX 4090 (24GB VRAM)
+    OLLAMA_MODEL_PRIORITY = [
+        'qwen3-coder:30b',
+        'qwen3-coder-30b-ctx32k-code:latest',
+        'qwen3-coder-30b-ctx32k-quant:latest',
+        'qwen3-coder-30b-ctx128k:latest',
+        'codellama:34b',
+        'deepseek-coder-v2:16b',
+        'qwen3:30b',
+    ]
+
+    def _select_best_ollama_model(self) -> str:
+        """Auto-select the best installed Ollama model for code generation."""
+        models = self.list_ollama_models()
+        if not models:
+            logger.warning("No Ollama models found (is the server running?). Falling back to 'codellama'.")
+            return 'codellama'
+
+        installed_names = {m['name'] for m in models}
+
+        # Check priority list first
+        for preferred in self.OLLAMA_MODEL_PRIORITY:
+            if preferred in installed_names:
+                logger.info(f"Auto-selected Ollama model: {preferred}")
+                return preferred
+
+        # Fallback: pick any model with 'coder' or 'code' in name, largest first
+        coder_models = [m for m in models if 'code' in m['name'].lower() or 'coder' in m['name'].lower()]
+        if coder_models:
+            best = max(coder_models, key=lambda m: m['size_gb'])
+            logger.info(f"Auto-selected Ollama model (by size): {best['name']}")
+            return best['name']
+
+        # Last resort: largest model available
+        best = max(models, key=lambda m: m['size_gb'])
+        logger.info(f"Auto-selected Ollama model (largest available): {best['name']}")
+        return best['name']
+
     def _generate_ollama(
         self,
         description: str,
@@ -215,7 +275,9 @@ class StrategyGenerator:
         except ImportError:
             raise ImportError("Ollama package not installed. Run: pip install ollama")
         
-        model = model or "codellama"
+        if not model:
+            model = self._select_best_ollama_model()
+            logger.info(f"Using Ollama model: {model}")
         
         prompt = STRATEGY_GENERATION_PROMPT.format(description=description)
         
@@ -268,6 +330,31 @@ class StrategyGenerator:
             code = re.sub(r'class\s+\w+\s*\(', f'class {desired_name}(', code, count=1)
         
         return code
+
+    @staticmethod
+    def _sanitize_class_name(name: str) -> str:
+        """Convert an arbitrary string to a valid PascalCase Python class name."""
+        # Replace non-alphanumeric characters with spaces, then title-case and join
+        cleaned = re.sub(r'[^a-zA-Z0-9]+', ' ', name).strip()
+        if not cleaned:
+            return 'GeneratedStrategy'
+        parts = cleaned.split()
+        pascal = ''.join(word.capitalize() for word in parts)
+        # Ensure it starts with a letter
+        if pascal[0].isdigit():
+            pascal = 'Strategy' + pascal
+        return pascal
+
+    @staticmethod
+    def _sanitize_module_name(name: str) -> str:
+        """Convert an arbitrary string to a valid Python module name (lowercase, underscores)."""
+        cleaned = re.sub(r'[^a-zA-Z0-9]+', '_', name).strip('_').lower()
+        if not cleaned:
+            return 'generated_strategy'
+        # Ensure it starts with a letter
+        if cleaned[0].isdigit():
+            cleaned = 'strategy_' + cleaned
+        return cleaned
     
     def validate_strategy_code(self, code: str) -> tuple[bool, str]:
         """
@@ -307,7 +394,7 @@ class StrategyGenerator:
         output_dir.mkdir(parents=True, exist_ok=True)
         
         # Convert strategy name to filename
-        filename = strategy_name.lower().replace(' ', '_')
+        filename = self._sanitize_module_name(strategy_name)
         if not filename.endswith('.py'):
             filename += '.py'
         
@@ -430,12 +517,33 @@ def generate_strategy_interactive():
     provider_map = {"1": "openai", "2": "anthropic", "3": "ollama", "4": "auto"}
     provider = provider_map.get(choice, "auto")
     
+    # Model selection for Ollama
+    selected_model = None
+    if provider == "ollama":
+        print("\n📡 Querying installed Ollama models...")
+        temp_gen = StrategyGenerator(provider="ollama")
+        models = temp_gen.list_ollama_models()
+        if models:
+            best = temp_gen._select_best_ollama_model()
+            print(f"\nInstalled Ollama models:")
+            for i, m in enumerate(models, 1):
+                tag = " ⭐ recommended" if m['name'] == best else ""
+                print(f"  {i}. {m['name']} ({m['size_gb']} GB){tag}")
+            print(f"  0. Auto-select best (→ {best})")
+            mchoice = input(f"\nChoose model (0-{len(models)}, default: 0): ").strip() or "0"
+            if mchoice != "0" and mchoice.isdigit() and 1 <= int(mchoice) <= len(models):
+                selected_model = models[int(mchoice) - 1]['name']
+            else:
+                selected_model = None  # let auto-select handle it
+        else:
+            print("⚠️  Could not list models (is Ollama running?). Will use auto-detection.")
+    
     # Generate
     print(f"\n🤖 Generating strategy using {provider}...")
     
     try:
         generator = StrategyGenerator(provider=provider)
-        result = generator.generate_strategy(description, strategy_name)
+        result = generator.generate_strategy(description, strategy_name, model=selected_model)
         
         print("\n✅ Strategy generated successfully!")
         print(f"Provider: {result['provider']}")
