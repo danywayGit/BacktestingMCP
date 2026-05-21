@@ -33,6 +33,8 @@ from .swing5_keltner_breakout import Swing5KeltnerBreakoutStrategy
 from .swing6_mtf_ema_stack import Swing6MTFEMAStackStrategy
 from .ema_rejection_v1 import EmaRejectionV1Strategy
 from .aggr_pullback import AggrPullbackStrategy
+from .dc1_donchian_channel import DC1DonchianChannelStrategy
+from .rr1_range_mean_reversion import RR1RangeMeanReversionStrategy
 
 
 def calculate_rsi(close_prices: pd.Series, period: int = 14) -> pd.Series:
@@ -706,6 +708,8 @@ STRATEGY_REGISTRY = {
     'swing6_mtf_ema_stack':      Swing6MTFEMAStackStrategy,
     'ema_rejection_v1':          EmaRejectionV1Strategy,
     'aggr_pullback':             AggrPullbackStrategy,
+    'dc1_donchian_channel':      DC1DonchianChannelStrategy,
+    'rr1_range_mean_reversion':  RR1RangeMeanReversionStrategy,
 }
 
 
