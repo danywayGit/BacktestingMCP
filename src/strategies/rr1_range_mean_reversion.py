@@ -201,10 +201,10 @@ class RR1RangeMeanReversionStrategy(BaseStrategy):
             # TP1: partial close at SMA20
             if not self._tp1_hit:
                 if self._is_long and close >= sma:
-                    self.position.close(0.5)
+                    self.position.close(self.tp1_pct / 100.0)
                     self._tp1_hit = True
                 elif not self._is_long and close <= sma:
-                    self.position.close(0.5)
+                    self.position.close(self.tp1_pct / 100.0)
                     self._tp1_hit = True
 
             # Check if position was fully closed by framework (SL or TP2 hit)
