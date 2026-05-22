@@ -47,19 +47,15 @@ try:
         ).ffill().bfill().fillna(0)
 
     def _stoch_both(high, low, close, k, d, slow):
-        """Compute Stochastic once; returns DataFrame with columns 'k' and 'd'."""
+        """Compute Stochastic once; returns 2D numpy array: row 0 = %K, row 1 = %D."""
         sk, sd = talib.STOCH(
             pd.Series(high), pd.Series(low), pd.Series(close),
             fastk_period=k, slowk_period=slow, slowk_matype=0,
             slowd_period=d, slowd_matype=0
         )
-        return pd.DataFrame({'k': sk, 'd': sd}).ffill().bfill().fillna(50)
-
-    def _calc_stoch_k(high, low, close, k, d, slow):
-        return _stoch_both(high, low, close, k, d, slow)['k']
-
-    def _calc_stoch_d(high, low, close, k, d, slow):
-        return _stoch_both(high, low, close, k, d, slow)['d']
+        k_arr = pd.Series(sk).ffill().bfill().fillna(50).to_numpy()
+        d_arr = pd.Series(sd).ffill().bfill().fillna(50).to_numpy()
+        return np.vstack([k_arr, d_arr])
 
 except ImportError:
     import ta
@@ -78,21 +74,14 @@ except ImportError:
         ).adx().ffill().bfill().fillna(0)
 
     def _stoch_both(high, low, close, k, d, slow):
-        """Compute Stochastic once; returns DataFrame with columns 'k' and 'd'."""
+        """Compute Stochastic once; returns 2D numpy array: row 0 = %K, row 1 = %D."""
         stoch = ta.momentum.StochasticOscillator(
             high=pd.Series(high), low=pd.Series(low), close=pd.Series(close),
             window=k, smooth_window=d
         )
-        return pd.DataFrame({
-            'k': stoch.stoch().ffill().bfill().fillna(50),
-            'd': stoch.stoch_signal().ffill().bfill().fillna(50)
-        })
-
-    def _calc_stoch_k(high, low, close, k, d, slow):
-        return _stoch_both(high, low, close, k, d, slow)['k']
-
-    def _calc_stoch_d(high, low, close, k, d, slow):
-        return _stoch_both(high, low, close, k, d, slow)['d']
+        k_arr = stoch.stoch().ffill().bfill().fillna(50).to_numpy()
+        d_arr = stoch.stoch_signal().ffill().bfill().fillna(50).to_numpy()
+        return np.vstack([k_arr, d_arr])
 
 
 def _calc_bb_upper(close, length, mult):
@@ -149,9 +138,7 @@ class RR1RangeMeanReversionStrategy(BaseStrategy):
         self.rsi        = self.I(_calc_rsi,  self.data.Close, self.rsi_period)
         self.atr        = self.I(_calc_atr,  self.data.High, self.data.Low, self.data.Close, self.adx_period)
         self.adx        = self.I(_calc_adx,  self.data.High, self.data.Low, self.data.Close, self.adx_period)
-        self.stoch_k_   = self.I(_calc_stoch_k, self.data.High, self.data.Low, self.data.Close,
-                                 self.stoch_k, self.stoch_d, self.stoch_slow)
-        self.stoch_d_   = self.I(_calc_stoch_d, self.data.High, self.data.Low, self.data.Close,
+        self._stoch     = self.I(_stoch_both, self.data.High, self.data.Low, self.data.Close,
                                  self.stoch_k, self.stoch_d, self.stoch_slow)
         self.bb_upper   = self.I(_calc_bb_upper, self.data.Close, self.bb_length, self.bb_mult)
         self.bb_lower   = self.I(_calc_bb_lower, self.data.Close, self.bb_length, self.bb_mult)
@@ -172,10 +159,10 @@ class RR1RangeMeanReversionStrategy(BaseStrategy):
         atr     = float(self.atr[-1])
         adx     = float(self.adx[-1])
         rsi     = float(self.rsi[-1])
-        sk      = float(self.stoch_k_[-1])
-        sd      = float(self.stoch_d_[-1])
-        sk_prv  = float(self.stoch_k_[-2]) if len(self.stoch_k_) > 1 else sk
-        sd_prv  = float(self.stoch_d_[-2]) if len(self.stoch_d_) > 1 else sd
+        sk      = float(self._stoch[0][-1])
+        sd      = float(self._stoch[1][-1])
+        sk_prv  = float(self._stoch[0][-2]) if len(self._stoch[0]) > 1 else sk
+        sd_prv  = float(self._stoch[1][-2]) if len(self._stoch[1]) > 1 else sd
         adx_prv = float(self.adx[-2])      if len(self.adx)      > 1 else adx
         bb_up   = float(self.bb_upper[-1])
         bb_lo   = float(self.bb_lower[-1])
