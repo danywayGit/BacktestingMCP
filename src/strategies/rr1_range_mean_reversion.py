@@ -14,14 +14,14 @@ Entry Logic:
          AND Stochastic %K crosses below %D while both > 80
 
 Stop Loss:
-  Long:  range_high + ATR(14) × sl_buffer_atr  (range_high = highest high over bb_length bars)
-  Short: range_low  − ATR(14) × sl_buffer_atr  (range_low  = lowest  low  over bb_length bars)
+  Long:  range_low  − ATR(14) × sl_buffer_atr  (below entry — recent range LOW minus buffer)
+  Short: range_high + ATR(14) × sl_buffer_atr  (above entry — recent range HIGH plus buffer)
 
 Exit:
   TP1: 50% of position at SMA20 (mean)
   TP2: remaining 50% at opposite BB extreme
   SL:  full exit
-  ADX exit: if ADX crosses above 25 while holding, close all
+  ADX exit: if ADX crosses above adx_exit_threshold while holding, close all
   Max hold: 200 bars
 """
 
@@ -46,19 +46,20 @@ try:
             talib.ADX(pd.Series(high), pd.Series(low), pd.Series(close), timeperiod=period)
         ).ffill().bfill().fillna(0)
 
-    def _calc_stoch_k(high, low, close, k, d, slow):
-        slowk, _slowd = talib.STOCH(
+    def _stoch_both(high, low, close, k, d, slow):
+        """Compute Stochastic once; returns DataFrame with columns 'k' and 'd'."""
+        sk, sd = talib.STOCH(
             pd.Series(high), pd.Series(low), pd.Series(close),
-            fastk_period=k, slowk_period=slow, slowd_period=d
+            fastk_period=k, slowk_period=slow, slowk_matype=0,
+            slowd_period=d, slowd_matype=0
         )
-        return pd.Series(slowk).ffill().bfill().fillna(50)
+        return pd.DataFrame({'k': sk, 'd': sd}).ffill().bfill().fillna(50)
+
+    def _calc_stoch_k(high, low, close, k, d, slow):
+        return _stoch_both(high, low, close, k, d, slow)['k']
 
     def _calc_stoch_d(high, low, close, k, d, slow):
-        _slowk, slowd = talib.STOCH(
-            pd.Series(high), pd.Series(low), pd.Series(close),
-            fastk_period=k, slowk_period=slow, slowd_period=d
-        )
-        return pd.Series(slowd).ffill().bfill().fillna(50)
+        return _stoch_both(high, low, close, k, d, slow)['d']
 
 except ImportError:
     import ta
@@ -76,19 +77,22 @@ except ImportError:
             high=pd.Series(high), low=pd.Series(low), close=pd.Series(close), window=period
         ).adx().ffill().bfill().fillna(0)
 
-    def _calc_stoch_k(high, low, close, k, d, slow):
+    def _stoch_both(high, low, close, k, d, slow):
+        """Compute Stochastic once; returns DataFrame with columns 'k' and 'd'."""
         stoch = ta.momentum.StochasticOscillator(
             high=pd.Series(high), low=pd.Series(low), close=pd.Series(close),
             window=k, smooth_window=d
         )
-        return stoch.stoch().ffill().bfill().fillna(50)
+        return pd.DataFrame({
+            'k': stoch.stoch().ffill().bfill().fillna(50),
+            'd': stoch.stoch_signal().ffill().bfill().fillna(50)
+        })
+
+    def _calc_stoch_k(high, low, close, k, d, slow):
+        return _stoch_both(high, low, close, k, d, slow)['k']
 
     def _calc_stoch_d(high, low, close, k, d, slow):
-        stoch = ta.momentum.StochasticOscillator(
-            high=pd.Series(high), low=pd.Series(low), close=pd.Series(close),
-            window=k, smooth_window=d
-        )
-        return stoch.stoch_signal().ffill().bfill().fillna(50)
+        return _stoch_both(high, low, close, k, d, slow)['d']
 
 
 def _calc_bb_upper(close, length, mult):
@@ -125,20 +129,21 @@ class RR1RangeMeanReversionStrategy(BaseStrategy):
     """
 
     # === Parameters ===
-    adx_threshold   = 20
-    adx_period      = 14
-    rsi_period      = 14
-    rsi_oversold    = 30
-    rsi_overbought  = 70
-    bb_length       = 20
-    bb_mult         = 2.0
-    stoch_k         = 14
-    stoch_d         = 3
-    stoch_slow      = 3
-    tp1_pct         = 50      # % of position to close at TP1
-    sl_buffer_atr   = 0.5
-    risk_pct        = 1.0
-    max_hold_bars   = 200
+    adx_threshold        = 20
+    adx_period           = 14
+    adx_exit_threshold   = 25   # ADX level at which trend is considered too strong
+    rsi_period           = 14
+    rsi_oversold         = 30
+    rsi_overbought       = 70
+    bb_length            = 20
+    bb_mult              = 2.0
+    stoch_k              = 14
+    stoch_d              = 3
+    stoch_slow           = 3
+    tp1_pct              = 50      # % of position to close at TP1
+    sl_buffer_atr        = 0.5
+    risk_pct             = 1.0
+    max_hold_bars        = 200
 
     def init(self):
         self.rsi        = self.I(_calc_rsi,  self.data.Close, self.rsi_period)
@@ -187,8 +192,8 @@ class RR1RangeMeanReversionStrategy(BaseStrategy):
         if self.position:
             self._bars_held += 1
 
-            # ADX exit: crossed above 25
-            adx_exit = adx_prv <= 25 < adx
+            # ADX exit: crossed above adx_exit_threshold
+            adx_exit = adx_prv <= self.adx_exit_threshold < adx
             # Max hold exit
             time_exit = self._bars_held >= self.max_hold_bars
 
@@ -216,6 +221,7 @@ class RR1RangeMeanReversionStrategy(BaseStrategy):
         # Reset state when flat
         self._tp1_hit   = False
         self._bars_held = 0
+        self._is_long   = False
 
         # ── Entry conditions ─────────────────────────────────────────────────
         ranging = adx < self.adx_threshold
@@ -226,14 +232,8 @@ class RR1RangeMeanReversionStrategy(BaseStrategy):
 
         # Long entry
         if ranging and close <= bb_lo and rsi < self.rsi_oversold and stoch_cross_up:
-            stop  = r_high + atr * self.sl_buffer_atr
-            tp2   = r_low   # opposite BB extreme for long = range_low? No: TP2 = range_high for long
-            # TP2 for long = range_high (opposite extreme)
-            # Wait — range_high is the stop reference, so TP2 should be upper BB / range_high
-            # Per spec: "TP2: remaining 50% at opposite extreme (range_high for long)"
-            # But stop is also range_high + buffer — so TP2 must be above entry.
-            # Use bb_upper as TP2 (the actual opposite price extreme, not the SL anchor)
-            tp2   = bb_up
+            stop  = r_low - atr * self.sl_buffer_atr   # below entry: range LOW minus buffer
+            tp2   = bb_up                               # TP2: opposite BB extreme
             stop_dist = abs(close - stop)
             if stop_dist <= 0:
                 return
@@ -248,8 +248,8 @@ class RR1RangeMeanReversionStrategy(BaseStrategy):
 
         # Short entry
         elif ranging and close >= bb_up and rsi > self.rsi_overbought and stoch_cross_down:
-            stop  = r_low - atr * self.sl_buffer_atr
-            tp2   = bb_lo   # opposite extreme for short = lower BB
+            stop  = r_high + atr * self.sl_buffer_atr  # above entry: range HIGH plus buffer
+            tp2   = bb_lo                               # TP2: opposite BB extreme
             stop_dist = abs(close - stop)
             if stop_dist <= 0:
                 return
