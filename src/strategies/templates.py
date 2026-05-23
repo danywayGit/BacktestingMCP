@@ -36,6 +36,7 @@ from .aggr_pullback import AggrPullbackStrategy
 from .dc1_donchian_channel import DC1DonchianChannelStrategy
 from .rr1_range_mean_reversion import RR1RangeMeanReversionStrategy
 from .vr1_vwap_mean_reversion import VR1VWAPMeanReversionStrategy
+from .vp1_volume_profile_breakout import VP1VolumeProfileBreakoutStrategy
 
 
 def calculate_rsi(close_prices: pd.Series, period: int = 14) -> pd.Series:
@@ -712,6 +713,7 @@ STRATEGY_REGISTRY = {
     'dc1_donchian_channel':      DC1DonchianChannelStrategy,
     'rr1_range_mean_reversion':  RR1RangeMeanReversionStrategy,
     'vr1_vwap_mean_reversion':   VR1VWAPMeanReversionStrategy,
+    'vp1_volume_profile_breakout': VP1VolumeProfileBreakoutStrategy,
 }
 
 
