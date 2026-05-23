@@ -162,6 +162,7 @@ class AR1AdaptiveRegimeStrategy(BaseStrategy):
         self._tp1_hit         = False
         self._bars_held       = 0
         self._is_long         = False
+        self._size_multiplier = 1.0
 
     # ── Main loop ──────────────────────────────────────────────────────────
 
@@ -183,7 +184,6 @@ class AR1AdaptiveRegimeStrategy(BaseStrategy):
         # ── Regime reclassification ────────────────────────────────────────
         if bar_idx - self._last_reclass_bar >= self.reclass_interval or self._regime is None:
             new_regime = self._classify_regime(adx_reg, close, ema_t)
-            self._update_churn(bar_idx)
 
             if new_regime != self._regime and self._regime is not None:
                 self._regime_switches.append(bar_idx)
@@ -219,8 +219,8 @@ class AR1AdaptiveRegimeStrategy(BaseStrategy):
 
             # ── RR1 in-position management (range regime) ─────────────────
             elif regime == 'range':
-                adx_val  = float(self.adx_st[-1])
-                adx_prv  = float(self.adx_st[-2]) if len(self.adx_st) > 1 else adx_val
+                adx_val  = float(self.adx_regime[-1])
+                adx_prv  = float(self.adx_regime[-2]) if len(self.adx_regime) > 1 else adx_val
                 sma      = float(self.sma20[-1])
                 adx_exit = adx_prv <= 25 < adx_val   # ADX crosses above 25 in ranging mode
                 time_exit = self._bars_held >= self.max_hold_bars
@@ -267,20 +267,27 @@ class AR1AdaptiveRegimeStrategy(BaseStrategy):
                 return
 
             size_mult = self._size_multiplier
+            risk_amt  = self.equity * self.risk_pct / 100.0 * size_mult
 
             if regime == 'trend_up' and st_flipped_bull and adx_strong and close > ema_fv:
+                qty = risk_amt / stop_dist
+                if qty <= 0:
+                    return
                 self._entry_price     = close
                 self._entry_stop_dist = stop_dist
                 self._entry_is_long   = True
                 self._bars_held       = 0
-                self.enter_long_position(stop_loss=close - stop_dist * size_mult)
+                self.buy(size=qty, sl=close - stop_dist)
 
             elif regime == 'trend_down' and st_flipped_bear and adx_strong and close < ema_fv:
+                qty = risk_amt / stop_dist
+                if qty <= 0:
+                    return
                 self._entry_price     = close
                 self._entry_stop_dist = stop_dist
                 self._entry_is_long   = False
                 self._bars_held       = 0
-                self.enter_short_position(stop_loss=close + stop_dist * size_mult)
+                self.sell(size=qty, sl=close + stop_dist)
 
         # ── RR1 entry (range regime) ──────────────────────────────────────
         elif regime == 'range':
