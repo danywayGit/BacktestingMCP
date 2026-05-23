@@ -40,71 +40,43 @@ except ImportError:
 
 
 # ---------------------------------------------------------------------------
-# VWAP helpers — operate on full numpy arrays, called once via self.I()
+# Single-pass VWAP helper — all derived values computed in one function call
 # ---------------------------------------------------------------------------
 
-def _vwap_line(close, high, low, volume, index, band_std_period, vol_avg_period):
+def _vwap_all(close, high, low, volume, index, band_mult, band_std_period, vol_avg_period):
+    """Compute all VWAP-derived values in one pass. Returns shape (5, N) array:
+    row 0: vwap, row 1: upper_band, row 2: lower_band, row 3: vol_ratio, row 4: bars_since_midnight
     """
-    Compute daily-reset VWAP from full arrays.
-    Returns vwap values as numpy array.
-    index: pd.DatetimeIndex passed from self.data.index
-    """
-    tp = (pd.Series(high, dtype=float) + pd.Series(low, dtype=float) + pd.Series(close, dtype=float)) / 3.0
-    vol_s = pd.Series(volume, dtype=float)
-    idx = pd.DatetimeIndex(index)
-
-    df = pd.DataFrame({'tp': tp.values, 'vol': vol_s.values}, index=idx)
-    df['date'] = df.index.normalize()  # UTC date
-
-    df['tpv'] = df['tp'] * df['vol']
+    index = pd.DatetimeIndex(index)
+    tp = (pd.Series(high) + pd.Series(low) + pd.Series(close)) / 3
+    vol_s = pd.Series(volume)
+    tpv = tp * vol_s
+    df = pd.DataFrame({'tpv': tpv, 'vol': vol_s, 'close': pd.Series(close)}, index=index)
+    df['date'] = df.index.normalize()
     df['cum_tpv'] = df.groupby('date')['tpv'].cumsum()
     df['cum_vol'] = df.groupby('date')['vol'].cumsum()
-    df['vwap'] = df['cum_tpv'] / df['cum_vol'].replace(0, np.nan)
-    df['vwap'] = df['vwap'].ffill().bfill()
+    vwap = (df['cum_tpv'] / df['cum_vol'].replace(0, np.nan)).ffill().bfill()
 
-    return df['vwap'].values
+    dev = df['close'] - vwap
+    sigma = dev.rolling(band_std_period, min_periods=1).std().ffill().bfill().fillna(0)
+    upper = (vwap + band_mult * sigma).ffill().bfill()
+    lower = (vwap - band_mult * sigma).ffill().bfill()
 
+    vol_avg = vol_s.rolling(vol_avg_period, min_periods=1).mean()
+    vol_ratio = (vol_s / vol_avg.replace(0, np.nan)).ffill().bfill().fillna(1.0)
 
-def _vwap_upper_band(close, high, low, volume, index, band_mult, band_std_period, vol_avg_period):
-    """VWAP upper band = VWAP + band_mult * rolling_std(close - VWAP, band_std_period)."""
-    vwap = _vwap_line(close, high, low, volume, index, band_std_period, vol_avg_period)
-    close_s = pd.Series(close, dtype=float)
-    dev = close_s - pd.Series(vwap)
-    sigma = dev.rolling(band_std_period, min_periods=1).std().fillna(0)
-    upper = pd.Series(vwap) + band_mult * sigma
-    return upper.values
-
-
-def _vwap_lower_band(close, high, low, volume, index, band_mult, band_std_period, vol_avg_period):
-    """VWAP lower band = VWAP - band_mult * rolling_std(close - VWAP, band_std_period)."""
-    vwap = _vwap_line(close, high, low, volume, index, band_std_period, vol_avg_period)
-    close_s = pd.Series(close, dtype=float)
-    dev = close_s - pd.Series(vwap)
-    sigma = dev.rolling(band_std_period, min_periods=1).std().fillna(0)
-    lower = pd.Series(vwap) - band_mult * sigma
-    return lower.values
-
-
-def _vol_ratio(volume, index, vol_avg_period, band_std_period):
-    """Volume / SMA(volume, vol_avg_period). Extra args ignored (band_std_period for arity compat)."""
-    vol_s = pd.Series(volume, dtype=float)
-    avg = vol_s.rolling(vol_avg_period, min_periods=1).mean().replace(0, np.nan)
-    ratio = (vol_s / avg).fillna(1.0)
-    return ratio.values
-
-
-def _bars_since_midnight(close, high, low, volume, index, band_std_period, vol_avg_period):
-    """Return number of bars elapsed since last UTC midnight reset (0-indexed)."""
-    idx = pd.DatetimeIndex(index)
-    dates = np.array([d.date() for d in idx])
-    result = np.zeros(len(dates), dtype=int)
+    # bars since midnight (resets to 0 at each day boundary)
+    bsm = np.zeros(len(df), dtype=float)
+    current_date = None
     counter = 0
-    for i in range(len(dates)):
-        if i > 0 and dates[i] != dates[i - 1]:
+    for i, d in enumerate(df['date']):
+        if d != current_date:
+            current_date = d
             counter = 0
-        result[i] = counter
+        bsm[i] = counter
         counter += 1
-    return result.astype(float)
+
+    return np.vstack([vwap.values, upper.values, lower.values, vol_ratio.values, bsm])
 
 
 # ---------------------------------------------------------------------------
@@ -132,41 +104,13 @@ class VR1VWAPMeanReversionStrategy(BaseStrategy):
     def init(self):
         idx = self.data.index  # pd.DatetimeIndex
 
-        # VWAP line
-        self.vwap = self.I(
-            _vwap_line,
-            self.data.Close, self.data.High, self.data.Low, self.data.Volume,
-            idx, self.band_std_period, self.vol_avg_period,
-        )
+        # Single-pass VWAP computation: rows [vwap, upper, lower, vol_ratio, bars_since_midnight]
+        self._vwap_data = self.I(_vwap_all, self.data.Close, self.data.High, self.data.Low,
+                                  self.data.Volume, idx,
+                                  self.band_mult, self.band_std_period, self.vol_avg_period)
+        # Row accessors (use as self._vwap_data[0] etc.)
 
-        # Upper band
-        self.upper_band = self.I(
-            _vwap_upper_band,
-            self.data.Close, self.data.High, self.data.Low, self.data.Volume,
-            idx, self.band_mult, self.band_std_period, self.vol_avg_period,
-        )
-
-        # Lower band
-        self.lower_band = self.I(
-            _vwap_lower_band,
-            self.data.Close, self.data.High, self.data.Low, self.data.Volume,
-            idx, self.band_mult, self.band_std_period, self.vol_avg_period,
-        )
-
-        # Volume ratio
-        self.vol_ratio = self.I(
-            _vol_ratio,
-            self.data.Volume, idx, self.vol_avg_period, self.band_std_period,
-        )
-
-        # Bars since midnight (for first-bar guard)
-        self.bars_since_midnight = self.I(
-            _bars_since_midnight,
-            self.data.Close, self.data.High, self.data.Low, self.data.Volume,
-            idx, self.band_std_period, self.vol_avg_period,
-        )
-
-        # RSI and ATR
+        # RSI and ATR (independent indicators, kept as separate self.I() calls)
         self.rsi = self.I(calculate_rsi, self.data.Close, self.rsi_period)
         self.atr = self.I(calculate_atr, self.data.High, self.data.Low, self.data.Close, 14)
 
@@ -180,17 +124,17 @@ class VR1VWAPMeanReversionStrategy(BaseStrategy):
         close    = float(self.data.Close[-1])
         close_p  = float(self.data.Close[-2]) if len(self.data.Close) > 1 else close
 
-        vwap     = float(self.vwap[-1])
-        upper    = float(self.upper_band[-1])
-        lower    = float(self.lower_band[-1])
+        vwap     = float(self._vwap_data[0][-1])
+        upper    = float(self._vwap_data[1][-1])
+        lower    = float(self._vwap_data[2][-1])
 
-        upper_p  = float(self.upper_band[-2]) if len(self.upper_band) > 1 else upper
-        lower_p  = float(self.lower_band[-2]) if len(self.lower_band) > 1 else lower
+        upper_p  = float(self._vwap_data[1][-2]) if len(self._vwap_data[0]) > 1 else upper
+        lower_p  = float(self._vwap_data[2][-2]) if len(self._vwap_data[0]) > 1 else lower
 
-        vol_r_p  = float(self.vol_ratio[-2]) if len(self.vol_ratio) > 1 else 1.0
+        vol_r_p  = float(self._vwap_data[3][-2]) if len(self._vwap_data[0]) > 1 else 1.0
         rsi_p    = float(self.rsi[-2]) if len(self.rsi) > 1 else 50.0
         atr      = float(self.atr[-1])
-        bsm      = float(self.bars_since_midnight[-1])
+        bsm      = float(self._vwap_data[4][-1])
 
         # NaN / ATR guard
         if not all(np.isfinite([close, vwap, upper, lower, vol_r_p, rsi_p, atr])):
@@ -215,7 +159,7 @@ class VR1VWAPMeanReversionStrategy(BaseStrategy):
         if bsm < 2:
             return
 
-        vwap_lower_half = vwap - lower  # = lower band half-width
+        lower_band_width = vwap - lower  # distance from VWAP down to lower band
 
         # --- Long entry ---
         long_cond = (
@@ -234,22 +178,24 @@ class VR1VWAPMeanReversionStrategy(BaseStrategy):
         )
 
         if long_cond:
-            raw_stop_dist = vwap_lower_half * 1.5
+            raw_stop_dist = lower_band_width * 1.5
             stop_dist = max(raw_stop_dist, atr * 1.0)
             stop_loss   = close - stop_dist
             take_profit = vwap  # mean reversion target
             if stop_loss >= close or take_profit <= close:
+                # Skip: VWAP is below entry price — band may be miscalibrated, wait for reset
                 return
             self._entry_bar = len(self.data)
             self.enter_long_position(stop_loss=stop_loss, take_profit=take_profit)
 
         elif short_cond:
-            upper_half = upper - vwap
-            raw_stop_dist = upper_half * 1.5
+            upper_band_width = upper - vwap  # distance from upper band down to VWAP
+            raw_stop_dist = upper_band_width * 1.5
             stop_dist = max(raw_stop_dist, atr * 1.0)
             stop_loss   = close + stop_dist
             take_profit = vwap  # mean reversion target
             if stop_loss <= close or take_profit >= close:
+                # Skip: VWAP is above entry price — band may be miscalibrated, wait for reset
                 return
             self._entry_bar = len(self.data)
             self.enter_short_position(stop_loss=stop_loss, take_profit=take_profit)
