@@ -38,6 +38,11 @@ from .rr1_range_mean_reversion import RR1RangeMeanReversionStrategy
 from .vr1_vwap_mean_reversion import VR1VWAPMeanReversionStrategy
 from .vp1_volume_profile_breakout import VP1VolumeProfileBreakoutStrategy
 from .ar1_adaptive_regime import AR1AdaptiveRegimeStrategy
+from .mo1_momentum_rotation import MO1MomentumRotationStrategy
+from .pt1_pair_trading import PT1PairTradingStrategy
+from .ec1_event_catalyst import EC1EventCatalystStrategy
+from .a01_screener_composite import A01ScreenerCompositeStrategy
+from .sfp1_swing_failure_pattern import SFP1SwingFailurePatternStrategy
 
 
 def calculate_rsi(close_prices: pd.Series, period: int = 14) -> pd.Series:
@@ -716,6 +721,11 @@ STRATEGY_REGISTRY = {
     'vr1_vwap_mean_reversion':   VR1VWAPMeanReversionStrategy,
     'vp1_volume_profile_breakout': VP1VolumeProfileBreakoutStrategy,
     'ar1_adaptive_regime':         AR1AdaptiveRegimeStrategy,
+    'mo1_momentum_rotation':       MO1MomentumRotationStrategy,
+    'pt1_pair_trading':            PT1PairTradingStrategy,
+    'ec1_event_catalyst':          EC1EventCatalystStrategy,
+    'a01_screener_composite':      A01ScreenerCompositeStrategy,
+    'sfp1_swing_failure_pattern':  SFP1SwingFailurePatternStrategy,
 }
 
 
