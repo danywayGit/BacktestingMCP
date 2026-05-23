@@ -76,7 +76,7 @@ def _build_volume_profile(highs, lows, closes, volumes, bin_size, value_area_pct
     if hi <= lo:
         return None, None, None
 
-    n_bins = max(1, int((hi - lo) / bin_size) + 1)
+    n_bins = max(1, min(int((hi - lo) / bin_size) + 1, 2000))
     bins = np.zeros(n_bins)
 
     for i in range(len(closes)):
@@ -94,9 +94,7 @@ def _build_volume_profile(highs, lows, closes, volumes, bin_size, value_area_pct
         idx_hi = min(int((bar_hi - lo) / bin_size), n_bins - 1)
         count = max(1, idx_hi - idx_lo + 1)
         vol_per_bin = bar_vol / count
-        for j in range(idx_lo, idx_hi + 1):
-            if 0 <= j < n_bins:
-                bins[j] += vol_per_bin
+        bins[idx_lo : idx_hi + 1] += vol_per_bin
 
     poc_idx = int(np.argmax(bins))
     poc_price = lo + (poc_idx + 0.5) * bin_size
@@ -170,7 +168,7 @@ class VP1VolumeProfileBreakoutStrategy(BaseStrategy):
         self._bars_since_exit = 9999
         self._entry_is_long   = None   # True=long, False=short, None=flat
         self._tp1_price       = None
-        self._poc_price       = None
+        self._tp2_price       = None
 
     # ------------------------------------------------------------------
     def next(self):
@@ -244,7 +242,21 @@ class VP1VolumeProfileBreakoutStrategy(BaseStrategy):
                     self.position.close(0.5)
                     self._tp1_hit = True
 
+            # TP2 — remaining 50 % at second target
+            if self._tp1_hit:
+                if (self._entry_is_long and close >= self._tp2_price) or \
+                   (self._entry_is_long is False and close <= self._tp2_price):
+                    self.position.close()
+                    self._reset_trade_state()
+                    return
+
             return  # no new entries while in position
+
+        # ------------------------------------------------------------------
+        # Detect position just closed by framework (SL hit)
+        # ------------------------------------------------------------------
+        if not self.position and self._entry_is_long is not None:
+            self._reset_trade_state()
 
         # ------------------------------------------------------------------
         # Cooldown check
@@ -273,9 +285,6 @@ class VP1VolumeProfileBreakoutStrategy(BaseStrategy):
         stop_dist = abs(close - poc)
         stop_dist = max(stop_dist, atr * 0.5)   # floor
 
-        if stop_dist <= 0:
-            return
-
         if long_signal:
             sl_price  = poc
             tp2_price = close + va_height * self.tp2_mult
@@ -287,22 +296,16 @@ class VP1VolumeProfileBreakoutStrategy(BaseStrategy):
             tp1_price = close - va_height * self.tp1_mult
             self._entry_is_long = False
 
-        # Sanity: ensure SL is on the correct side
-        if long_signal  and sl_price >= close:
-            return
-        if not long_signal and sl_price <= close:
-            return
-
-        # Store TP1 and POC for in-bar management
+        # Store TP1, TP2 for in-bar management
         self._tp1_price = tp1_price
-        self._poc_price = poc
+        self._tp2_price = tp2_price
         self._tp1_hit   = False
         self._bars_held = 0
 
         if long_signal:
-            self.enter_long_position(stop_loss=sl_price, take_profit=tp2_price)
+            self.enter_long_position(stop_loss=sl_price)
         else:
-            self.enter_short_position(stop_loss=sl_price, take_profit=tp2_price)
+            self.enter_short_position(stop_loss=sl_price)
 
     # ------------------------------------------------------------------
     def _reset_trade_state(self):
@@ -311,4 +314,4 @@ class VP1VolumeProfileBreakoutStrategy(BaseStrategy):
         self._bars_since_exit = 0
         self._entry_is_long   = None
         self._tp1_price       = None
-        self._poc_price       = None
+        self._tp2_price       = None
