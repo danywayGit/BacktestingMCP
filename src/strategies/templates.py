@@ -35,6 +35,7 @@ from .ema_rejection_v1 import EmaRejectionV1Strategy
 from .aggr_pullback import AggrPullbackStrategy
 from .dc1_donchian_channel import DC1DonchianChannelStrategy
 from .rr1_range_mean_reversion import RR1RangeMeanReversionStrategy
+from .vr1_vwap_mean_reversion import VR1VWAPMeanReversionStrategy
 
 
 def calculate_rsi(close_prices: pd.Series, period: int = 14) -> pd.Series:
@@ -710,6 +711,7 @@ STRATEGY_REGISTRY = {
     'aggr_pullback':             AggrPullbackStrategy,
     'dc1_donchian_channel':      DC1DonchianChannelStrategy,
     'rr1_range_mean_reversion':  RR1RangeMeanReversionStrategy,
+    'vr1_vwap_mean_reversion':   VR1VWAPMeanReversionStrategy,
 }
 
 
