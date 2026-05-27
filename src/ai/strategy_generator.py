@@ -227,10 +227,10 @@ class StrategyGenerator:
 
     # Priority list: best coding models for RTX 4090 (24GB VRAM)
     OLLAMA_MODEL_PRIORITY = [
+        'qwen3.6-27b-code',
         'qwen3-coder:30b',
         'qwen3-coder-30b-ctx32k-code:latest',
         'qwen3-coder-30b-ctx32k-quant:latest',
-        'qwen3-coder-30b-ctx128k:latest',
         'codellama:34b',
         'deepseek-coder-v2:16b',
         'qwen3:30b',
