@@ -105,9 +105,11 @@ class Swing6MTFEMAStackStrategy(BaseStrategy):
                 self.enter_long_position(
                     stop_loss   = close - stop_dist,
                     take_profit = close + stop_dist * self.rr_ratio,
+                    atr_value   = atr,
                 )
             elif bear_bias and bear_cross:
                 self.enter_short_position(
                     stop_loss   = close + stop_dist,
                     take_profit = close - stop_dist * self.rr_ratio,
+                    atr_value   = atr,
                 )

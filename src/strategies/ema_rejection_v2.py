@@ -97,7 +97,7 @@ class EmaRejectionV2Strategy(BaseStrategy):
     rsi_confirm_window  = 3       # RSI cross must occur within N bars of price rejection
     rsi_threshold_short = 55.0    # RSI must be < this for short entry
     rsi_threshold_long  = 45.0    # RSI must be > this for long entry
-    stop_mult           = 3.0
+    atr_stop_mult       = 3.0   # renamed from stop_mult for sl_mode framework alignment
     rr_ratio            = 2.0
     risk_pct            = 1.0
 
@@ -204,7 +204,7 @@ class EmaRejectionV2Strategy(BaseStrategy):
         long_rsi_threshold  = rsi > self.rsi_threshold_long
         htf_uptrend         = close > htf_ema
 
-        stop_dist = atr * self.stop_mult
+        stop_dist = atr * self.atr_stop_mult
         risk_amt  = self.equity * self.risk_pct / 100.0
         qty       = risk_amt / stop_dist if stop_dist > 0 else 0
 
@@ -213,9 +213,11 @@ class EmaRejectionV2Strategy(BaseStrategy):
                 self.enter_short_position(
                     stop_loss   = close + stop_dist,
                     take_profit = close - stop_dist * self.rr_ratio,
+                    atr_value   = atr,
                 )
             elif htf_uptrend and long_ema_rejection and long_stayed_above and long_rsi_confirm and long_rsi_threshold:
                 self.enter_long_position(
                     stop_loss   = close - stop_dist,
                     take_profit = close + stop_dist * self.rr_ratio,
+                    atr_value   = atr,
                 )

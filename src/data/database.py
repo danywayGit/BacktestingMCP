@@ -2,7 +2,9 @@
 Database module for storing and retrieving cryptocurrency market data.
 """
 
+import json
 import sqlite3
+import numpy as np
 import pandas as pd
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,6 +12,18 @@ from typing import Optional, List, Tuple, Dict, Any
 from contextlib import contextmanager
 
 from config.settings import settings, TimeFrame
+
+
+class _NumpyEncoder(json.JSONEncoder):
+    """JSON encoder that converts numpy scalar types to native Python types."""
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super().default(obj)
 
 
 class CryptoDatabase:
@@ -282,8 +296,6 @@ class CryptoDatabase:
         trades: List[Dict[str, Any]]
     ) -> int:
         """Save backtest results to database."""
-        import json
-        
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -292,7 +304,9 @@ class CryptoDatabase:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 strategy_name, symbol, timeframe, start_date, end_date,
-                json.dumps(parameters), json.dumps(metrics), json.dumps(trades)
+                json.dumps(parameters, cls=_NumpyEncoder),
+                json.dumps(metrics, cls=_NumpyEncoder),
+                json.dumps(trades, cls=_NumpyEncoder),
             ))
             
             backtest_id = cursor.lastrowid

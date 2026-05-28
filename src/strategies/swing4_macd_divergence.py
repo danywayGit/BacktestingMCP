@@ -121,9 +121,11 @@ class Swing4MACDDivergenceStrategy(BaseStrategy):
                 self.enter_long_position(
                     stop_loss   = close - stop_dist,
                     take_profit = close + stop_dist * self.rr_ratio,
+                    atr_value   = atr,
                 )
             elif bear_div and rsi > self.rsi_short_min:
                 self.enter_short_position(
                     stop_loss   = close + stop_dist,
                     take_profit = close - stop_dist * self.rr_ratio,
+                    atr_value   = atr,
                 )

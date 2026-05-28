@@ -63,7 +63,8 @@ class AggrPullbackStrategy(BaseStrategy):
     ema_length           = 20
     ema200_length        = 200
     atr_period           = 14
-    stop_mult            = 3.0    # ATR multiplier added to swing distance for stop
+    atr_stop_mult        = 3.0    # used by BaseStrategy 'atr' sl_mode
+    stop_mult            = 3.0    # ATR buffer added to swing distance (embedded mode)
     rr_ratio             = 2.0
     pullback_tolerance   = 1      # max bars of last 3 that can close on wrong side of EMA20
     swing_lookback       = 7      # bars to define swing low/high
@@ -153,6 +154,7 @@ class AggrPullbackStrategy(BaseStrategy):
                     self.enter_long_position(
                         stop_loss   = close - long_stop_dist,
                         take_profit = close + long_stop_dist * self.rr_ratio,
+                        atr_value   = atr,
                     )
 
             # Short condition
@@ -165,4 +167,5 @@ class AggrPullbackStrategy(BaseStrategy):
                     self.enter_short_position(
                         stop_loss   = close + short_stop_dist,
                         take_profit = close - short_stop_dist * self.rr_ratio,
+                        atr_value   = atr,
                     )

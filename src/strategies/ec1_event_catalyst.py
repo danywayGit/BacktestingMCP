@@ -99,6 +99,7 @@ class EC1EventCatalystStrategy(BaseStrategy):
     entry_ema               = 50     # EMA period for directional filter
     pre_event_sl_mult       = 1.0    # (unused for re-entry; used for tighten logic)
     post_event_sl_mult      = 3.0    # ATR multiple for initial stop (wider)
+    atr_stop_mult           = 3.0    # used by BaseStrategy 'atr' sl_mode (mirrors post_event_sl_mult)
     post_event_tp_rr        = 1.5    # TP1 = stop_dist × this ratio
     trail_mult              = 2.0    # ATR multiple for trailing stop
     risk_pct_post           = 0.5    # % equity risked per event trade
@@ -199,79 +200,80 @@ class EC1EventCatalystStrategy(BaseStrategy):
 
         # ── In-position management ────────────────────────────────────────────
         if self.position:
-            is_long  = self.position.is_long
-            is_short = not is_long
-            self._bars_held += 1
+            if self.sl_mode in ('embedded', 'fixed_signal'):
+                is_long  = self.position.is_long
+                is_short = not is_long
+                self._bars_held += 1
 
-            # 1. Pre-event tighten: close profitable positions before the event
-            if pre_event_active:
-                if self._entry_price is not None:
-                    pnl = (
-                        close - self._entry_price
-                        if is_long
-                        else self._entry_price - close
+                # 1. Pre-event tighten: close profitable positions before the event
+                if pre_event_active:
+                    if self._entry_price is not None:
+                        pnl = (
+                            close - self._entry_price
+                            if is_long
+                            else self._entry_price - close
+                        )
+                        if pnl > 0:
+                            self.position.close()
+                            self._reset_trade_state()
+                            return
+
+                # 2. Update trailing stop (only after TP1 hit)
+                if self._tp1_hit and self._trail_stop is not None:
+                    if is_long:
+                        new_trail = close - atr * self.trail_mult
+                        if new_trail > self._trail_stop:
+                            self._trail_stop = new_trail
+                    else:
+                        new_trail = close + atr * self.trail_mult
+                        if new_trail < self._trail_stop:
+                            self._trail_stop = new_trail
+
+                # 3. Check TP1 (first time price reaches TP1)
+                if not self._tp1_hit and self._tp1_price is not None:
+                    tp1_reached = (
+                        (is_long  and close >= self._tp1_price)
+                        or (is_short and close <= self._tp1_price)
                     )
-                    if pnl > 0:
+                    if tp1_reached:
+                        self._tp1_hit  = True
+                        # Initialise trail from current price
+                        self._trail_stop = (
+                            close - atr * self.trail_mult
+                            if is_long
+                            else close + atr * self.trail_mult
+                        )
+
+                # 4. Trail stop hit
+                if self._tp1_hit and self._trail_stop is not None:
+                    trail_hit = (
+                        (is_long  and close <= self._trail_stop)
+                        or (is_short and close >= self._trail_stop)
+                    )
+                    if trail_hit:
                         self.position.close()
                         self._reset_trade_state()
                         return
 
-            # 2. Update trailing stop (only after TP1 hit)
-            if self._tp1_hit and self._trail_stop is not None:
-                if is_long:
-                    new_trail = close - atr * self.trail_mult
-                    if new_trail > self._trail_stop:
-                        self._trail_stop = new_trail
-                else:
-                    new_trail = close + atr * self.trail_mult
-                    if new_trail < self._trail_stop:
-                        self._trail_stop = new_trail
-
-            # 3. Check TP1 (first time price reaches TP1)
-            if not self._tp1_hit and self._tp1_price is not None:
-                tp1_reached = (
-                    (is_long  and close >= self._tp1_price)
-                    or (is_short and close <= self._tp1_price)
-                )
-                if tp1_reached:
-                    self._tp1_hit  = True
-                    # Initialise trail from current price
-                    self._trail_stop = (
-                        close - atr * self.trail_mult
-                        if is_long
-                        else close + atr * self.trail_mult
+                # 5. Initial stop guard (before TP1 hit)
+                if (
+                    not self._tp1_hit
+                    and self._entry_price is not None
+                    and self._stop_dist is not None
+                ):
+                    initial_stop_hit = (
+                        (is_long  and close <= self._entry_price - self._stop_dist)
+                        or (is_short and close >= self._entry_price + self._stop_dist)
                     )
+                    if initial_stop_hit:
+                        self.position.close()
+                        self._reset_trade_state()
+                        return
 
-            # 4. Trail stop hit
-            if self._tp1_hit and self._trail_stop is not None:
-                trail_hit = (
-                    (is_long  and close <= self._trail_stop)
-                    or (is_short and close >= self._trail_stop)
-                )
-                if trail_hit:
+                # 6. Max holding period
+                if self._bars_held >= self.post_event_max_bars:
                     self.position.close()
                     self._reset_trade_state()
-                    return
-
-            # 5. Initial stop guard (before TP1 hit)
-            if (
-                not self._tp1_hit
-                and self._entry_price is not None
-                and self._stop_dist is not None
-            ):
-                initial_stop_hit = (
-                    (is_long  and close <= self._entry_price - self._stop_dist)
-                    or (is_short and close >= self._entry_price + self._stop_dist)
-                )
-                if initial_stop_hit:
-                    self.position.close()
-                    self._reset_trade_state()
-                    return
-
-            # 6. Max holding period
-            if self._bars_held >= self.post_event_max_bars:
-                self.position.close()
-                self._reset_trade_state()
             return
 
         # ── No position — only trade in post-event window ─────────────────────
@@ -305,12 +307,12 @@ class EC1EventCatalystStrategy(BaseStrategy):
         if bullish:
             sl_price = close - stop_dist
             tp_price = close + stop_dist * self.post_event_tp_rr
-            self.enter_long_position(stop_loss=sl_price, take_profit=tp_price)
+            self.enter_long_position(stop_loss=sl_price, take_profit=tp_price, atr_value=atr)
             self._entry_is_long = True
         else:
             sl_price = close + stop_dist
             tp_price = close - stop_dist * self.post_event_tp_rr
-            self.enter_short_position(stop_loss=sl_price, take_profit=tp_price)
+            self.enter_short_position(stop_loss=sl_price, take_profit=tp_price, atr_value=atr)
             self._entry_is_long = False
 
         self._entry_price = close

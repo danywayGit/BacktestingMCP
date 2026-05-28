@@ -82,7 +82,7 @@ class EmaRejectionV1Strategy(BaseStrategy):
     rsi_period          = 14
     rsi_ema_period      = 9      # EMA of RSI used as signal line
     rsi_confirm_window  = 3      # RSI cross must occur within this many bars
-    stop_mult           = 3.0
+    atr_stop_mult       = 3.0   # renamed from stop_mult for sl_mode framework alignment
     rr_ratio            = 2.0
     risk_pct            = 1.0
 
@@ -156,7 +156,7 @@ class EmaRejectionV1Strategy(BaseStrategy):
         long_rsi_confirm    = self._bars_since_rsi_cross_above <= self.rsi_confirm_window
         htf_uptrend         = close > htf_ema
 
-        stop_dist = atr * self.stop_mult
+        stop_dist = atr * self.atr_stop_mult
         risk_amt  = self.equity * self.risk_pct / 100.0
         qty       = risk_amt / stop_dist if stop_dist > 0 else 0
 
@@ -165,9 +165,11 @@ class EmaRejectionV1Strategy(BaseStrategy):
                 self.enter_short_position(
                     stop_loss   = close + stop_dist,
                     take_profit = close - stop_dist * self.rr_ratio,
+                    atr_value   = atr,
                 )
             elif htf_uptrend and long_ema_rejection and long_rsi_confirm:
                 self.enter_long_position(
                     stop_loss   = close - stop_dist,
                     take_profit = close + stop_dist * self.rr_ratio,
+                    atr_value   = atr,
                 )

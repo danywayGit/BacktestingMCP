@@ -77,12 +77,27 @@ class BacktestResult:
 
 class BaseStrategy(Strategy):
     """Base strategy class with common functionality."""
-    
+
+    # ── SL/TP mode (optimizable) ─────────────────────────────────────────────
+    # "embedded"      : strategy manages SL/TP internally via its own indicator
+    #                   logic.  Passed stop_loss/take_profit are used as-is.
+    # "fixed_pct"     : SL = entry × (1 ± stop_loss_pct/100),
+    #                   TP = entry × (1 ± take_profit_pct/100).
+    #                   Any indicator-based exit in next() is suppressed.
+    # "fixed_signal"  : Same fixed-% SL/TP, BUT strategy's own signal exits
+    #                   (e.g. Supertrend flip) also remain active in next().
+    # "atr"           : SL = entry ± ATR × atr_stop_mult,
+    #                   TP = SL_distance × rr_ratio.
+    #                   Any indicator-based exit in next() is suppressed.
+    sl_mode         = "embedded"
+
     # Default parameters that can be optimized
-    stop_loss_pct = 2.0
-    take_profit_pct = 4.0
-    risk_pct = 1.0
-    
+    stop_loss_pct   = 2.0    # used by fixed_pct / fixed_signal modes
+    take_profit_pct = 4.0    # used by fixed_pct / fixed_signal modes
+    rr_ratio        = 2.5    # TP = stop_dist × rr_ratio  (atr mode)
+    atr_stop_mult   = 2.0    # SL = ATR × atr_stop_mult   (atr mode)
+    risk_pct        = 1.0
+
     # Trading filters
     trading_days = list(range(7))  # All days by default
     trading_hours = None  # All hours by default
@@ -147,49 +162,79 @@ class BaseStrategy(Strategy):
         
         return position_fraction
     
-    def enter_long_position(self, stop_loss: Optional[float] = None, take_profit: Optional[float] = None):
-        """Enter a long position with risk management."""
+    def enter_long_position(
+            self,
+            stop_loss:  Optional[float] = None,
+            take_profit: Optional[float] = None,
+            atr_value:  Optional[float] = None):
+        """Enter a long position with SL/TP determined by sl_mode.
+
+        atr_value  — current ATR; required when sl_mode='atr'.
+        """
         if self.direction in [Direction.SHORT]:
-            return  # Only short trades allowed
-        
+            return
         if not self.should_trade():
             return
-        
-        current_price = self.data.Close[-1]
-        
-        # Calculate stop loss and take profit
-        if stop_loss is None:
-            stop_loss = current_price * (1 - self.stop_loss_pct / 100)
-        
-        if take_profit is None:
+
+        current_price = float(self.data.Close[-1])
+        mode = self.sl_mode
+
+        if mode in ('fixed_pct', 'fixed_signal'):
+            stop_loss   = current_price * (1 - self.stop_loss_pct   / 100)
             take_profit = current_price * (1 + self.take_profit_pct / 100)
-        
-        # Calculate position size
+        elif mode == 'atr' and atr_value and atr_value > 0:
+            stop_dist   = atr_value * self.atr_stop_mult
+            stop_loss   = current_price - stop_dist
+            take_profit = current_price + stop_dist * self.rr_ratio
+        else:  # embedded (or atr with no atr_value)
+            if stop_loss is None:
+                stop_loss = current_price * (1 - self.stop_loss_pct / 100)
+            if take_profit is None:
+                take_profit = current_price * (1 + self.take_profit_pct / 100)
+
+        # Guard: TP must be above entry for a long
+        if take_profit is not None and take_profit <= current_price:
+            take_profit = None
+
         size = self.calculate_position_size(current_price, stop_loss)
-        
         if size > 0:
             self.buy(size=size, sl=stop_loss, tp=take_profit)
-    
-    def enter_short_position(self, stop_loss: Optional[float] = None, take_profit: Optional[float] = None):
-        """Enter a short position with risk management."""
+
+    def enter_short_position(
+            self,
+            stop_loss:  Optional[float] = None,
+            take_profit: Optional[float] = None,
+            atr_value:  Optional[float] = None):
+        """Enter a short position with SL/TP determined by sl_mode.
+
+        atr_value  — current ATR; required when sl_mode='atr'.
+        """
         if self.direction in [Direction.LONG]:
-            return  # Only long trades allowed
-        
+            return
         if not self.should_trade():
             return
-        
-        current_price = self.data.Close[-1]
-        
-        # Calculate stop loss and take profit for short
-        if stop_loss is None:
-            stop_loss = current_price * (1 + self.stop_loss_pct / 100)
-        
-        if take_profit is None:
+
+        current_price = float(self.data.Close[-1])
+        mode = self.sl_mode
+
+        if mode in ('fixed_pct', 'fixed_signal'):
+            stop_loss   = current_price * (1 + self.stop_loss_pct   / 100)
             take_profit = current_price * (1 - self.take_profit_pct / 100)
-        
-        # Calculate position size
+        elif mode == 'atr' and atr_value and atr_value > 0:
+            stop_dist   = atr_value * self.atr_stop_mult
+            stop_loss   = current_price + stop_dist
+            take_profit = current_price - stop_dist * self.rr_ratio
+        else:  # embedded
+            if stop_loss is None:
+                stop_loss = current_price * (1 + self.stop_loss_pct / 100)
+            if take_profit is None:
+                take_profit = current_price * (1 - self.take_profit_pct / 100)
+
+        # Guard: TP must be below entry and positive for a short
+        if take_profit is not None and (take_profit >= current_price or take_profit <= 0):
+            take_profit = None
+
         size = self.calculate_position_size(current_price, stop_loss)
-        
         if size > 0:
             self.sell(size=size, sl=stop_loss, tp=take_profit)
 

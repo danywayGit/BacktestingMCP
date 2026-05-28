@@ -100,6 +100,7 @@ class VR1VWAPMeanReversionStrategy(BaseStrategy):
     min_band_width_pct          = 0.5
     max_hold_bars               = 150
     risk_pct                    = 1.0
+    atr_stop_mult               = 2.0    # used by BaseStrategy 'atr' sl_mode
 
     def init(self):
         idx = self.data.index  # pd.DatetimeIndex
@@ -147,7 +148,7 @@ class VR1VWAPMeanReversionStrategy(BaseStrategy):
         # Max-hold exit
         if self.position:
             bars_held = len(self.data) - self._entry_bar
-            if bars_held >= self.max_hold_bars:
+            if self.sl_mode in ('embedded', 'fixed_signal') and bars_held >= self.max_hold_bars:
                 self.position.close()
             return
 
@@ -186,7 +187,7 @@ class VR1VWAPMeanReversionStrategy(BaseStrategy):
                 # Skip: VWAP is below entry price — band may be miscalibrated, wait for reset
                 return
             self._entry_bar = len(self.data)
-            self.enter_long_position(stop_loss=stop_loss, take_profit=take_profit)
+            self.enter_long_position(stop_loss=stop_loss, take_profit=take_profit, atr_value=atr)
 
         elif short_cond:
             upper_band_width = upper - vwap  # distance from upper band down to VWAP
@@ -198,4 +199,4 @@ class VR1VWAPMeanReversionStrategy(BaseStrategy):
                 # Skip: VWAP is above entry price — band may be miscalibrated, wait for reset
                 return
             self._entry_bar = len(self.data)
-            self.enter_short_position(stop_loss=stop_loss, take_profit=take_profit)
+            self.enter_short_position(stop_loss=stop_loss, take_profit=take_profit, atr_value=atr)

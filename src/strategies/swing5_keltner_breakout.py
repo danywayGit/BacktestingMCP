@@ -59,6 +59,7 @@ class Swing5KeltnerBreakoutStrategy(BaseStrategy):
     cci_period     = 20
     cci_long_min   = -100   # CCI must be above this for long (not over-extended short)
     cci_short_max  = 100    # CCI must be below this for short (not over-extended long)
+    atr_stop_mult  = 2.0    # used by BaseStrategy 'atr' sl_mode
     rr_ratio       = 3.0
     risk_pct       = 1.0
 
@@ -97,8 +98,9 @@ class Swing5KeltnerBreakoutStrategy(BaseStrategy):
                 qty = risk_amt / long_stop_dist if long_stop_dist > 0 else 0
                 if qty > 0:
                     self.enter_long_position(
-                        stop_loss   = ema,                                    # back to midline
+                        stop_loss   = ema,
                         take_profit = close + long_stop_dist * self.rr_ratio,
+                        atr_value   = float(self.atr[-1]),
                     )
             # Short: breakdown below lower KC, CCI not over-bought
             elif close < lower_kc and cci < self.cci_short_max:
@@ -106,6 +108,7 @@ class Swing5KeltnerBreakoutStrategy(BaseStrategy):
                 tp  = close - short_stop_dist * self.rr_ratio
                 if qty > 0 and tp > 0:  # guard: TP must be positive
                     self.enter_short_position(
-                        stop_loss   = ema,                                     # back to midline
+                        stop_loss   = ema,
                         take_profit = tp,
+                        atr_value   = float(self.atr[-1]),
                     )

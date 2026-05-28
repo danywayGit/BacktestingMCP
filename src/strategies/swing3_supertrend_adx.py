@@ -177,16 +177,18 @@ class Swing3SupertrendADXStrategy(BaseStrategy):
         if not self.position:
             if st_flipped_bull and adx_strong and close > ema_val:
                 if qty > 0:
-                    # No fixed TP — trailing exit via Supertrend flip
-                    self.enter_long_position(stop_loss=close - stop_dist)
+                    # No fixed TP in embedded mode — trailing exit via Supertrend flip
+                    self.enter_long_position(stop_loss=close - stop_dist, atr_value=atr)
 
             elif st_flipped_bear and adx_strong and close < ema_val:
                 if qty > 0:
-                    self.enter_short_position(stop_loss=close + stop_dist)
+                    self.enter_short_position(stop_loss=close + stop_dist, atr_value=atr)
 
         else:
-            # Trailing exit: close when Supertrend flips against position
-            if self.position.is_long  and st_flipped_bear:
-                self.position.close()
-            elif self.position.is_short and st_flipped_bull:
-                self.position.close()
+            # Trailing exit: only active when the strategy's signal drives the exit
+            # (embedded + fixed_signal modes).  fixed_pct and atr rely on SL/TP orders.
+            if self.sl_mode in ('embedded', 'fixed_signal'):
+                if self.position.is_long  and st_flipped_bear:
+                    self.position.close()
+                elif self.position.is_short and st_flipped_bull:
+                    self.position.close()

@@ -128,17 +128,22 @@ class Swing2BBSqueezeBreakoutStrategy(BaseStrategy):
 
         was_squeezed = self._was_squeezed()
         stop_dist = atr * self.atr_stop_mult
+
+        # Clamp stop distance to max 50% of close (prevents negative stop on low-priced assets)
+        max_stop_dist = close * 0.5
+        stop_dist = min(stop_dist, max_stop_dist)
+
         risk_amt  = self.equity * self.risk_pct / 100.0
         qty       = risk_amt / stop_dist if stop_dist > 0 else 0
 
         if not self.position and was_squeezed and qty > 0:
             if close > upper and macd_l > macd_s:
-                self.enter_long_position(
-                    stop_loss   = close - stop_dist,
-                    take_profit = close + stop_dist * self.rr_ratio,
-                )
+                stop_l = close - stop_dist
+                tp_l   = close + stop_dist * self.rr_ratio
+                if stop_l > 0 and tp_l > close:
+                    self.enter_long_position(stop_loss=stop_l, take_profit=tp_l, atr_value=atr)
             elif close < lower and macd_l < macd_s:
-                self.enter_short_position(
-                    stop_loss   = close + stop_dist,
-                    take_profit = close - stop_dist * self.rr_ratio,
-                )
+                stop_s = close + stop_dist
+                tp_s   = close - stop_dist * self.rr_ratio
+                if stop_s > close and tp_s > 0:
+                    self.enter_short_position(stop_loss=stop_s, take_profit=tp_s, atr_value=atr)

@@ -87,7 +87,7 @@ class MO1MomentumRotationStrategy(BaseStrategy):
     adx_period         = 14
     adx_trend_confirm  = 20
     adx_exit_fade      = 15
-    sl_atr_mult        = 2.0
+    atr_stop_mult      = 2.0
     atr_period         = 14
     cooldown_bars      = 10
     max_hold_bars      = 200
@@ -174,49 +174,50 @@ class MO1MomentumRotationStrategy(BaseStrategy):
 
         # ── In-position management ─────────────────────────────────────────────
         if self.position:
-            is_long  = self.position.is_long
-            is_short = not is_long
+            if self.sl_mode in ('embedded', 'fixed_signal'):
+                is_long  = self.position.is_long
+                is_short = not is_long
 
-            # Update trailing stop (never loosen)
-            if is_long:
-                candidate = close - atr * self.sl_atr_mult
-                if self._trail_stop is None or candidate > self._trail_stop:
-                    self._trail_stop = candidate
-            else:
-                candidate = close + atr * self.sl_atr_mult
-                if self._trail_stop is None or candidate < self._trail_stop:
-                    self._trail_stop = candidate
+                # Update trailing stop (never loosen)
+                if is_long:
+                    candidate = close - atr * self.atr_stop_mult
+                    if self._trail_stop is None or candidate > self._trail_stop:
+                        self._trail_stop = candidate
+                else:
+                    candidate = close + atr * self.atr_stop_mult
+                    if self._trail_stop is None or candidate < self._trail_stop:
+                        self._trail_stop = candidate
 
-            # Exit conditions (in priority order)
-            exit_reason = None
+                # Exit conditions (in priority order)
+                exit_reason = None
 
-            # 1. Trailing stop hit
-            if self._trail_stop is not None and exit_reason is None:
-                if is_long  and close <= self._trail_stop:
-                    exit_reason = "trail_stop_long"
-                elif is_short and close >= self._trail_stop:
-                    exit_reason = "trail_stop_short"
+                # 1. Trailing stop hit
+                if self._trail_stop is not None and exit_reason is None:
+                    if is_long  and close <= self._trail_stop:
+                        exit_reason = "trail_stop_long"
+                    elif is_short and close >= self._trail_stop:
+                        exit_reason = "trail_stop_short"
 
-            # 2. ADX faded
-            if exit_reason is None and adx < self.adx_exit_fade:
-                exit_reason = "adx_fade"
+                # 2. ADX faded
+                if exit_reason is None and adx < self.adx_exit_fade:
+                    exit_reason = "adx_fade"
 
-            # 3. Max hold bars
-            if exit_reason is None and self._bars_held >= self.max_hold_bars:
-                exit_reason = "max_hold"
+                # 3. Max hold bars
+                if exit_reason is None and self._bars_held >= self.max_hold_bars:
+                    exit_reason = "max_hold"
 
-            # 4. Rotation trigger: relative_rsi crossed zero against position
-            if exit_reason is None:
-                if is_long  and relative_rsi < 0:
-                    exit_reason = "rotation_exit_long"
-                elif is_short and relative_rsi > 0:
-                    exit_reason = "rotation_exit_short"
+                # 4. Rotation trigger: relative_rsi crossed zero against position
+                if exit_reason is None:
+                    if is_long  and relative_rsi < 0:
+                        exit_reason = "rotation_exit_long"
+                    elif is_short and relative_rsi > 0:
+                        exit_reason = "rotation_exit_short"
 
-            self._bars_held += 1
+                self._bars_held += 1
 
-            if exit_reason:
-                self.position.close()
-                self._reset_trade_state()
+                if exit_reason:
+                    self.position.close()
+                    self._reset_trade_state()
             return  # always return after in-position block
 
         # ── No position — increment cooldown counter ───────────────────────────
@@ -227,14 +228,14 @@ class MO1MomentumRotationStrategy(BaseStrategy):
             return
 
         strong_trend = adx > self.adx_trend_confirm
-        stop_dist    = atr * self.sl_atr_mult
+        stop_dist    = atr * self.atr_stop_mult
         if stop_dist <= 0:
             return
 
         # Long entry
         if relative_rsi > self.momentum_threshold and strong_trend:
             sl_price = close - stop_dist
-            self.enter_long_position(stop_loss=sl_price)
+            self.enter_long_position(stop_loss=sl_price, atr_value=atr)
             self._entry_is_long = True
             self._trail_stop    = close - stop_dist
             self._bars_held     = 0
@@ -242,7 +243,7 @@ class MO1MomentumRotationStrategy(BaseStrategy):
         # Short entry
         elif relative_rsi < -self.momentum_threshold and strong_trend:
             sl_price = close + stop_dist
-            self.enter_short_position(stop_loss=sl_price)
+            self.enter_short_position(stop_loss=sl_price, atr_value=atr)
             self._entry_is_long = False
             self._trail_stop    = close + stop_dist
             self._bars_held     = 0

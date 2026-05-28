@@ -104,6 +104,7 @@ class Swing1EmaWaveVolumeStrategy(BaseStrategy):
                     self.enter_long_position(
                         stop_loss   = close - stop_dist,
                         take_profit = close + stop_dist * self.rr_ratio,
+                        atr_value   = atr,
                     )
 
             # Short entry
@@ -112,4 +113,5 @@ class Swing1EmaWaveVolumeStrategy(BaseStrategy):
                     self.enter_short_position(
                         stop_loss   = close + stop_dist,
                         take_profit = close - stop_dist * self.rr_ratio,
+                        atr_value   = atr,
                     )

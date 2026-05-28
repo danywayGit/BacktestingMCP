@@ -151,6 +151,8 @@ class VP1VolumeProfileBreakoutStrategy(BaseStrategy):
     cooldown_bars      = 20
     risk_pct           = 1.0
     max_hold_bars      = 300
+    atr_stop_mult      = 2.0    # used by BaseStrategy 'atr' sl_mode
+    rr_ratio           = 2.0    # used by BaseStrategy 'atr' sl_mode TP
 
     # ADX / ATR period (not user-facing but discoverable by optimizer)
     adx_period         = 14
@@ -215,40 +217,41 @@ class VP1VolumeProfileBreakoutStrategy(BaseStrategy):
         # In-position management
         # ------------------------------------------------------------------
         if self.position:
-            self._bars_held += 1
+            if self.sl_mode in ('embedded', 'fixed_signal'):
+                self._bars_held += 1
 
-            # Max-hold exit
-            if self._bars_held >= self.max_hold_bars:
-                self.position.close()
-                self._reset_trade_state()
-                return
-
-            # Manual POC / value-area re-entry stop
-            if self._entry_is_long and close <= poc:
-                self.position.close()
-                self._reset_trade_state()
-                return
-            if self._entry_is_long is False and close >= poc:
-                self.position.close()
-                self._reset_trade_state()
-                return
-
-            # TP1 partial close (50 %)
-            if self._tp1_price is not None and not self._tp1_hit:
-                if self._entry_is_long and close >= self._tp1_price:
-                    self.position.close(0.5)
-                    self._tp1_hit = True
-                elif self._entry_is_long is False and close <= self._tp1_price:
-                    self.position.close(0.5)
-                    self._tp1_hit = True
-
-            # TP2 — remaining 50 % at second target
-            if self._tp1_hit:
-                if (self._entry_is_long and close >= self._tp2_price) or \
-                   (self._entry_is_long is False and close <= self._tp2_price):
+                # Max-hold exit
+                if self._bars_held >= self.max_hold_bars:
                     self.position.close()
                     self._reset_trade_state()
                     return
+
+                # Manual POC / value-area re-entry stop
+                if self._entry_is_long and close <= poc:
+                    self.position.close()
+                    self._reset_trade_state()
+                    return
+                if self._entry_is_long is False and close >= poc:
+                    self.position.close()
+                    self._reset_trade_state()
+                    return
+
+                # TP1 partial close (50 %)
+                if self._tp1_price is not None and not self._tp1_hit:
+                    if self._entry_is_long and close >= self._tp1_price:
+                        self.position.close(0.5)
+                        self._tp1_hit = True
+                    elif self._entry_is_long is False and close <= self._tp1_price:
+                        self.position.close(0.5)
+                        self._tp1_hit = True
+
+                # TP2 — remaining 50 % at second target
+                if self._tp1_hit:
+                    if (self._entry_is_long and close >= self._tp2_price) or \
+                       (self._entry_is_long is False and close <= self._tp2_price):
+                        self.position.close()
+                        self._reset_trade_state()
+                        return
 
             return  # no new entries while in position
 
@@ -303,9 +306,9 @@ class VP1VolumeProfileBreakoutStrategy(BaseStrategy):
         self._bars_held = 0
 
         if long_signal:
-            self.enter_long_position(stop_loss=sl_price)
+            self.enter_long_position(stop_loss=sl_price, atr_value=atr)
         else:
-            self.enter_short_position(stop_loss=sl_price)
+            self.enter_short_position(stop_loss=sl_price, atr_value=atr)
 
     # ------------------------------------------------------------------
     def _reset_trade_state(self):
