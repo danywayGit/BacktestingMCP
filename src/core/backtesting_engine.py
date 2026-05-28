@@ -265,7 +265,7 @@ class BacktestingEngine:
         # If data is missing, download it
         if data.empty:
             logger.info(f"No data found in database, downloading {symbol} {timeframe}")
-            exchange_symbol = symbol if '/' in symbol else f"{symbol[:3]}/{symbol[3:]}"
+            exchange_symbol = symbol if '/' in symbol else f"{symbol[:-4]}/{symbol[-4:]}"
             data = downloader.download_data(exchange_symbol, timeframe, start_date, end_date)
         
         # Convert timeframe if needed

@@ -56,7 +56,7 @@ class TradingConfig:
 @dataclass
 class DataConfig:
     """Data configuration."""
-    database_path: str = "data/crypto.db"
+    database_path: str = str(Path(__file__).parent.parent / "data" / "crypto.db")
     exchange: str = "binance"
     default_timeframe: TimeFrame = TimeFrame.H1
     symbols: List[str] = field(default_factory=lambda: ["BTCUSDT", "ETHUSDT"])

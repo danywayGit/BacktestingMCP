@@ -183,8 +183,14 @@ class DataDownloader:
         # Remove duplicates and sort
         df = df[~df.index.duplicated(keep='last')].sort_index()
         
-        # Filter to requested date range
-        df = df[(df.index >= start_date) & (df.index <= end_date)]
+        # Filter to requested date range (ensure tz-aware comparison)
+        if df.index.tz is not None:
+            _start = start_date.replace(tzinfo=timezone.utc) if start_date.tzinfo is None else start_date
+            _end = end_date.replace(tzinfo=timezone.utc) if end_date.tzinfo is None else end_date
+        else:
+            _start = start_date.replace(tzinfo=None) if start_date.tzinfo is not None else start_date
+            _end = end_date.replace(tzinfo=None) if end_date.tzinfo is not None else end_date
+        df = df[(df.index >= _start) & (df.index <= _end)]
         
         return df
     
@@ -250,7 +256,7 @@ class DataDownloader:
         for db_symbol in symbols_to_update:
             try:
                 # Convert back to exchange format
-                exchange_symbol = f"{db_symbol[:3]}/{db_symbol[3:]}" if len(db_symbol) > 4 else db_symbol
+                exchange_symbol = f"{db_symbol[:-4]}/{db_symbol[-4:]}" if len(db_symbol) > 4 else db_symbol
                 
                 # Get available timeframes for this symbol
                 symbol_timeframes = [pair[1] for pair in db.get_symbols_and_timeframes() if pair[0] == db_symbol]
