@@ -15,6 +15,8 @@ from ..data.downloader import downloader, download_crypto_data, update_all_crypt
 from ..data.database import db
 from ..strategies.templates import get_strategy_class, list_available_strategies, get_strategy_parameters
 from ..strategies.scanner import evaluate_scan, SCAN_TYPES
+from ..edge_scanner import composite as edge_composite
+from ..edge_scanner import store as edge_store
 from config.settings import settings, TimeFrame, Direction, CRYPTO_PAIRS
 
 # Setup logging
@@ -947,6 +949,63 @@ def run_scan(scan_name, symbols, all_major, timeframe, start, end, parameters):
     except Exception as e:
         click.echo(f"Error running scanner: {e}", err=True)
         logger.exception('Scanner run failed')
+
+
+@cli.group()
+def edge():
+    """Composite edge scanner: discover, log, track, and report signals."""
+    pass
+
+
+@edge.command('scan')
+@click.option('--timeframe', '-t', default='1h',
+              type=click.Choice(['1m', '5m', '15m', '30m', '1h', '4h', '12h', '1d', '1w']))
+@click.option('--lookback-days', default=30, help='Days of OHLCV history to scan for TA confirmation')
+@click.option('--per-side', default=20, help='Number of altFINS bullish/bearish candidates to pull per side')
+@click.option('--horizon-hours', default=24, help='Hours ahead to check the outcome of any logged signal')
+@click.option('--log/--no-log', default=True, help='Persist actionable signals for forward tracking')
+def edge_scan(timeframe, lookback_days, per_side, horizon_hours, log):
+    """Run one composite scan cycle and print ranked candidates."""
+    tf = TimeFrame(timeframe)
+    scores = edge_composite.run_composite_scan(timeframe=tf, lookback_days=lookback_days, per_side_size=per_side)
+
+    click.echo()
+    click.echo(f"Composite edge scan ({timeframe}) - {len(scores)} candidates")
+    click.echo('-' * 90)
+    for s in scores:
+        if s.direction is None:
+            continue
+        click.echo(
+            f"{s.symbol:<8} {s.direction:<6} score={s.composite_score:>6.2f} "
+            f"close={s.last_close if s.last_close is not None else float('nan'):.4f} "
+            f"{s.components}"
+        )
+    click.echo('-' * 90)
+
+    if log:
+        logged = edge_store.log_signals(scores, tf, horizon_hours=horizon_hours)
+        click.echo(f"Logged {logged} actionable signal(s) for forward tracking.")
+    click.echo()
+
+
+@edge.command('track')
+def edge_track():
+    """Resolve any logged signals whose tracking horizon has elapsed."""
+    resolved = edge_store.resolve_due_signals()
+    click.echo(f"Resolved {resolved} signal(s).")
+
+
+@edge.command('report')
+@click.option('--group-by', default='symbol', type=click.Choice(['symbol', 'hour', 'direction']))
+@click.option('--min-n', default=5, help='Minimum resolved signals required to show a group')
+@click.option('--since-days', default=90, help='Lookback window for resolved signals')
+def edge_report(group_by, min_n, since_days):
+    """Show win-rate / avg return of resolved signals, grouped by segment."""
+    summary = edge_store.performance_report(group_by=group_by, min_n=min_n, since_days=since_days)
+    if summary.empty:
+        click.echo("No resolved signals matching the criteria yet.")
+        return
+    click.echo(summary.to_string(index=False))
 
 
 @cli.group()

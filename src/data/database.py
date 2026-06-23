@@ -98,11 +98,35 @@ class CryptoDatabase:
                 )
             """)
             
+            # Edge scanner signals table
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS edge_signals (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    symbol TEXT NOT NULL,
+                    pair TEXT NOT NULL,
+                    timeframe TEXT NOT NULL,
+                    direction TEXT NOT NULL,
+                    composite_score REAL NOT NULL,
+                    components TEXT,
+                    entry_price REAL NOT NULL,
+                    entry_time TIMESTAMP NOT NULL,
+                    horizon_hours INTEGER NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'PENDING',
+                    exit_price REAL,
+                    forward_return_pct REAL,
+                    outcome TEXT,
+                    resolved_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
             # Create indexes for better performance
             conn.execute("CREATE INDEX IF NOT EXISTS idx_market_data_symbol_timeframe ON market_data(symbol, timeframe)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_market_data_timestamp ON market_data(timestamp)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_backtest_results_strategy ON backtest_results(strategy_name)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_backtest_results_symbol ON backtest_results(symbol)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_edge_signals_status ON edge_signals(status)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_edge_signals_symbol ON edge_signals(symbol)")
     
     @contextmanager
     def get_connection(self):
@@ -386,6 +410,78 @@ class CryptoDatabase:
                 DELETE FROM market_data WHERE symbol = ? AND timeframe = ?
             """, (symbol, timeframe))
             return cursor.rowcount
+
+    def insert_edge_signal(
+        self,
+        symbol: str,
+        pair: str,
+        timeframe: str,
+        direction: str,
+        composite_score: float,
+        components: Dict[str, Any],
+        entry_price: float,
+        horizon_hours: int,
+    ) -> int:
+        """Log a composite-scanner signal so its forward outcome can be tracked."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO edge_signals
+                (symbol, pair, timeframe, direction, composite_score, components,
+                 entry_price, entry_time, horizon_hours)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                symbol, pair, timeframe, direction, composite_score,
+                json.dumps(components, cls=_NumpyEncoder),
+                entry_price, datetime.now(timezone.utc).isoformat(), horizon_hours,
+            ))
+            return cursor.lastrowid
+
+    def get_pending_edge_signals(self) -> List[Dict[str, Any]]:
+        """Signals whose tracking horizon has elapsed and are ready to be resolved."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, symbol, pair, timeframe, direction, composite_score,
+                       entry_price, entry_time, horizon_hours
+                FROM edge_signals
+                WHERE status = 'PENDING'
+            """)
+            columns = [d[0] for d in cursor.description]
+            rows = cursor.fetchall()
+        return [dict(zip(columns, row)) for row in rows]
+
+    def resolve_edge_signal(
+        self,
+        signal_id: int,
+        exit_price: float,
+        forward_return_pct: float,
+        outcome: str,
+    ) -> None:
+        """Record the actual forward outcome of a previously logged signal."""
+        with self.get_connection() as conn:
+            conn.execute("""
+                UPDATE edge_signals
+                SET status = 'RESOLVED', exit_price = ?, forward_return_pct = ?,
+                    outcome = ?, resolved_at = ?
+                WHERE id = ?
+            """, (exit_price, forward_return_pct, outcome, datetime.now(timezone.utc).isoformat(), signal_id))
+
+    def get_resolved_edge_signals(self, since: Optional[datetime] = None) -> List[Dict[str, Any]]:
+        """Resolved signals, for win-rate / forward-performance reporting."""
+        query = "SELECT * FROM edge_signals WHERE status = 'RESOLVED'"
+        params: List[Any] = []
+        if since:
+            query += " AND entry_time >= ?"
+            params.append(since.isoformat())
+        query += " ORDER BY entry_time"
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            columns = [d[0] for d in cursor.description]
+            rows = cursor.fetchall()
+        return [dict(zip(columns, row)) for row in rows]
 
 
 # Global database instance
