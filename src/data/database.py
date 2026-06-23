@@ -151,9 +151,10 @@ class CryptoDatabase:
         if not all(col in data.columns for col in required_cols):
             raise ValueError(f"Data must contain columns: {required_cols}")
         
-        # Convert timestamp to unix timestamp if it's datetime
+        # Convert timestamp index to unix seconds
+        # pd.DatetimeIndex.astype('int64') returns microseconds since epoch
         if isinstance(data.index[0], pd.Timestamp):
-            timestamps = data.index.astype('int64') // 10**9  # Convert to seconds
+            timestamps = data.index.astype('int64') // 10**6  # microseconds → seconds
         else:
             timestamps = data.index
         

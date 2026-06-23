@@ -24,6 +24,15 @@ SANTIMENT_GRAPHQL_URL = "https://api.santiment.net/graphql"
 
 load_dotenv()
 
+# ── In-memory cache ───────────────────────────────────────────────────────────
+# Santiment free tier: ~1,000 calls/month ≈ 33/day.
+# We cache per-symbol for 6 hours so repeated scan cycles don't burn the budget.
+# The on-chain data is lagged ~30 days anyway, so 6h staleness is irrelevant.
+import time as _time
+
+_CACHE: dict[str, tuple[float, dict]] = {}  # symbol -> (timestamp, result)
+_CACHE_TTL_SECONDS = 6 * 3600  # 6 hours
+
 
 class SantimentError(RuntimeError):
     """Raised when Santiment cannot be reached, has no API key, or the
@@ -111,6 +120,14 @@ def get_onchain_snapshot(symbol: str, lookback_days: int = 7) -> Dict[str, float
     if not slug:
         raise SantimentError(f"No Santiment slug mapping for {symbol!r}.")
 
+    # Check in-memory cache first (6h TTL — data is 30-day lagged anyway)
+    cache_key = symbol.upper()
+    cached = _CACHE.get(cache_key)
+    if cached is not None:
+        ts, result = cached
+        if _time.time() - ts < _CACHE_TTL_SECONDS:
+            return result
+
     # Free tier: data available from ~1 year ago up to ~30 days ago.
     # Query a window ending 35 days ago to stay safely within the free range.
     LAG_DAYS = 35
@@ -138,4 +155,7 @@ def get_onchain_snapshot(symbol: str, lookback_days: int = 7) -> Dict[str, float
     for i, metric in enumerate(_METRICS):
         series = (data.get(f"m{i}") or {}).get("timeseriesData") or []
         result[metric] = sum(float(point.get("value") or 0.0) for point in series)
+
+    # Store in cache
+    _CACHE[cache_key] = (_time.time(), result)
     return result

@@ -22,8 +22,13 @@ logger = logging.getLogger(__name__)
 class DataDownloader:
     """Download cryptocurrency market data from exchanges."""
     
-    def __init__(self, exchange_name: str = "binance"):
-        """Initialize data downloader."""
+    def __init__(self, exchange_name: str = "binanceusdm"):
+        """Initialize data downloader.
+
+        Defaults to 'binanceusdm' (Binance USDT-M Futures perpetuals) —
+        the target exchange for this system's trading strategies.
+        Pass exchange_name='binance' for spot data if needed.
+        """
         self.exchange_name = exchange_name
         self.exchange = self._init_exchange(exchange_name)
         
@@ -40,13 +45,17 @@ class DataDownloader:
             'sandbox': False,
         }
         
-        # Add exchange-specific settings
+        # Exchange-specific settings
         if exchange_name == 'binance':
             config.update({
                 'options': {
-                    'defaultType': 'spot',  # spot, future, margin
+                    'defaultType': 'spot',
                 }
             })
+        elif exchange_name == 'binanceusdm':
+            # Binance USDT-M perpetual futures — no special options needed,
+            # binanceusdm is already dedicated to this market type in ccxt.
+            pass
         
         return exchange_class(config)
     
