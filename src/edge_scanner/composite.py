@@ -33,20 +33,20 @@ from ..integrations import altfins_client
 from ..integrations.altfins_client import AltfinsError, parse_trend_score
 from ..integrations import santiment_client
 from ..integrations.santiment_client import SantimentError
+from .scoring_config import ScoringConfig, ACTIVE_CONFIG, get_coin_type
 
 logger = logging.getLogger(__name__)
 
-# Scoring weights. Kept as module constants (not config) until backtested
-# evidence justifies tuning them per-symbol/timeframe.
-TREND_WEIGHT = 0.4          # altFINS SHORT_TERM_TREND, raw range -10..10
-VOLUME_RELATIVE_WEIGHT = 2.0  # per unit of (volume_relative - 1), capped
-VOLUME_RELATIVE_CAP = 3.0
-SCANNER_HIT_WEIGHT = 2.5    # per triggered BacktestingMCP breakout scan
-SIGNAL_FEED_WEIGHT = 3.0    # altFINS direct signal feed agreement
-ONCHAIN_NETFLOW_WEIGHT = 2.0  # per unit of net exchange outflow ratio, -1..1
+# Legacy module-level constants kept for backward compatibility.
+# The canonical values now live in ACTIVE_CONFIG.
+TREND_WEIGHT = ACTIVE_CONFIG.trend_weight
+VOLUME_RELATIVE_WEIGHT = ACTIVE_CONFIG.volume_relative_weight
+VOLUME_RELATIVE_CAP = ACTIVE_CONFIG.volume_relative_cap
+SCANNER_HIT_WEIGHT = ACTIVE_CONFIG.scanner_hit_weight
+SIGNAL_FEED_WEIGHT = ACTIVE_CONFIG.signal_feed_weight
+ONCHAIN_NETFLOW_WEIGHT = ACTIVE_CONFIG.onchain_netflow_weight
 ONCHAIN_LOOKBACK_DAYS = 3
-
-DEFAULT_MIN_ABS_SCORE = 3.0
+DEFAULT_MIN_ABS_SCORE = ACTIVE_CONFIG.min_abs_score
 
 # ── Symbol blocklist ──────────────────────────────────────────────────────────
 # Stablecoins and tokenized stocks produce meaningless trend/volume signals
@@ -101,6 +101,8 @@ class CandidateScore:
     direction: Optional[str]  # "LONG" / "SHORT" / None
     last_close: Optional[float]
     components: Dict[str, Any] = field(default_factory=dict)
+    config_version: str = "v1.0"   # which ScoringConfig produced this signal
+    coin_type: str = "OTHER"        # LAYER1 / LAYER2 / DEFI / MEME / AI / etc.
 
 
 def _altfins_to_pair(symbol: str) -> str:
@@ -180,35 +182,46 @@ def score_symbol(
     signal_feed_index: Dict[str, str],
     timeframe: TimeFrame,
     lookback_days: int,
+    config: Optional[ScoringConfig] = None,
 ) -> CandidateScore:
+    """Score a single symbol using the given ScoringConfig (defaults to ACTIVE_CONFIG)."""
+    cfg = config or ACTIVE_CONFIG
     pair = _altfins_to_pair(symbol)
+    coin_type = get_coin_type(symbol)
     components: Dict[str, Any] = {}
     score = 0.0
+
+    # Apply config filters before scoring — fail fast
+    passes, filter_reason = cfg.passes_filters(symbol, screener_row)
+    if not passes:
+        components["filtered_out"] = filter_reason
+        return CandidateScore(
+            symbol=symbol, pair=pair, composite_score=0.0, direction=None,
+            last_close=None, components=components,
+            config_version=cfg.version, coin_type=coin_type,
+        )
 
     additional = screener_row.get("additionalData", {}) if screener_row else {}
     trend_score = parse_trend_score(additional.get("SHORT_TERM_TREND"))
     volume_relative = _safe_float(additional.get("VOLUME_RELATIVE"), default=1.0)
 
-    score += trend_score * TREND_WEIGHT
+    score += trend_score * cfg.trend_weight
     components["altfins_trend_score"] = trend_score
 
-    vol_excess = min(max(volume_relative - 1.0, 0.0), VOLUME_RELATIVE_CAP)
+    vol_excess = min(max(volume_relative - 1.0, 0.0), cfg.volume_relative_cap)
     if trend_score != 0:
-        score += vol_excess * VOLUME_RELATIVE_WEIGHT * (1 if trend_score > 0 else -1)
+        score += vol_excess * cfg.volume_relative_weight * (1 if trend_score > 0 else -1)
     components["altfins_volume_relative"] = volume_relative
 
     feed_direction = signal_feed_index.get(symbol.upper())
     if feed_direction == "BULLISH":
-        score += SIGNAL_FEED_WEIGHT
+        score += cfg.signal_feed_weight
     elif feed_direction == "BEARISH":
-        score -= SIGNAL_FEED_WEIGHT
+        score -= cfg.signal_feed_weight
     components["altfins_signal_feed"] = feed_direction
 
     netflow_ratio: Optional[float] = None
-    # Only call Santiment if the symbol has a slug mapping AND the altFINS
-    # score is already directionally meaningful — conserves the free-tier budget
-    # (~33 calls/day) by skipping weak/neutral candidates.
-    altfins_score_so_far = score  # trend + volume + signal feed already applied
+    altfins_score_so_far = score
     if santiment_client.slug_for(symbol) and abs(altfins_score_so_far) >= 2.0:
         try:
             onchain = santiment_client.get_onchain_snapshot(symbol, lookback_days=ONCHAIN_LOOKBACK_DAYS)
@@ -216,16 +229,13 @@ def score_symbol(
             outflow = onchain.get("exchange_outflow_usd", 0.0)
             total = inflow + outflow
             if total > 0:
-                # Net outflow (coins leaving exchanges) reads bullish/accumulation;
-                # net inflow (coins arriving, available to sell) reads bearish.
                 netflow_ratio = (outflow - inflow) / total
-                score += netflow_ratio * ONCHAIN_NETFLOW_WEIGHT
+                score += netflow_ratio * cfg.onchain_netflow_weight
         except SantimentError as exc:
             logger.debug("No on-chain data for %s: %s", symbol, exc)
     components["onchain_netflow_ratio"] = netflow_ratio
 
     last_close: Optional[float] = None
-    # Use screener lastPrice as fallback before attempting OHLCV fetch
     try:
         raw_price = screener_row.get("lastPrice")
         if raw_price is not None:
@@ -239,20 +249,19 @@ def score_symbol(
         start_date = end_date - timedelta(days=lookback_days)
         data = engine.get_data(pair, timeframe, start_date, end_date)
         if not data.empty:
-            last_close = float(data["Close"].iloc[-1])  # prefer OHLCV close over screener price
+            last_close = float(data["Close"].iloc[-1])
             scan_result = evaluate_scan(data, "all")
             triggered_scans = [name for name, details in scan_result.items() if details.get("triggered")]
-            # BacktestingMCP's current scanners are all upside-breakout
-            # patterns, so a hit only ever adds to the bullish side.
-            score += len(triggered_scans) * SCANNER_HIT_WEIGHT
-    except Exception as exc:  # noqa: BLE001 - data gaps/network issues shouldn't kill the whole scan
+            score += len(triggered_scans) * cfg.scanner_hit_weight
+    except Exception as exc:
         logger.warning("Could not fetch/scan OHLCV for %s: %s", pair, exc)
     components["backtestingmcp_scanner_hits"] = triggered_scans
+    components["coin_type"] = coin_type
 
     direction: Optional[str] = None
-    if score >= DEFAULT_MIN_ABS_SCORE:
+    if score >= cfg.min_abs_score:
         direction = "LONG"
-    elif score <= -DEFAULT_MIN_ABS_SCORE:
+    elif score <= -cfg.min_abs_score:
         direction = "SHORT"
 
     return CandidateScore(
@@ -262,6 +271,8 @@ def score_symbol(
         direction=direction,
         last_close=last_close,
         components=components,
+        config_version=cfg.version,
+        coin_type=coin_type,
     )
 
 
@@ -269,7 +280,10 @@ def run_composite_scan(
     timeframe: TimeFrame = TimeFrame.H1,
     lookback_days: int = 30,
     per_side_size: int = 20,
+    config: Optional[ScoringConfig] = None,
 ) -> List[CandidateScore]:
+    """Run a full scan cycle using the given config (defaults to ACTIVE_CONFIG)."""
+    cfg = config or ACTIVE_CONFIG
     candidates = discover_candidates(per_side_size=per_side_size)
 
     try:
@@ -278,7 +292,7 @@ def run_composite_scan(
         feed_index = {}
 
     results = [
-        score_symbol(symbol, row, feed_index, timeframe, lookback_days)
+        score_symbol(symbol, row, feed_index, timeframe, lookback_days, config=cfg)
         for symbol, row in candidates.items()
     ]
     results.sort(key=lambda c: abs(c.composite_score), reverse=True)

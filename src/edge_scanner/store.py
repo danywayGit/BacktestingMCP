@@ -42,6 +42,8 @@ def log_signals(scores: List[CandidateScore], timeframe: TimeFrame, horizon_hour
             components=score.components,
             entry_price=score.last_close,
             horizon_hours=horizon_hours,
+            config_version=score.config_version,
+            coin_type=score.coin_type,
         )
         logged += 1
     return logged
@@ -90,7 +92,7 @@ def resolve_due_signals() -> int:
 
 
 def performance_report(group_by: str = "symbol", min_n: int = 5, since_days: int = 90) -> pd.DataFrame:
-    """Win-rate / avg return grouped by symbol, hour-of-day, or direction.
+    """Win-rate / avg return grouped by symbol, hour-of-day, direction, config version, or coin type.
 
     Mirrors the win-rate-by-segment approach BackTestingSignals uses for
     Telegram/Discord calls, applied to the edge scanner's own signals.
@@ -107,6 +109,10 @@ def performance_report(group_by: str = "symbol", min_n: int = 5, since_days: int
         df["group"] = df["entry_time"].dt.hour
     elif group_by == "direction":
         df["group"] = df["direction"]
+    elif group_by == "config":
+        df["group"] = df.get("config_version", "v1.0")
+    elif group_by == "coin_type":
+        df["group"] = df.get("coin_type", "OTHER")
     else:
         df["group"] = df["symbol"]
 

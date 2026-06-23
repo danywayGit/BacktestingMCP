@@ -1002,16 +1002,76 @@ def edge_track():
 
 
 @edge.command('report')
-@click.option('--group-by', default='symbol', type=click.Choice(['symbol', 'hour', 'direction']))
+@click.option('--group-by', default='symbol',
+              type=click.Choice(['symbol', 'hour', 'direction', 'config', 'coin_type']))
 @click.option('--min-n', default=5, help='Minimum resolved signals required to show a group')
 @click.option('--since-days', default=90, help='Lookback window for resolved signals')
 def edge_report(group_by, min_n, since_days):
-    """Show win-rate / avg return of resolved signals, grouped by segment."""
+    """Show win-rate / avg return of resolved signals, grouped by segment.
+
+    Use --group-by config to compare performance across scoring config versions.
+    Use --group-by coin_type to see which asset categories work best.
+    """
     summary = edge_store.performance_report(group_by=group_by, min_n=min_n, since_days=since_days)
     if summary.empty:
         click.echo("No resolved signals matching the criteria yet.")
         return
     click.echo(summary.to_string(index=False))
+
+
+@edge.command('configs')
+def edge_configs():
+    """List all scoring config versions and their status."""
+    from src.edge_scanner.scoring_config import ALL_CONFIGS, ACTIVE_CONFIG
+    configs = db.list_scoring_configs()
+
+    # Seed DB with all known configs if not already there
+    for cfg in ALL_CONFIGS.values():
+        db.save_scoring_config(cfg)
+    if not db.get_active_scoring_config_version():
+        db.activate_scoring_config(ACTIVE_CONFIG.version)
+    configs = db.list_scoring_configs()
+
+    click.echo(f"\n{'Version':<8} {'Active':<8} {'Description':<60} {'Since'}")
+    click.echo('-' * 100)
+    for c in configs:
+        active_marker = "✅ YES" if c['is_active'] else "   no"
+        since = c['activated_at'][:10] if c['activated_at'] else "—"
+        click.echo(f"{c['version']:<8} {active_marker:<8} {(c['description'] or '')[:58]:<60} {since}")
+
+    click.echo(f"\nActive config: {db.get_active_scoring_config_version() or 'none'}")
+    click.echo("\nTo activate a different version:")
+    click.echo("  python -m src.cli.main edge activate-config --version v1.1")
+
+
+@edge.command('activate-config')
+@click.option('--version', required=True, help='Config version to activate (e.g. v1.1)')
+def edge_activate_config(version):
+    """Switch the active scoring config version.
+
+    All subsequent scans will use the new config.
+    Previous signals retain their original config_version for accurate win-rate attribution.
+    """
+    from src.edge_scanner.scoring_config import ALL_CONFIGS
+    if version not in ALL_CONFIGS:
+        click.echo(f"Unknown version '{version}'. Available: {list(ALL_CONFIGS.keys())}", err=True)
+        return
+    cfg = ALL_CONFIGS[version]
+    db.save_scoring_config(cfg)
+    db.activate_scoring_config(version)
+    click.echo(f"✅ Activated scoring config {version}: {cfg.description}")
+    click.echo("New scans will use these weights:")
+    click.echo(f"  trend={cfg.trend_weight}  volume={cfg.volume_relative_weight}  "
+               f"signal_feed={cfg.signal_feed_weight}  scanner={cfg.scanner_hit_weight}  "
+               f"onchain={cfg.onchain_netflow_weight}")
+    if cfg.min_market_cap_usd > 0:
+        click.echo(f"  min_market_cap=${cfg.min_market_cap_usd:,.0f}")
+    if cfg.min_volume_relative > 0:
+        click.echo(f"  min_volume_relative={cfg.min_volume_relative}x")
+    if "ANY" not in cfg.coin_type_filter:
+        click.echo(f"  coin_type_filter={cfg.coin_type_filter}")
+    if cfg.exclude_coin_types:
+        click.echo(f"  exclude_coin_types={cfg.exclude_coin_types}")
 
 
 @cli.group()
