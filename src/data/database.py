@@ -55,7 +55,7 @@ class CryptoDatabase:
                     UNIQUE(symbol, timeframe, timestamp)
                 )
             """)
-            
+
             # Backtest results table
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS backtest_results (
@@ -65,13 +65,13 @@ class CryptoDatabase:
                     timeframe TEXT NOT NULL,
                     start_date TEXT NOT NULL,
                     end_date TEXT NOT NULL,
-                    parameters TEXT,  -- JSON string
-                    metrics TEXT,     -- JSON string
-                    trades TEXT,      -- JSON string
+                    parameters TEXT,
+                    metrics TEXT,
+                    trades TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            
+
             # Strategy parameters table
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS strategy_parameters (
@@ -85,7 +85,7 @@ class CryptoDatabase:
                     UNIQUE(strategy_name, parameter_name)
                 )
             """)
-            
+
             # Performance metrics table
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS performance_metrics (
@@ -97,7 +97,27 @@ class CryptoDatabase:
                     FOREIGN KEY (backtest_id) REFERENCES backtest_results (id)
                 )
             """)
-            
+
+            # Scoring config versions table
+            # Every change to weights/filters creates a new row here.
+            # The active config is flagged with is_active=1 (only one at a time).
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS scoring_configs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    version TEXT NOT NULL UNIQUE,
+                    description TEXT,
+                    config_json TEXT NOT NULL,
+                    is_active INTEGER NOT NULL DEFAULT 0,
+                    activated_at TIMESTAMP,
+                    retired_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_scoring_configs_active
+                ON scoring_configs(is_active)
+            """)
+
             # Edge scanner signals table
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS edge_signals (
@@ -108,6 +128,8 @@ class CryptoDatabase:
                     direction TEXT NOT NULL,
                     composite_score REAL NOT NULL,
                     components TEXT,
+                    config_version TEXT NOT NULL DEFAULT 'v1.0',
+                    coin_type TEXT,
                     entry_price REAL NOT NULL,
                     entry_time TIMESTAMP NOT NULL,
                     horizon_hours INTEGER NOT NULL,
@@ -120,13 +142,24 @@ class CryptoDatabase:
                 )
             """)
 
-            # Create indexes for better performance
+            # Migrate existing edge_signals rows missing config_version / coin_type
+            try:
+                conn.execute("ALTER TABLE edge_signals ADD COLUMN config_version TEXT NOT NULL DEFAULT 'v1.0'")
+            except Exception:
+                pass  # column already exists
+            try:
+                conn.execute("ALTER TABLE edge_signals ADD COLUMN coin_type TEXT")
+            except Exception:
+                pass  # column already exists
+
+            # Create indexes
             conn.execute("CREATE INDEX IF NOT EXISTS idx_market_data_symbol_timeframe ON market_data(symbol, timeframe)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_market_data_timestamp ON market_data(timestamp)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_backtest_results_strategy ON backtest_results(strategy_name)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_backtest_results_symbol ON backtest_results(symbol)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_edge_signals_status ON edge_signals(status)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_edge_signals_symbol ON edge_signals(symbol)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_edge_signals_config ON edge_signals(config_version)")
     
     @contextmanager
     def get_connection(self):
@@ -423,6 +456,8 @@ class CryptoDatabase:
         components: Dict[str, Any],
         entry_price: float,
         horizon_hours: int,
+        config_version: str = "v1.0",
+        coin_type: str = "OTHER",
     ) -> int:
         """Log a composite-scanner signal so its forward outcome can be tracked."""
         with self.get_connection() as conn:
@@ -430,11 +465,12 @@ class CryptoDatabase:
             cursor.execute("""
                 INSERT INTO edge_signals
                 (symbol, pair, timeframe, direction, composite_score, components,
-                 entry_price, entry_time, horizon_hours)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 config_version, coin_type, entry_price, entry_time, horizon_hours)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 symbol, pair, timeframe, direction, composite_score,
                 json.dumps(components, cls=_NumpyEncoder),
+                config_version, coin_type,
                 entry_price, datetime.now(timezone.utc).isoformat(), horizon_hours,
             ))
             return cursor.lastrowid
@@ -484,6 +520,55 @@ class CryptoDatabase:
             columns = [d[0] for d in cursor.description]
             rows = cursor.fetchall()
         return [dict(zip(columns, row)) for row in rows]
+
+    # ------------------------------------------------------------------
+    # Scoring config versioning
+    # ------------------------------------------------------------------
+
+    def save_scoring_config(self, config: "ScoringConfig") -> None:  # type: ignore[name-defined]
+        """Persist a ScoringConfig to the DB (insert or update description/json)."""
+        import json
+        with self.get_connection() as conn:
+            conn.execute("""
+                INSERT INTO scoring_configs (version, description, config_json, is_active)
+                VALUES (?, ?, ?, 0)
+                ON CONFLICT(version) DO UPDATE SET
+                    description = excluded.description,
+                    config_json = excluded.config_json
+            """, (config.version, config.description, json.dumps(config.to_dict())))
+
+    def activate_scoring_config(self, version: str) -> None:
+        """Set a config as active, retiring the previously active one."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self.get_connection() as conn:
+            # Retire current active
+            conn.execute("""
+                UPDATE scoring_configs SET is_active = 0, retired_at = ?
+                WHERE is_active = 1
+            """, (now,))
+            # Activate new one
+            conn.execute("""
+                UPDATE scoring_configs SET is_active = 1, activated_at = ?, retired_at = NULL
+                WHERE version = ?
+            """, (now, version))
+
+    def get_active_scoring_config_version(self) -> Optional[str]:
+        """Return the version string of the currently active config, or None."""
+        with self.get_connection() as conn:
+            row = conn.execute(
+                "SELECT version FROM scoring_configs WHERE is_active = 1 LIMIT 1"
+            ).fetchone()
+        return row[0] if row else None
+
+    def list_scoring_configs(self) -> List[Dict[str, Any]]:
+        """Return all scoring config versions, newest first."""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT version, description, is_active, activated_at, retired_at, created_at
+                FROM scoring_configs ORDER BY created_at DESC
+            """)
+            columns = [d[0] for d in cursor.description]
+            return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
 # Global database instance
