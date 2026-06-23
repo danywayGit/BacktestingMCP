@@ -33,12 +33,15 @@ from ..integrations import altfins_client
 from ..integrations.altfins_client import AltfinsError, parse_trend_score
 from ..integrations import santiment_client
 from ..integrations.santiment_client import SantimentError
-from .scoring_config import ScoringConfig, ACTIVE_CONFIG, get_coin_type
+from .scoring_config import (
+    ScoringConfig, ACTIVE_CONFIG, get_coin_type,
+    is_stablecoin_or_stock, parse_trend_score_extended,
+    parse_float as _safe_float_sc,
+)
 
 logger = logging.getLogger(__name__)
 
-# Legacy module-level constants kept for backward compatibility.
-# The canonical values now live in ACTIVE_CONFIG.
+# Legacy module-level constants — kept for backward compat, sourced from ACTIVE_CONFIG.
 TREND_WEIGHT = ACTIVE_CONFIG.trend_weight
 VOLUME_RELATIVE_WEIGHT = ACTIVE_CONFIG.volume_relative_weight
 VOLUME_RELATIVE_CAP = ACTIVE_CONFIG.volume_relative_cap
@@ -55,42 +58,9 @@ DEFAULT_MIN_ABS_SCORE = ACTIVE_CONFIG.min_abs_score
 # Stablecoins: their "uptrend" is just peg maintenance noise.
 # Tokenized stocks (xStock platform, suffix X/XUSDT or known tickers):
 #   they are not available on Binance Futures and have no crypto liquidity.
-_STABLECOINS: frozenset[str] = frozenset({
-    "USDT", "USDC", "BUSD", "TUSD", "DAI", "FDUSD", "USDP", "GUSD",
-    "FRAX", "LUSD", "SUSD", "USDD", "USDG", "PYUSD", "USDB", "CRVUSD",
-    "USDE", "SUSDE", "STABLE", "FDUSD", "LISUSD", "USD0",
-})
-
-# Tokenized-stock symbols from xStock/tokenized platforms.
-# These end in X on altFINS (INTCX, HOODX, ABBVX, QQQX, SPXX, TQQQX, etc.)
-# or match known stock tickers repurposed as crypto (US, IN, AT, BR, etc.)
-_TOKENIZED_STOCK_SUFFIXES: tuple[str, ...] = ("X",)  # e.g. INTCX, HOODX, QQQX
-_TOKENIZED_STOCK_EXACT: frozenset[str] = frozenset({
-    # Short single/double-letter "country" or stock tracker symbols
-    "US", "IN", "AT", "BR", "VX", "VR", "MET", "MY", "EV", "B2",
-    # Known xStock tickers seen in first scan
-    "INTCX", "HOODX", "QQQX", "SPXX", "TQQQX", "ABBVX", "CSCOX",
-    "JPMX", "UNHX", "MRVLX", "EDGEX", "STRCX", "BACX", "BPUSDT",
-})
-
-
 def _is_blocked(symbol: str) -> bool:
-    """Return True if symbol should never be scored/logged as a candidate."""
-    s = symbol.upper()
-    if s in _STABLECOINS:
-        return True
-    if s in _TOKENIZED_STOCK_EXACT:
-        return True
-    # xStock tokens: length > 3, end in X, and the base (without X) looks like
-    # a stock ticker (all-caps, 2-5 chars). We also accept known crypto tokens
-    # ending in X (e.g. OX, WX) so only block if length >= 4.
-    if len(s) >= 4 and s.endswith("X") and s[:-1].isalpha():
-        base = s[:-1]
-        # Crypto exceptions that legitimately end in X
-        _CRYPTO_X_EXCEPTIONS = {"OX", "INX", "KSX", "HEX", "LEX", "LUMX"}
-        if base not in _CRYPTO_X_EXCEPTIONS:
-            return True
-    return False
+    """Return True if symbol should never be scored — delegates to global blocklist in scoring_config."""
+    return is_stablecoin_or_stock(symbol)
 
 
 @dataclass
@@ -143,19 +113,24 @@ def _signal_feed_index(entries: List[Dict[str, Any]]) -> Dict[str, str]:
     return index
 
 
-def discover_candidates(per_side_size: int = 20) -> Dict[str, Dict[str, Any]]:
+def discover_candidates(per_side_size: int = 20, config: Optional[ScoringConfig] = None) -> Dict[str, Dict[str, Any]]:
     """Returns {altfins_symbol: screener_row} for bullish + bearish screens.
 
-    Filters out stablecoins and tokenized stocks — they produce meaningless
-    trend/volume signals and are not tradeable on Binance Futures.
-    Falls back to the static CRYPTO_PAIRS universe (with no screener row)
-    if altFINS isn't configured.
+    Fetches the display_types required by the given config (defaults to ACTIVE_CONFIG).
+    Filters out stablecoins and tokenized stocks globally — these are never tradeable.
     """
+    cfg = config or ACTIVE_CONFIG
+    display_types = cfg.get_required_display_types()
+
     candidates: Dict[str, Dict[str, Any]] = {}
     blocked: List[str] = []
     try:
         for direction in ("UP", "DOWN"):
-            rows = altfins_client.get_screener_data(signal_filter_value=direction, size=per_side_size)
+            rows = altfins_client.get_screener_data(
+                display_types=display_types,
+                signal_filter_value=direction,
+                size=per_side_size,
+            )
             for row in rows:
                 symbol = row.get("symbol")
                 if not symbol:
@@ -172,7 +147,7 @@ def discover_candidates(per_side_size: int = 20) -> Dict[str, Dict[str, Any]]:
                 candidates[sym] = {}
     if blocked:
         logger.info("discover_candidates: blocked %d stablecoin/stock symbols: %s", len(blocked), blocked)
-    logger.info("discover_candidates: %d tradeable candidates", len(candidates))
+    logger.info("discover_candidates: %d tradeable candidates (config=%s)", len(candidates), cfg.version)
     return candidates
 
 
@@ -235,6 +210,12 @@ def score_symbol(
             logger.debug("No on-chain data for %s: %s", symbol, exc)
     components["onchain_netflow_ratio"] = netflow_ratio
 
+    # Extended scoring signals (ADX, OBV, RSI, TR/ATR, price momentum)
+    direction_hint = score  # positive = bullish context so far
+    extra_score, extra_components = cfg.compute_extended_score(additional, score, direction_hint)
+    score += extra_score
+    components.update(extra_components)
+
     last_close: Optional[float] = None
     try:
         raw_price = screener_row.get("lastPrice")
@@ -284,7 +265,7 @@ def run_composite_scan(
 ) -> List[CandidateScore]:
     """Run a full scan cycle using the given config (defaults to ACTIVE_CONFIG)."""
     cfg = config or ACTIVE_CONFIG
-    candidates = discover_candidates(per_side_size=per_side_size)
+    candidates = discover_candidates(per_side_size=per_side_size, config=cfg)
 
     try:
         feed_index = _signal_feed_index(altfins_client.get_signal_feed(size=100, lookback="last 7 days"))
