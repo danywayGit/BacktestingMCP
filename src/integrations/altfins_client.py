@@ -104,9 +104,8 @@ def get_screener_data(
 # The API requires at least one signal type in 'signals' — this default
 # covers trend, momentum, and pullback categories.
 DEFAULT_SIGNAL_TYPES = [
-    "UP_DOWN_TREND",
-    "MOMENTUM_UP_DOWN_TREND",
     "PULLBACK_UP_DOWN_TREND",
+    "SUPPORT_RESISTANCE_BREAKOUT",
     "FRESH_MOMENTUM_MACD_SIGNAL_LINE_CROSSOVER",
     "UP_DOWN_TREND_AND_FRESH_MOMENTUM_INFLECTION",
     "SIGNALS_SUMMARY_STRONG_UP_DOWN_TREND",

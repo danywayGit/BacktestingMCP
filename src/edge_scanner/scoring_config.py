@@ -749,9 +749,88 @@ CONFIG_V5_2 = ScoringConfig(
     min_volume_relative=1.2,
     exclude_coin_types=["MEME"],
     min_adx=20.0,
-    max_rsi=75.0,
     scanner_hit_weight=3.0,
     display_types_extra=["ADX", "RSI14"],
+)
+
+
+# ── v6.x — CEO altFINS suggested patterns ──────────────────────────────
+# Three dedicated versions, each isolating ONE of the CEO's suggestions:
+#   v6.0: Uptrend + Pullback (buy the dip in a trend)
+#   v6.1: Resistance Breakout (breakout from resistance levels)
+#   v6.2: Bullish MACD Crossover (momentum shift confirmation)
+#
+# Each version:
+#   - Only fires signals when the signal_feed matches its specific pattern
+#   - Uses the signal_feed_weight as the primary signal (maximized to 10.0)
+#   - Reduces other weights so only that pattern dominates
+#   - Includes volume + cap quality gates to filter fakeouts
+
+CONFIG_V6_0 = ScoringConfig(
+    version="v6.0",
+    description=(
+        "CEO PATTERN 1 — UPTREND PULLBACK. Detects assets in an established "
+        "uptrend that have pulled back to support (buy-the-dip in a trend). "
+        "Theory: the highest-probability swing trades are entries in the direction "
+        "of the dominant trend after a temporary counter-trend move — buying "
+        "the dip in a bull trend. The altFINS 'PULLBACK_UP_DOWN_TREND' signal "
+        "type flags exactly this pattern. "
+        "Maximizes signal_feed_weight (10.0) so only pullback signals dominate. "
+        "Criteria: signal_feed_weight=10.0 + min_vol=1.0x + min_mcap=$100M "
+        "to ensure quality pullbacks in liquid markets."
+    ),
+    signal_feed_weight=10.0,
+    trend_weight=0.1,
+    volume_relative_weight=0.5,
+    min_volume_relative=1.0,
+    min_market_cap_usd=100_000_000,
+    exclude_coin_types=["MEME"],
+)
+
+CONFIG_V6_1 = ScoringConfig(
+    version="v6.1",
+    description=(
+        "CEO PATTERN 2 — RESISTANCE BREAKOUT. Detects assets breaking through "
+        "key resistance levels with volume confirmation. "
+        "Theory: breakouts above resistance with above-average volume have the "
+        "highest continuation rates in crypto — the breakout creates a new "
+        "support level and attracts momentum traders. "
+        "The altFINS 'SUPPORT_RESISTANCE_BREAKOUT' signal type flags exactly this. "
+        "Adds scanner_hit_weight bonus for TA-confirmed breakouts on real OHLCV. "
+        "Criteria: signal_feed_weight=10.0 + scanner_hit_weight=4.0 + "
+        "min_vol=1.2x + min_mcap=$200M + no MEME."
+    ),
+    signal_feed_weight=10.0,
+    scanner_hit_weight=4.0,
+    trend_weight=0.1,
+    volume_relative_weight=0.5,
+    min_volume_relative=1.2,
+    min_market_cap_usd=200_000_000,
+    exclude_coin_types=["MEME"],
+)
+
+CONFIG_V6_2 = ScoringConfig(
+    version="v6.2",
+    description=(
+        "CEO PATTERN 3 — BULLISH MACD CROSSOVER. Detects assets where the "
+        "MACD line has just crossed above the signal line, indicating fresh "
+        "bullish momentum. "
+        "Theory: the MACD crossover is one of the most widely tracked technical "
+        "signals — a fresh bullish cross at the start of an uptrend has "
+        "statistically significant continuation probability. "
+        "The altFINS 'FRESH_MOMENTUM_MACD_SIGNAL_LINE_CROSSOVER' signal type "
+        "flags exactly this. RSI is capped at 70 to avoid catching overbought "
+        "crosses that already exhausted. "
+        "Criteria: signal_feed_weight=10.0 + max_rsi=70 + "
+        "min_vol=1.0x + medium_term_trend_weight=0.3 to confirm MTF alignment."
+    ),
+    signal_feed_weight=10.0,
+    trend_weight=0.1,
+    medium_term_trend_weight=0.3,
+    max_rsi=70.0,
+    min_volume_relative=1.0,
+    min_market_cap_usd=50_000_000,
+    display_types_extra=["MEDIUM_TERM_TREND", "RSI14"],
 )
 
 
@@ -775,5 +854,7 @@ ALL_CONFIGS: dict[str, ScoringConfig] = {
         CONFIG_V4_0, CONFIG_V4_1,
         # Coin-type specific
         CONFIG_V5_0, CONFIG_V5_1, CONFIG_V5_2,
+        # CEO suggested patterns
+        CONFIG_V6_0, CONFIG_V6_1, CONFIG_V6_2,
     ]
 }

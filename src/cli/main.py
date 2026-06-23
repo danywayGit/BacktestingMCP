@@ -1077,6 +1077,79 @@ def edge_report(group_by, min_n, since_days):
     click.echo(summary.to_string(index=False))
 
 
+@edge.command('daily-summary')
+def edge_daily_summary():
+    """Generate a daily summary for Telegram — top signals, resolutions, win-rates."""
+    from datetime import datetime, timezone, timedelta
+    from ..data.database import db
+    import pandas as pd
+
+    since = datetime.now(timezone.utc) - timedelta(days=1)
+    rows = db.get_resolved_edge_signals(since=since)
+    if not rows:
+        msg = "📊 *Daily Edge Scanner — {date}*\n\nNo signals resolved in the last 24h."
+        click.echo(msg.format(date=datetime.now(timezone.utc).strftime('%Y-%m-%d')))
+        return
+
+    df = pd.DataFrame(rows)
+    df["entry_time"] = pd.to_datetime(df["entry_time"], utc=True)
+    df["is_win"] = (df["outcome"] == "WIN").astype(int)
+
+    # Overall stats
+    total = len(df)
+    wins = df["is_win"].sum()
+    losses = (df["outcome"] == "LOSS").sum()
+    flats = (df["outcome"] == "FLAT").sum()
+    win_rate = (wins / total * 100) if total > 0 else 0
+    avg_ret = df["forward_return_pct"].mean() if total > 0 else 0
+
+    # Per-config stats (only configs with >= 2 signals)
+    config_stats = df.groupby("config_version").agg(
+        n=("outcome", "size"),
+        wr=("is_win", "mean"),
+        ret=("forward_return_pct", "mean")
+    ).reset_index()
+    config_stats["wr"] = (config_stats["wr"] * 100).round(1)
+    config_stats["ret"] = config_stats["ret"].round(3)
+    config_stats = config_stats[config_stats["n"] >= 2].sort_values("wr", ascending=False)
+
+    # Per-direction stats
+    dir_stats = df.groupby("direction").agg(
+        n=("outcome", "size"),
+        wr=("is_win", "mean"),
+        ret=("forward_return_pct", "mean")
+    ).reset_index()
+    dir_stats["wr"] = (dir_stats["wr"] * 100).round(1)
+    dir_stats["ret"] = dir_stats["ret"].round(3)
+
+    # Build message
+    today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    lines = [
+        f"📊 *Daily Edge Scanner — {today}*",
+        f"Resolved in last 24h: *{total}* signals",
+        f"🟢 WIN: {wins} | 🔴 LOSS: {losses} | ⚪ FLAT: {flats}",
+        f"Win-rate: *{win_rate:.1f}%* | Avg return: *{avg_ret:.2f}%*",
+        "",
+    ]
+
+    if not dir_stats.empty:
+        lines.append("*By direction:*")
+        for _, row in dir_stats.iterrows():
+            lines.append(f"  {row['direction']}: {row['n']} sigs, {row['wr']:.1f}% WR, {row['ret']:.2f}% avg")
+
+    if not config_stats.empty:
+        lines.append("")
+        lines.append("*By config (n≥2):*")
+        for _, row in config_stats.iterrows():
+            active = " ✅" if row["config_version"] == "v1.0" else ""
+            lines.append(f"  {row['config_version']}{active}: {row['n']} sigs, {row['wr']:.1f}% WR, {row['ret']:.2f}% avg")
+
+    lines.append("")
+    lines.append("🤖 *Edge Scanner — auto-generated at 09:00 UTC*")
+
+    click.echo("\n".join(lines))
+
+
 @edge.command('configs')
 def edge_configs():
     """List all scoring config versions and their status."""
