@@ -6,13 +6,17 @@ Pipeline per scan cycle:
      SHORT_TERM_TREND filters) across its 2000+ symbol universe.
   2. Cross-check each candidate against altFINS' direct signal feed
      (the API equivalent of the altFINS VIP Telegram signal channel).
-  3. Confirm with BacktestingMCP's own price/volume breakout scanners on
+  3. Add on-chain exchange-flow bias from Santiment (net outflow reads
+     bullish/accumulation, net inflow reads bearish/sell-pressure).
+  4. Confirm with BacktestingMCP's own price/volume breakout scanners on
      real OHLCV (so the score isn't just trusting a third party).
-  4. Combine into one composite score; symbols crossing the threshold in
+  5. Combine into one composite score; symbols crossing the threshold in
      either direction become tracked signals (see store.py).
 
 If ALTFINS_API_KEY isn't configured, falls back to a static symbol
-universe and TA-only scoring so the scanner still works.
+universe and TA-only scoring so the scanner still works. SANTIMENT_API_KEY
+is optional too -- on-chain component degrades to None per-symbol if
+unset, unmapped (small-cap symbols), or unreachable.
 """
 
 from __future__ import annotations
@@ -27,6 +31,8 @@ from ..core.backtesting_engine import engine
 from ..strategies.scanner import evaluate_scan
 from ..integrations import altfins_client
 from ..integrations.altfins_client import AltfinsError, parse_trend_score
+from ..integrations import santiment_client
+from ..integrations.santiment_client import SantimentError
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +43,8 @@ VOLUME_RELATIVE_WEIGHT = 2.0  # per unit of (volume_relative - 1), capped
 VOLUME_RELATIVE_CAP = 3.0
 SCANNER_HIT_WEIGHT = 2.5    # per triggered BacktestingMCP breakout scan
 SIGNAL_FEED_WEIGHT = 3.0    # altFINS direct signal feed agreement
+ONCHAIN_NETFLOW_WEIGHT = 2.0  # per unit of net exchange outflow ratio, -1..1
+ONCHAIN_LOOKBACK_DAYS = 3
 
 DEFAULT_MIN_ABS_SCORE = 3.0
 
@@ -140,6 +148,21 @@ def score_symbol(
     elif feed_direction == "BEARISH":
         score -= SIGNAL_FEED_WEIGHT
     components["altfins_signal_feed"] = feed_direction
+
+    netflow_ratio: Optional[float] = None
+    try:
+        onchain = santiment_client.get_onchain_snapshot(symbol, lookback_days=ONCHAIN_LOOKBACK_DAYS)
+        inflow = onchain.get("exchange_inflow_usd", 0.0)
+        outflow = onchain.get("exchange_outflow_usd", 0.0)
+        total = inflow + outflow
+        if total > 0:
+            # Net outflow (coins leaving exchanges) reads bullish/accumulation;
+            # net inflow (coins arriving, available to sell) reads bearish.
+            netflow_ratio = (outflow - inflow) / total
+            score += netflow_ratio * ONCHAIN_NETFLOW_WEIGHT
+    except SantimentError as exc:
+        logger.debug("No on-chain data for %s: %s", symbol, exc)
+    components["onchain_netflow_ratio"] = netflow_ratio
 
     last_close: Optional[float] = None
     triggered_scans: List[str] = []
