@@ -164,13 +164,21 @@ def score_symbol(
     components["onchain_netflow_ratio"] = netflow_ratio
 
     last_close: Optional[float] = None
+    # Use screener lastPrice as fallback before attempting OHLCV fetch
+    try:
+        raw_price = screener_row.get("lastPrice")
+        if raw_price is not None:
+            last_close = float(str(raw_price).replace(",", ""))
+    except (TypeError, ValueError):
+        pass
+
     triggered_scans: List[str] = []
     try:
         end_date = datetime.now(timezone.utc)
         start_date = end_date - timedelta(days=lookback_days)
         data = engine.get_data(pair, timeframe, start_date, end_date)
         if not data.empty:
-            last_close = float(data["Close"].iloc[-1])
+            last_close = float(data["Close"].iloc[-1])  # prefer OHLCV close over screener price
             scan_result = evaluate_scan(data, "all")
             triggered_scans = [name for name, details in scan_result.items() if details.get("triggered")]
             # BacktestingMCP's current scanners are all upside-breakout
