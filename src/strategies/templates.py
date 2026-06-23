@@ -18,13 +18,24 @@ except ImportError:
 
 from ..core.backtesting_engine import BaseStrategy
 from .dca_strategies import DCAMonthlyStrategy, DCASignalStrategy
-from .generated.testrsistrategy import TestRSIStrategy
-from .generated.emacrossrsistrategy import EMAcrossRSIStrategy
-from .generated.buyafterpullbacktrendcontinuation import BuyAfterPullbackTrendContinuation
-from .generated.discord_v1_trend import DiscordV1TrendStrategy
-from .generated.discord_v2_meanreversion import DiscordV2MeanReversionStrategy
-from .generated.discord_v3_trendlong import DiscordV3TrendLongStrategy
-from .generated.telegram_trend_momentum import TelegramTrendMomentumStrategy
+try:
+    from .generated.testrsistrategy import TestRSIStrategy
+    from .generated.emacrossrsistrategy import EMAcrossRSIStrategy
+    from .generated.buyafterpullbacktrendcontinuation import BuyAfterPullbackTrendContinuation
+    from .generated.discord_v1_trend import DiscordV1TrendStrategy
+    from .generated.discord_v2_meanreversion import DiscordV2MeanReversionStrategy
+    from .generated.discord_v3_trendlong import DiscordV3TrendLongStrategy
+    from .generated.telegram_trend_momentum import TelegramTrendMomentumStrategy
+    _GENERATED_AVAILABLE = True
+except ImportError:
+    _GENERATED_AVAILABLE = False
+    TestRSIStrategy = None  # type: ignore[assignment,misc]
+    EMAcrossRSIStrategy = None  # type: ignore[assignment,misc]
+    BuyAfterPullbackTrendContinuation = None  # type: ignore[assignment,misc]
+    DiscordV1TrendStrategy = None  # type: ignore[assignment,misc]
+    DiscordV2MeanReversionStrategy = None  # type: ignore[assignment,misc]
+    DiscordV3TrendLongStrategy = None  # type: ignore[assignment,misc]
+    TelegramTrendMomentumStrategy = None  # type: ignore[assignment,misc]
 from .swing1_ema_wave_volume import Swing1EmaWaveVolumeStrategy
 from .swing2_bb_squeeze_breakout import Swing2BBSqueezeBreakoutStrategy
 from .swing3_supertrend_adx import Swing3SupertrendADXStrategy

@@ -99,12 +99,50 @@ def get_screener_data(
     return asyncio.run(_call_tool("screener_getAltfinsScreenerData", args))
 
 
-def get_signal_feed(symbols: Optional[List[str]] = None, size: int = 50) -> List[Dict[str, Any]]:
-    """Direct bullish/bearish trading signals from the altFINS signal feed
-    (the API equivalent of altFINS' VIP Telegram signal channel)."""
-    args: Dict[str, Any] = {"size": size}
+
+# Signal types most useful for swing-trading candidate discovery.
+# The API requires at least one signal type in 'signals' — this default
+# covers trend, momentum, and pullback categories.
+DEFAULT_SIGNAL_TYPES = [
+    "UP_DOWN_TREND",
+    "MOMENTUM_UP_DOWN_TREND",
+    "PULLBACK_UP_DOWN_TREND",
+    "FRESH_MOMENTUM_MACD_SIGNAL_LINE_CROSSOVER",
+    "UP_DOWN_TREND_AND_FRESH_MOMENTUM_INFLECTION",
+    "SIGNALS_SUMMARY_STRONG_UP_DOWN_TREND",
+]
+
+
+def get_signal_feed(
+    symbols: Optional[List[str]] = None,
+    signal_direction: Optional[str] = None,
+    signal_types: Optional[List[str]] = None,
+    lookback: str = "last 7 days",
+    size: int = 50,
+) -> List[Dict[str, Any]]:
+    """Direct trading signals from the altFINS signal feed.
+
+    The API equivalent of altFINS' VIP Telegram signal channel.
+    Response fields: symbol, name, timestamp, direction (BULLISH/BEARISH),
+    signalKey, signalName, lastPrice, priceChange, marketCap.
+
+    signal_direction: "BULLISH", "BEARISH", or None for both.
+    signal_types: list of signal type keys (see DEFAULT_SIGNAL_TYPES).
+                  Defaults to DEFAULT_SIGNAL_TYPES if not provided.
+                  'signals' is required by the API — never omit it.
+    lookback: natural-language or ISO-8601 start time, e.g. "last 7 days".
+    """
+    args: Dict[str, Any] = {
+        "signals": signal_types or DEFAULT_SIGNAL_TYPES,
+        "from": lookback,
+        "size": size,
+        "sortField": "timestamp",
+        "sortDirection": "DESC",
+    }
     if symbols:
-        args["assetSymbolsKeywords"] = ",".join(symbols)
+        args["symbols"] = symbols
+    if signal_direction:
+        args["signalDirection"] = signal_direction
     return asyncio.run(_call_tool("signal_feed_data", args))
 
 
