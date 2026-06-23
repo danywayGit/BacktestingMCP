@@ -209,47 +209,134 @@ class ScoringConfig:
 # Add new variants here when you want to A/B test a different hypothesis.
 # ---------------------------------------------------------------------------
 
-# v1.0 — baseline, hand-tuned, no extra filters
+# ---------------------------------------------------------------------------
+# Pre-defined config variants
+#
+# Each version is a named hypothesis — a specific combination of weights
+# AND filters designed to test a particular market edge theory.
+# When win-rate data matures, you compare versions to find which
+# hypothesis actually holds up in live forward returns.
+#
+# Naming convention: v<major>.<minor>
+#   major = new signal source added (structural change)
+#   minor = weight/filter tuning within same signal sources
+#
+# Every version MUST have a plain-English description that explains:
+#   - What market theory it is testing
+#   - What criteria combination it uses
+#   - What kind of signals it will produce (more/fewer, conservative/aggressive)
+# ---------------------------------------------------------------------------
+
 CONFIG_V1_0 = ScoringConfig(
     version="v1.0",
-    description="Baseline: altFINS trend+volume+signal+on-chain. No market cap or coin type filter.",
+    description=(
+        "BASELINE — Broad universe, hand-tuned weights, no extra filters. "
+        "Theory: the raw combination of altFINS trend direction + unusual volume "
+        "+ signal feed confirmation + on-chain flow bias has positive expectancy "
+        "across any tradeable crypto. No market cap or coin type restrictions. "
+        "Produces the most signals. Serves as the benchmark all other versions are compared against."
+    ),
 )
 
-# v1.1 — same weights, adds minimum relative volume filter
 CONFIG_V1_1 = ScoringConfig(
     version="v1.1",
-    description="v1.0 + min volume_relative >= 1.0 (at least average volume required).",
+    description=(
+        "VOLUME FILTER — Same weights as v1.0, adds minimum relative volume >= 1.0x. "
+        "Theory: signals that fire on below-average volume are more likely to be noise "
+        "or manipulation on thin liquidity. Requiring at least average volume ensures "
+        "there is real market participation behind the move. "
+        "Produces ~20-30% fewer signals than v1.0 but with stronger volume conviction."
+    ),
     min_volume_relative=1.0,
 )
 
-# v1.2 — large cap only (>$500M market cap), excludes memes
 CONFIG_V1_2 = ScoringConfig(
     version="v1.2",
-    description="Large cap filter: market_cap > $500M, excludes MEME coins.",
+    description=(
+        "LARGE CAP + NO MEME — Market cap > $500M, excludes MEME coin type. "
+        "Theory: large-cap assets have deeper liquidity, tighter spreads, and their "
+        "trend signals are less prone to wash trading or social-media pump distortion. "
+        "Meme coins (DOGE, SHIB, PEPE, FLOKI etc.) have erratic vol spikes driven by "
+        "influencers rather than fundamentals, making them unreliable for trend following. "
+        "Produces conservative, institutional-quality signals only."
+    ),
     min_market_cap_usd=500_000_000,
     exclude_coin_types=["MEME"],
 )
 
-# v1.3 — DeFi + Layer1/2 focus with volume filter
 CONFIG_V1_3 = ScoringConfig(
     version="v1.3",
-    description="DeFi+L1+L2 focus: coin_type in [LAYER1, LAYER2, DEFI], vol >= 1.0.",
+    description=(
+        "DEFI + L1/L2 FOCUS WITH VOLUME GATE — Restricts universe to LAYER1, LAYER2, "
+        "and DEFI coin types. Requires minimum volume relative >= 1.0x. "
+        "Theory: DeFi protocols and layer-1/2 blockchains have on-chain revenue metrics "
+        "and ecosystem catalysts (TVL growth, fee revenue, protocol upgrades) that make "
+        "their trend signals more fundamentals-driven than meme or gaming tokens. "
+        "Combined with a volume gate, this targets high-quality breakouts in the "
+        "core crypto infrastructure sector."
+    ),
     coin_type_filter=["LAYER1", "LAYER2", "DEFI"],
     min_volume_relative=1.0,
 )
 
-# v1.4 — higher signal feed weight (hypothesis: signal feed is more predictive)
 CONFIG_V1_4 = ScoringConfig(
     version="v1.4",
-    description="Higher signal feed weight (4.0 vs 3.0). Tests if signal feed confirmation predicts better.",
+    description=(
+        "SIGNAL FEED DOMINANT — Higher signal feed weight (4.0 vs baseline 3.0), "
+        "slightly reduced trend weight (0.3 vs 0.4). "
+        "Theory: the altFINS signal feed (equivalent to their VIP Telegram channel) "
+        "is the output of their professional analyst team and likely more forward-looking "
+        "than the lagging SHORT_TERM_TREND screener score. Boosting its weight tests "
+        "whether analyst-confirmed signals outperform pure screener momentum. "
+        "No additional filters — isolates the weight change as the only variable."
+    ),
     signal_feed_weight=4.0,
-    trend_weight=0.3,  # slightly reduce trend to compensate
+    trend_weight=0.3,
+)
+
+CONFIG_V1_5 = ScoringConfig(
+    version="v1.5",
+    description=(
+        "AI + INFRA TOKENS, HIGH VOLUME, NO MEME — Restricts universe to AI and "
+        "INFRA coin types. Requires volume relative >= 1.5x (strong above-average volume). "
+        "Excludes MEME coins. "
+        "Theory: the AI/infrastructure narrative is a multi-year structural theme. "
+        "Tokens in this category (FET, RENDER, TAO, LINK, GRT, OCEAN) tend to react "
+        "to macro AI news and on-chain adoption metrics. Requiring 1.5x volume ensures "
+        "only genuine breakouts fire — not low-liquidity noise. "
+        "Produces the fewest signals but potentially the highest conviction."
+    ),
+    coin_type_filter=["AI", "INFRA"],
+    min_volume_relative=1.5,
+    exclude_coin_types=["MEME"],
+)
+
+CONFIG_V1_6 = ScoringConfig(
+    version="v1.6",
+    description=(
+        "BALANCED HIGH-CONVICTION — Combines volume gate (>= 1.0x) + large cap "
+        "(>= $200M market cap) + excludes MEME coins + slightly higher scanner weight (3.0). "
+        "Theory: the TA breakout scanner confirmation (unusual volume, new local high, "
+        "resistance breakout, ascending triangle) is the most objective signal source "
+        "because it runs on real Binance OHLCV data — not third-party APIs. "
+        "Boosting its weight while adding quality gates (volume + cap + no meme) "
+        "tests whether TA-confirmed breakouts on quality assets outperform the baseline. "
+        "Designed as a practical 'deploy-ready' config for live signal following."
+    ),
+    min_market_cap_usd=200_000_000,
+    min_volume_relative=1.0,
+    exclude_coin_types=["MEME"],
+    scanner_hit_weight=3.0,
 )
 
 # Active config — change this to switch which version runs in production.
-# All signals logged will carry this version in config_version column.
+# All signals logged will carry this version in the config_version column.
+# Change via CLI: python -m src.cli.main edge activate-config --version v1.1
 ACTIVE_CONFIG: ScoringConfig = CONFIG_V1_0
 
 ALL_CONFIGS: dict[str, ScoringConfig] = {
-    c.version: c for c in [CONFIG_V1_0, CONFIG_V1_1, CONFIG_V1_2, CONFIG_V1_3, CONFIG_V1_4]
+    c.version: c for c in [
+        CONFIG_V1_0, CONFIG_V1_1, CONFIG_V1_2,
+        CONFIG_V1_3, CONFIG_V1_4, CONFIG_V1_5, CONFIG_V1_6,
+    ]
 }
