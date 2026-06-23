@@ -167,7 +167,12 @@ class DataDownloader:
                 
             except Exception as e:
                 logger.error(f"Error downloading data: {e}")
-                time.sleep(5)  # Wait before retry
+                # Fatal errors (bad symbol, auth failure) should not retry
+                err_str = str(e).lower()
+                if any(k in err_str for k in ("does not have market symbol", "bad symbol", "invalid symbol", "not found")):
+                    logger.error(f"Symbol {symbol} not available on this exchange — skipping.")
+                    break
+                time.sleep(5)  # Wait before retry on transient errors
                 continue
         
         if not all_candles:
