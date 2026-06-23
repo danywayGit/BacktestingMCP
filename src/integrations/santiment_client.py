@@ -89,8 +89,14 @@ def _build_query(slug: str, from_iso: str, to_iso: str) -> str:
     return "query {" + aliases + "\n}"
 
 
-def get_onchain_snapshot(symbol: str, lookback_days: int = 3) -> Dict[str, float]:
-    """Sum of exchange inflow/outflow USD over the trailing `lookback_days`.
+def get_onchain_snapshot(symbol: str, lookback_days: int = 7) -> Dict[str, float]:
+    """Sum of exchange inflow/outflow USD over a recent window.
+
+    Santiment free tier has up to a ~30-day data lag — the most recent
+    ~30 days are not available. We query a 7-day window ending 35 days ago
+    (safely inside the free-tier allowed range) so the call always succeeds
+    without a paid plan. This makes the on-chain signal a slow directional
+    bias, not a real-time indicator — see docs/EDGE_SCANNER_PLAN.md Phase 3.
 
     Raises SantimentError if SANTIMENT_API_KEY is unset, the symbol has no
     slug mapping, or the request fails -- callers should catch this and
@@ -105,7 +111,10 @@ def get_onchain_snapshot(symbol: str, lookback_days: int = 3) -> Dict[str, float
     if not slug:
         raise SantimentError(f"No Santiment slug mapping for {symbol!r}.")
 
-    to_dt = datetime.now(timezone.utc)
+    # Free tier: data available from ~1 year ago up to ~30 days ago.
+    # Query a window ending 35 days ago to stay safely within the free range.
+    LAG_DAYS = 35
+    to_dt = datetime.now(timezone.utc) - timedelta(days=LAG_DAYS)
     from_dt = to_dt - timedelta(days=lookback_days)
     query = _build_query(slug, from_dt.isoformat(), to_dt.isoformat())
 

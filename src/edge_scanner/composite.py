@@ -77,20 +77,19 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
 def _signal_feed_index(entries: List[Dict[str, Any]]) -> Dict[str, str]:
     """Map symbol -> 'BULLISH'/'BEARISH' from the raw signal feed payload.
 
-    Field names are inferred from the altFINS MCP tool catalog description
-    (symbol + bullish/bearish direction) and haven't been validated against
-    a live response yet -- this looks across several plausible key names
-    defensively so it degrades to "no match" rather than crashing if the
-    real shape differs.
+    Verified against live altFINS API (Jun 2026). Real response fields:
+      symbol, name, timestamp, direction (BULLISH/BEARISH),
+      signalKey, signalName, lastPrice, priceChange, marketCap.
+
+    A symbol may appear multiple times (different signal types); last entry
+    wins, which is fine since we only need the directional bias.
     """
     index: Dict[str, str] = {}
     for entry in entries:
-        symbol = entry.get("symbol") or entry.get("assetSymbol") or entry.get("asset")
+        symbol = entry.get("symbol")
         if not symbol:
             continue
-        direction_raw = str(
-            entry.get("direction") or entry.get("signalDirection") or entry.get("side") or ""
-        ).upper()
+        direction_raw = str(entry.get("direction", "")).upper()
         if "BULL" in direction_raw:
             index[str(symbol).upper()] = "BULLISH"
         elif "BEAR" in direction_raw:
@@ -205,7 +204,7 @@ def run_composite_scan(
     candidates = discover_candidates(per_side_size=per_side_size)
 
     try:
-        feed_index = _signal_feed_index(altfins_client.get_signal_feed(size=100))
+        feed_index = _signal_feed_index(altfins_client.get_signal_feed(size=100, lookback="last 7 days"))
     except AltfinsError:
         feed_index = {}
 
