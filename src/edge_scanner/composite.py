@@ -48,6 +48,50 @@ ONCHAIN_LOOKBACK_DAYS = 3
 
 DEFAULT_MIN_ABS_SCORE = 3.0
 
+# ── Symbol blocklist ──────────────────────────────────────────────────────────
+# Stablecoins and tokenized stocks produce meaningless trend/volume signals
+# and must never be logged as tradeable candidates.
+#
+# Stablecoins: their "uptrend" is just peg maintenance noise.
+# Tokenized stocks (xStock platform, suffix X/XUSDT or known tickers):
+#   they are not available on Binance Futures and have no crypto liquidity.
+_STABLECOINS: frozenset[str] = frozenset({
+    "USDT", "USDC", "BUSD", "TUSD", "DAI", "FDUSD", "USDP", "GUSD",
+    "FRAX", "LUSD", "SUSD", "USDD", "USDG", "PYUSD", "USDB", "CRVUSD",
+    "USDE", "SUSDE", "STABLE", "FDUSD", "LISUSD", "USD0",
+})
+
+# Tokenized-stock symbols from xStock/tokenized platforms.
+# These end in X on altFINS (INTCX, HOODX, ABBVX, QQQX, SPXX, TQQQX, etc.)
+# or match known stock tickers repurposed as crypto (US, IN, AT, BR, etc.)
+_TOKENIZED_STOCK_SUFFIXES: tuple[str, ...] = ("X",)  # e.g. INTCX, HOODX, QQQX
+_TOKENIZED_STOCK_EXACT: frozenset[str] = frozenset({
+    # Short single/double-letter "country" or stock tracker symbols
+    "US", "IN", "AT", "BR", "VX", "VR", "MET", "MY", "EV", "B2",
+    # Known xStock tickers seen in first scan
+    "INTCX", "HOODX", "QQQX", "SPXX", "TQQQX", "ABBVX", "CSCOX",
+    "JPMX", "UNHX", "MRVLX", "EDGEX", "STRCX", "BACX", "BPUSDT",
+})
+
+
+def _is_blocked(symbol: str) -> bool:
+    """Return True if symbol should never be scored/logged as a candidate."""
+    s = symbol.upper()
+    if s in _STABLECOINS:
+        return True
+    if s in _TOKENIZED_STOCK_EXACT:
+        return True
+    # xStock tokens: length > 3, end in X, and the base (without X) looks like
+    # a stock ticker (all-caps, 2-5 chars). We also accept known crypto tokens
+    # ending in X (e.g. OX, WX) so only block if length >= 4.
+    if len(s) >= 4 and s.endswith("X") and s[:-1].isalpha():
+        base = s[:-1]
+        # Crypto exceptions that legitimately end in X
+        _CRYPTO_X_EXCEPTIONS = {"OX", "INX", "KSX", "HEX", "LEX", "LUMX"}
+        if base not in _CRYPTO_X_EXCEPTIONS:
+            return True
+    return False
+
 
 @dataclass
 class CandidateScore:
@@ -100,21 +144,33 @@ def _signal_feed_index(entries: List[Dict[str, Any]]) -> Dict[str, str]:
 def discover_candidates(per_side_size: int = 20) -> Dict[str, Dict[str, Any]]:
     """Returns {altfins_symbol: screener_row} for bullish + bearish screens.
 
+    Filters out stablecoins and tokenized stocks — they produce meaningless
+    trend/volume signals and are not tradeable on Binance Futures.
     Falls back to the static CRYPTO_PAIRS universe (with no screener row)
     if altFINS isn't configured.
     """
     candidates: Dict[str, Dict[str, Any]] = {}
+    blocked: List[str] = []
     try:
         for direction in ("UP", "DOWN"):
             rows = altfins_client.get_screener_data(signal_filter_value=direction, size=per_side_size)
             for row in rows:
                 symbol = row.get("symbol")
-                if symbol:
+                if not symbol:
+                    continue
+                if _is_blocked(symbol):
+                    blocked.append(symbol)
+                else:
                     candidates[symbol.upper()] = row
     except AltfinsError as exc:
         logger.warning("altFINS unavailable (%s); falling back to static universe, TA-only.", exc)
         for pair in CRYPTO_PAIRS:
-            candidates[_pair_to_altfins(pair)] = {}
+            sym = _pair_to_altfins(pair)
+            if not _is_blocked(sym):
+                candidates[sym] = {}
+    if blocked:
+        logger.info("discover_candidates: blocked %d stablecoin/stock symbols: %s", len(blocked), blocked)
+    logger.info("discover_candidates: %d tradeable candidates", len(candidates))
     return candidates
 
 
@@ -149,18 +205,23 @@ def score_symbol(
     components["altfins_signal_feed"] = feed_direction
 
     netflow_ratio: Optional[float] = None
-    try:
-        onchain = santiment_client.get_onchain_snapshot(symbol, lookback_days=ONCHAIN_LOOKBACK_DAYS)
-        inflow = onchain.get("exchange_inflow_usd", 0.0)
-        outflow = onchain.get("exchange_outflow_usd", 0.0)
-        total = inflow + outflow
-        if total > 0:
-            # Net outflow (coins leaving exchanges) reads bullish/accumulation;
-            # net inflow (coins arriving, available to sell) reads bearish.
-            netflow_ratio = (outflow - inflow) / total
-            score += netflow_ratio * ONCHAIN_NETFLOW_WEIGHT
-    except SantimentError as exc:
-        logger.debug("No on-chain data for %s: %s", symbol, exc)
+    # Only call Santiment if the symbol has a slug mapping AND the altFINS
+    # score is already directionally meaningful — conserves the free-tier budget
+    # (~33 calls/day) by skipping weak/neutral candidates.
+    altfins_score_so_far = score  # trend + volume + signal feed already applied
+    if santiment_client.slug_for(symbol) and abs(altfins_score_so_far) >= 2.0:
+        try:
+            onchain = santiment_client.get_onchain_snapshot(symbol, lookback_days=ONCHAIN_LOOKBACK_DAYS)
+            inflow = onchain.get("exchange_inflow_usd", 0.0)
+            outflow = onchain.get("exchange_outflow_usd", 0.0)
+            total = inflow + outflow
+            if total > 0:
+                # Net outflow (coins leaving exchanges) reads bullish/accumulation;
+                # net inflow (coins arriving, available to sell) reads bearish.
+                netflow_ratio = (outflow - inflow) / total
+                score += netflow_ratio * ONCHAIN_NETFLOW_WEIGHT
+        except SantimentError as exc:
+            logger.debug("No on-chain data for %s: %s", symbol, exc)
     components["onchain_netflow_ratio"] = netflow_ratio
 
     last_close: Optional[float] = None
