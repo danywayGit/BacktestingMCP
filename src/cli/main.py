@@ -18,6 +18,7 @@ from ..strategies.scanner import evaluate_scan, SCAN_TYPES
 from ..edge_scanner import composite as edge_composite
 from ..edge_scanner import store as edge_store
 from ..edge_scanner import alerts as edge_alerts
+from ..edge_scanner import patterns as edge_pattern_scanner
 from ..edge_scanner import multi_version_scan as edge_multi
 from config.settings import settings, TimeFrame, Direction, CRYPTO_PAIRS
 
@@ -1203,6 +1204,40 @@ def edge_activate_config(version):
         click.echo(f"  coin_type_filter={cfg.coin_type_filter}")
     if cfg.exclude_coin_types:
         click.echo(f"  exclude_coin_types={cfg.exclude_coin_types}")
+
+
+@edge.command('patterns')
+@click.option('--lookback', default='last 24 hours', help='Time window (e.g. "last 7 days")')
+@click.option('--symbols', '-s', default=None, help='Comma-separated symbols to filter (e.g. BTC,ETH,SOL)')
+@click.option('--output', type=click.Choice(['table', 'alert']), default='table')
+def edge_patterns(lookback, symbols, output):
+    """Scan altFINS for chart patterns: wedges, channels, breakouts, support/resistance."""
+    from src.edge_scanner.patterns import run_pattern_scan, format_pattern_alert
+
+    sym_list = symbols.split(",") if symbols else None
+    result = run_pattern_scan(lookback=lookback, symbol_filter=sym_list)
+
+    if result.total_signals == 0:
+        click.echo("No chart patterns detected in the selected time window.")
+        return
+
+    if output == 'alert':
+        click.echo(format_pattern_alert(result))
+        return
+
+    # Table output
+    click.echo(f"\n📐 Chart Pattern Scan — {result.total_signals} signals, {len(result.by_pattern)} patterns")
+    click.echo(f"🟢 Bullish: {result.by_direction['BULLISH']}  |  🔴 Bearish: {result.by_direction['BEARISH']}")
+    click.echo('-' * 80)
+    for pattern_key, signals in sorted(result.by_pattern.items(), key=lambda x: -len(x[1])):
+        name = signals[0].pattern_name if signals else pattern_key
+        bullish = sum(1 for s in signals if s.direction == "BULLISH")
+        bearish = sum(1 for s in signals if s.direction == "BEARISH")
+        dir_emoji = "🟢" if bullish >= bearish else "🔴"
+        click.echo(f"\n{dir_emoji} {name} ({len(signals)} — {bullish}B/{bearish}S)")
+        for s in signals[:4]:
+            price_str = f" ${s.last_price:.4f}" if s.last_price else ""
+            click.echo(f"    {s.symbol:12s} {s.direction:8s}{price_str}")
 
 
 @cli.group()
