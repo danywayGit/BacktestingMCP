@@ -17,6 +17,7 @@ from ..strategies.templates import get_strategy_class, list_available_strategies
 from ..strategies.scanner import evaluate_scan, SCAN_TYPES
 from ..edge_scanner import composite as edge_composite
 from ..edge_scanner import store as edge_store
+from ..edge_scanner import alerts as edge_alerts
 from config.settings import settings, TimeFrame, Direction, CRYPTO_PAIRS
 
 # Setup logging
@@ -985,6 +986,11 @@ def edge_scan(timeframe, lookback_days, per_side, horizon_hours, log):
     if log:
         logged = edge_store.log_signals(scores, tf, horizon_hours=horizon_hours)
         click.echo(f"Logged {logged} actionable signal(s) for forward tracking.")
+
+    # Send Telegram alerts for high-confidence signals
+    sent = edge_alerts.send_alerts(scores)
+    if sent:
+        click.echo(f"Sent {sent} Telegram alert(s) to @CryptoAlertsTradingView.")
     click.echo()
 
 
