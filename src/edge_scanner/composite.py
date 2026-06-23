@@ -278,3 +278,92 @@ def run_composite_scan(
     ]
     results.sort(key=lambda c: abs(c.composite_score), reverse=True)
     return results
+
+
+def run_all_versions(
+    timeframe: TimeFrame = TimeFrame.H1,
+    lookback_days: int = 30,
+    per_side_size: int = 20,
+    configs: Optional[List[ScoringConfig]] = None,
+) -> Dict[str, List[CandidateScore]]:
+    """Score candidates against ALL config versions in a single API round-trip.
+
+    This is the parallel multi-version scan:
+      1. One altFINS screener call fetches candidates with the union of all
+         required display_types across all configs.
+      2. One altFINS signal feed call fetches the feed index.
+      3. Each config independently scores the same candidate pool.
+      4. Returns {version: [CandidateScore, ...]} for every config.
+
+    This is far more efficient than calling run_composite_scan() 14 times
+    (which would make 14× altFINS API calls and 14× OHLCV downloads).
+    OHLCV data is cached in SQLite after the first download, so only new
+    symbols pay a download cost on the first cycle.
+    """
+    from .scoring_config import ALL_CONFIGS
+
+    all_cfgs: List[ScoringConfig] = configs or list(ALL_CONFIGS.values())
+
+    # ── Step 1: union of all display_types needed across all configs ──────
+    all_display_types: List[str] = []
+    for cfg in all_cfgs:
+        for dt in cfg.get_required_display_types():
+            if dt not in all_display_types:
+                all_display_types.append(dt)
+
+    # Use the baseline config as the "driver" for discovery (broadest universe)
+    # but pass the union of display_types so every config has its fields.
+    logger.info("run_all_versions: %d configs, %d display_types, fetching candidates...",
+                len(all_cfgs), len(all_display_types))
+
+    # Fetch candidates once with the full display_type union
+    candidates: Dict[str, Dict[str, Any]] = {}
+    blocked: List[str] = []
+    try:
+        for direction in ("UP", "DOWN"):
+            rows = altfins_client.get_screener_data(
+                display_types=all_display_types,
+                signal_filter_value=direction,
+                size=per_side_size,
+            )
+            for row in rows:
+                symbol = row.get("symbol")
+                if not symbol:
+                    continue
+                if _is_blocked(symbol):
+                    blocked.append(symbol)
+                else:
+                    candidates[symbol.upper()] = row
+    except AltfinsError as exc:
+        logger.warning("altFINS unavailable (%s); falling back to static universe.", exc)
+        for pair in CRYPTO_PAIRS:
+            sym = _pair_to_altfins(pair)
+            if not _is_blocked(sym):
+                candidates[sym] = {}
+
+    if blocked:
+        logger.info("run_all_versions: blocked %d stablecoin/stock symbols", len(blocked))
+    logger.info("run_all_versions: %d candidates → scoring across %d versions",
+                len(candidates), len(all_cfgs))
+
+    # ── Step 2: one signal feed fetch shared by all configs ───────────────
+    try:
+        feed_index = _signal_feed_index(
+            altfins_client.get_signal_feed(size=100, lookback="last 7 days")
+        )
+    except AltfinsError:
+        feed_index = {}
+
+    # ── Step 3: score each config against the shared candidate pool ───────
+    results: Dict[str, List[CandidateScore]] = {}
+    for cfg in all_cfgs:
+        version_scores = [
+            score_symbol(symbol, row, feed_index, timeframe, lookback_days, config=cfg)
+            for symbol, row in candidates.items()
+        ]
+        version_scores.sort(key=lambda c: abs(c.composite_score), reverse=True)
+        results[cfg.version] = version_scores
+        actionable = sum(1 for s in version_scores if s.direction is not None)
+        logger.info("  %s → %d actionable signals", cfg.version, actionable)
+
+    return results

@@ -18,6 +18,7 @@ from ..strategies.scanner import evaluate_scan, SCAN_TYPES
 from ..edge_scanner import composite as edge_composite
 from ..edge_scanner import store as edge_store
 from ..edge_scanner import alerts as edge_alerts
+from ..edge_scanner import multi_version_scan as edge_multi
 from config.settings import settings, TimeFrame, Direction, CRYPTO_PAIRS
 
 # Setup logging
@@ -965,32 +966,89 @@ def edge():
 @click.option('--per-side', default=20, help='Number of altFINS bullish/bearish candidates to pull per side')
 @click.option('--horizon-hours', default=24, help='Hours ahead to check the outcome of any logged signal')
 @click.option('--log/--no-log', default=True, help='Persist actionable signals for forward tracking')
-def edge_scan(timeframe, lookback_days, per_side, horizon_hours, log):
-    """Run one composite scan cycle and print ranked candidates."""
+@click.option('--multi/--single', default=True,
+              help='Run all config versions in parallel (default) or active config only')
+@click.option('--version', default=None, help='Run a specific config version only (e.g. v1.1)')
+def edge_scan(timeframe, lookback_days, per_side, horizon_hours, log, multi, version):
+    """Run one composite scan cycle.
+
+    By default runs ALL 14 config versions in parallel (one API call).
+    Use --single to run only the active config, or --version v1.2 for a specific one.
+    """
+    from src.edge_scanner.scoring_config import ALL_CONFIGS, ACTIVE_CONFIG
+
     tf = TimeFrame(timeframe)
-    scores = edge_composite.run_composite_scan(timeframe=tf, lookback_days=lookback_days, per_side_size=per_side)
 
-    click.echo()
-    click.echo(f"Composite edge scan ({timeframe}) - {len(scores)} candidates")
-    click.echo('-' * 90)
-    for s in scores:
-        if s.direction is None:
-            continue
-        click.echo(
-            f"{s.symbol:<8} {s.direction:<6} score={s.composite_score:>6.2f} "
-            f"close={s.last_close if s.last_close is not None else float('nan'):.4f} "
-            f"{s.components}"
+    # Single specific version
+    if version:
+        if version not in ALL_CONFIGS:
+            click.echo(f"Unknown version '{version}'. Run 'edge configs' to see available.", err=True)
+            return
+        configs_to_run = [ALL_CONFIGS[version]]
+        multi = False
+
+    # Single mode — active config only
+    elif not multi:
+        configs_to_run = [ACTIVE_CONFIG]
+
+    # Multi mode — all versions in parallel (default)
+    else:
+        configs_to_run = list(ALL_CONFIGS.values())
+
+    if not multi and len(configs_to_run) == 1:
+        # Legacy single-version output (detailed, all candidates shown)
+        cfg = configs_to_run[0]
+        scores = edge_composite.run_composite_scan(
+            timeframe=tf, lookback_days=lookback_days, per_side_size=per_side, config=cfg
         )
-    click.echo('-' * 90)
+        click.echo()
+        click.echo(f"Composite edge scan ({timeframe}) config={cfg.version} — {len(scores)} candidates")
+        click.echo('-' * 90)
+        for s in scores:
+            if s.direction is None:
+                continue
+            click.echo(
+                f"{s.symbol:<8} {s.direction:<6} score={s.composite_score:>6.2f} "
+                f"close={s.last_close if s.last_close is not None else float('nan'):.4f} "
+                f"{s.components}"
+            )
+        click.echo('-' * 90)
+        if log:
+            logged = edge_store.log_signals(scores, tf, horizon_hours=horizon_hours)
+            click.echo(f"Logged {logged} actionable signal(s).")
+        sent = edge_alerts.send_alerts(scores)
+        if sent:
+            click.echo(f"Sent {sent} Telegram alert(s) to @CryptoAlertsTradingView.")
 
-    if log:
-        logged = edge_store.log_signals(scores, tf, horizon_hours=horizon_hours)
-        click.echo(f"Logged {logged} actionable signal(s) for forward tracking.")
+    else:
+        # Multi-version parallel scan
+        click.echo(f"\n⚡ Multi-version scan: {len(configs_to_run)} configs in parallel...")
+        result = edge_multi.run_parallel_scan(
+            timeframe=tf,
+            lookback_days=lookback_days,
+            per_side_size=per_side,
+            horizon_hours=horizon_hours,
+            configs=configs_to_run,
+            log_signals=log,
+            send_alerts=True,
+        )
 
-    # Send Telegram alerts for high-confidence signals
-    sent = edge_alerts.send_alerts(scores)
-    if sent:
-        click.echo(f"Sent {sent} Telegram alert(s) to @CryptoAlertsTradingView.")
+        # Print per-version summary table
+        click.echo(f"\n{'Version':<8} {'LONG':>5} {'SHORT':>6} {'Total':>6}  Top signal")
+        click.echo('-' * 70)
+        for v in sorted(result.signals_by_version.keys()):
+            sigs = result.signals_by_version[v]
+            longs  = sum(1 for s in sigs if s.direction == "LONG")
+            shorts = sum(1 for s in sigs if s.direction == "SHORT")
+            top = sigs[0] if sigs else None
+            top_str = f"{top.symbol} {top.direction} {top.composite_score:+.2f}" if top else "—"
+            active = " ✅" if v == ACTIVE_CONFIG.version else ""
+            click.echo(f"{v+active:<10} {longs:>5} {shorts:>6} {len(sigs):>6}  {top_str}")
+        click.echo('-' * 70)
+        click.echo(f"\nTotal logged: {result.total_logged} signals across {len(configs_to_run)} versions")
+        if result.total_alerts_sent:
+            click.echo(f"Sent {result.total_alerts_sent} Telegram alert(s) from active config ({ACTIVE_CONFIG.version})")
+
     click.echo()
 
 
