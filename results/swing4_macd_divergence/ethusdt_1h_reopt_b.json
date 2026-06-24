@@ -1,0 +1,22 @@
+{
+  "strategy": "swing4_macd_divergence",
+  "symbol": "ETHUSDT",
+  "timeframe": "1h",
+  "reason": "broad_params",
+  "best_params": {
+    "macd_fast": 12,
+    "macd_slow": 26,
+    "macd_signal_period": 9,
+    "rsi_period": 14,
+    "divergence_lookback": 10,
+    "atr_stop_mult": 2.5,
+    "rr_ratio": 2.5
+  },
+  "metrics": {
+    "sharpe": -1.01,
+    "trades": 13,
+    "wr": 23.1,
+    "ret": -0.77,
+    "dd": -2.83
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "strategy": "swing6_mtf_ema_stack",
+  "symbol": "ETHUSDT",
+  "timeframe": "1h",
+  "reason": "broad_params",
+  "best_params": {
+    "ltf_fast": 13,
+    "ltf_slow": 21,
+    "htf_ema_period": 50,
+    "atr_stop_mult": 1.5,
+    "rr_ratio": 2.0
+  },
+  "metrics": {
+    "sharpe": -0.14,
+    "trades": 10,
+    "wr": 30.0,
+    "ret": -0.04,
+    "dd": -1.06
+  }
+}
