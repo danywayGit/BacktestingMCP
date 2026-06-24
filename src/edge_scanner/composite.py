@@ -38,6 +38,7 @@ from .scoring_config import (
     is_stablecoin_or_stock, parse_trend_score_extended,
     parse_float as _safe_float_sc,
 )
+from ..integrations.binance_symbols import is_on_binance_futures
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,11 @@ DEFAULT_MIN_ABS_SCORE = ACTIVE_CONFIG.min_abs_score
 #   they are not available on Binance Futures and have no crypto liquidity.
 def _is_blocked(symbol: str) -> bool:
     """Return True if symbol should never be scored — delegates to global blocklist in scoring_config."""
-    return is_stablecoin_or_stock(symbol)
+    if is_stablecoin_or_stock(symbol):
+        return True
+    if not is_on_binance_futures(symbol):
+        return True
+    return False
 
 
 @dataclass
