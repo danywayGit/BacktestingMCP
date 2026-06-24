@@ -878,6 +878,48 @@ CONFIG_V6_2 = ScoringConfig(
     min_market_cap_usd=50_000_000,
     display_types_extra=["MEDIUM_TERM_TREND", "RSI14"],
 )
+CONFIG_V7_0 = ScoringConfig(
+    version="7.0",
+    description=(
+        "Filtered_Quality_Gate: "
+        "Increased min_abs_score to 5.0, required moderate trend (>=5), "
+        "volume filter (>=0.5x), ADX>=20, RSI 30-70 to avoid extremes. "
+        "Core weights same as v6.x."
+    ),
+    # Core weights
+    trend_weight=0.4,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.3,
+    onchain_netflow_weight=0.1,
+    # Extended scoring signals (0.0 = disabled)
+    adx_weight=0.1,
+    obv_trend_weight=0.05,
+    medium_term_trend_weight=0.1,
+    rsi_momentum_weight=0.05,
+    price_change_1w_weight=0.0,
+    tr_vs_atr_weight=0.0,
+    # Quality filters - NEW in v7.0
+    min_abs_score=5.0,           # Increased from 3.0 - require stronger signal
+    min_trend_abs_score=5,                 # Require at least moderate trend strength (5/10)
+    require_non_trend_confirmation=True,   # Already True in v6.x but explicit
+    min_volume_relative=0.5,     # Require at least 0.5x average volume
+    min_adx=20,                  # Require ADX >= 20 for trend strength
+    # RSI range for momentum - avoid extreme overbought/oversold
+    min_rsi=30,
+    max_rsi=70,
+    # Alert thresholds
+    alert_min_score=7.0,
+    alert_require_multi_source=True,
+    # Filters
+    min_market_cap_usd=0.0,
+    max_market_cap_usd=0.0,
+    # Coin type filters (defaults)
+    coin_type_filter=["ANY"],    # No filter on coin type
+    exclude_coin_types=[],       # No additional exclusions
+    # Metadata
+    display_types_extra=[],
+)
+
 
 
 # ---------------------------------------------------------------------------
@@ -887,37 +929,6 @@ CONFIG_V6_2 = ScoringConfig(
 # Active config — change via CLI: python -m src.cli.main edge activate-config --version v1.1
 # All signals logged will carry this version in the config_version column.
 ACTIVE_CONFIG = CONFIG_V7_0
-
-CONFIG_V7_0 = ScoringConfig(
-    version="7.0",
-    name="Filtered_Quality_Gate",
-    # Core weights (same as v6.x)
-    trend_weight=0.4,
-    volume_weight=0.2,
-    signal_feed_weight=0.3,
-    on_chain_weight=0.1,
-    # Extended signal weights
-    adx_weight=0.1,
-    obv_weight=0.05,
-    rsi_momentum_weight=0.05,
-    medium_term_trend_weight=0.1,
-    # Quality filters - NEW in v7.0
-    min_abs_score=5.0,           # Increased from 3.0 - require stronger signal
-    min_trend=5,                 # Require at least moderate trend strength (5/10)
-    require_multi_source=True,   # Already True in v6.x but explicit
-    min_volume_relative=0.5,     # Require at least 0.5x average volume
-    min_adx=20,                  # Require ADX >= 20 for trend strength
-    # RSI range for momentum - avoid extreme overbought/oversold
-    min_rsi=30,
-    max_rsi=70,
-    # Alert thresholds
-    alert_min_score=7.0,
-    alert_require_multi_source=True,
-    # Stablecoin/stock filtering (inherited from base)
-    exclude_stablecoins=True,
-    exclude_tokenized_stocks=True,
-    exclude_coin_types=set(),    # No additional exclusions by default
-)
 
 ALL_CONFIGS: dict[str, ScoringConfig] = {
     c.version: c for c in [
