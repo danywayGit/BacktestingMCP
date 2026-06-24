@@ -1,0 +1,23 @@
+{
+  "strategy": "swing1_ema_wave_volume",
+  "symbol": "ETHUSDT",
+  "timeframe": "1h",
+  "reason": "broad_params",
+  "best_params": {
+    "ema_fast": 7,
+    "ema_slow": 13,
+    "rsi_period": 14,
+    "rsi_long_threshold": 50,
+    "rsi_short_threshold": 50,
+    "vol_ma_period": 20,
+    "atr_stop_mult": 1.5,
+    "rr_ratio": 2.5
+  },
+  "metrics": {
+    "sharpe": 5.19,
+    "trades": 13,
+    "wr": 53.8,
+    "ret": 3.2,
+    "dd": -0.8
+  }
+}
