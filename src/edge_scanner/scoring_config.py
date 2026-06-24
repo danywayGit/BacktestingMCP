@@ -103,11 +103,14 @@ COIN_TYPE_MAP: dict[str, str] = {
     "FIL": "LAYER1", "ICP": "LAYER1", "HBAR": "LAYER1", "XTZ": "LAYER1",
     "EOS": "LAYER1", "FLOW": "LAYER1", "EGLD": "LAYER1", "ZIL": "LAYER1",
     "TON": "LAYER1", "KAS": "LAYER1", "XMR": "LAYER1", "ZEC": "LAYER1",
-    "KAIA": "LAYER1", "CFX": "LAYER1",
+    "KAIA": "LAYER1", "CFX": "LAYER1", "BCH": "LAYER1", "LTC": "LAYER1",
+    "BSV": "LAYER1", "DASH": "LAYER1", "XDC": "LAYER1",
+    "CLO": "LAYER1",  # Callisto Network
     # Layer 2 / Scaling
     "ARB": "LAYER2", "OP": "LAYER2", "MATIC": "LAYER2", "STRK": "LAYER2",
     "IMX": "LAYER2", "METIS": "LAYER2", "ZRO": "LAYER2", "STX": "LAYER2",
-    "MANTA": "LAYER2", "SCROLL": "LAYER2", "BLAST": "LAYER2",
+    "MANTA": "LAYER2", "BLAST": "LAYER2", "ZKEVM": "LAYER2",
+    "MNT": "LAYER2",  # Mantle
     # DeFi protocols
     "UNI": "DEFI", "AAVE": "DEFI", "CRV": "DEFI", "MKR": "DEFI",
     "SNX": "DEFI", "COMP": "DEFI", "YFI": "DEFI", "SUSHI": "DEFI",
@@ -116,26 +119,56 @@ COIN_TYPE_MAP: dict[str, str] = {
     "EIGEN": "DEFI", "ENA": "DEFI", "ETHFI": "DEFI", "RUNE": "DEFI",
     "WLD": "DEFI", "JTO": "DEFI", "KMNO": "DEFI", "ONDO": "DEFI",
     "ZRX": "DEFI", "BAL": "DEFI", "1INCH": "DEFI", "PERP": "DEFI",
+    "OKB": "DEFI",  # OKX exchange token
+    "DEXE": "DEFI",  # DeXe Protocol
+    "AERO": "DEFI",  # Aerodrome DEX
+    "XVS": "DEFI",  # Venus Protocol (lending)
+    "VELODROME": "DEFI",  # Velodrome DEX
+    "HYPE": "DEFI",  # Hyperliquid
+    "SUN": "DEFI",  # Sun Token (TRON DeFi)
+    "JITOSOL": "DEFI",  # Liquid staking on Solana
+    "ALLO": "DEFI",  # Allo protocol
+    "BLESS": "DEFI",  # Bless ecosystem
     # Meme coins
     "DOGE": "MEME", "SHIB": "MEME", "PEPE": "MEME", "FLOKI": "MEME",
     "BONK": "MEME", "WIF": "MEME", "BOME": "MEME", "MEW": "MEME",
     "NEIRO": "MEME", "TURBO": "MEME", "MOG": "MEME", "BRETT": "MEME",
     "APE": "MEME", "BABYDOGE": "MEME", "LADYS": "MEME", "CHEEMS": "MEME",
     "MEME": "MEME", "COQ": "MEME",
+    "POPCAT": "MEME", "TRUTH": "MEME", "FOLKS": "MEME",
+    "CATI": "MEME", "GSX": "MEME",
+    "GPS": "MEME",
     # AI / Data tokens
     "FET": "AI", "AGIX": "AI", "RENDER": "AI", "TAO": "AI",
     "OCEAN": "AI", "NMR": "AI", "GRT": "AI", "CTXC": "AI",
     "AIOZ": "AI", "RSS3": "AI", "VOXEL": "AI", "ARKM": "AI",
     "MYRIA": "AI", "ALT": "AI",
+    "IO": "AI",  # io.net (decentralized GPU)
+    "COAI": "AI", "SKYAI": "AI", "UAI": "AI", "AIO": "AI",
+    "GRASS": "AI",  # Grass Foundation (data scraping for AI)
+    "HANA": "AI",
     # Infrastructure / Oracle / Bridge / Interop
     "LINK": "INFRA", "KSM": "INFRA", "API3": "INFRA", "BAND": "INFRA",
     "TRB": "INFRA", "PYTH": "INFRA", "W": "INFRA", "AXL": "INFRA",
     "CELR": "INFRA", "HOP": "INFRA", "ACX": "INFRA",
+    "SYN": "INFRA",  # Synapse (cross-chain bridge)
+    "GEOD": "INFRA",  # Geodnet (decentralized GPS)
+    "BICO": "INFRA",  # Biconomy (relayer infra)
+    "DBR": "INFRA",  # deBridge (cross-chain)
+    "SQD": "INFRA",  # Subsquid (indexing)
+    "PHA": "INFRA",  # Phala Network (privacy cloud)
+    "AWE": "INFRA",
+    "BP": "INFRA",
+    "BTT": "INFRA",  # BitTorrent (file sharing network)
     # Gaming / NFT / Metaverse
     "AXS": "GAMING", "SAND": "GAMING", "MANA": "GAMING", "ENJ": "GAMING",
     "GALA": "GAMING", "PIXEL": "GAMING", "PRIME": "GAMING",
     "MAGIC": "GAMING", "YGG": "GAMING", "PYR": "GAMING", "ILV": "GAMING",
     "BEAM": "GAMING", "RON": "GAMING",
+    "ZEREBRO": "GAMING",  # Zerebro (gaming ecosystem)
+    "CARDS": "GAMING",
+    # RWA / Tokenized Assets
+    "ONDO": "DEFI",  # ONDO Finance (RWA)
 }
 
 
