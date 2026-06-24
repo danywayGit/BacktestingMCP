@@ -245,9 +245,33 @@ def score_symbol(
     components["coin_type"] = coin_type
 
     direction: Optional[str] = None
+
+    # Apply config filters at scoring stage
+    trend = components.get("altfins_trend_score", 0)
+    if cfg.min_trend_abs_score > 0 and abs(trend) < cfg.min_trend_abs_score:
+        components["failed_trend_min"] = f"|trend|={abs(trend):.0f} < min={cfg.min_trend_abs_score}"
+    elif cfg.require_non_trend_confirmation and abs(trend) > 0:
+        # At least one non-trend source must confirm
+        vol = components.get("altfins_volume_relative", 0)
+        feed = components.get("altfins_signal_feed")
+        scanner = components.get("backtestingmcp_scanner_hits", [])
+        netflow = components.get("onchain_netflow_ratio")
+        has_confirmation = (
+            vol > 1.0
+            or (feed == "BULLISH" and trend > 0)
+            or (feed == "BEARISH" and trend < 0)
+            or len(scanner) > 0
+            or (netflow is not None and abs(netflow) > 0.05)
+        )
+        if not has_confirmation:
+            components["failed_confirmation"] = "no non-trend source confirms"
+
+    # Direction assignment with separate SHORT threshold
+    short_min = cfg.short_min_abs_score if cfg.short_min_abs_score is not None else cfg.min_abs_score
     if score >= cfg.min_abs_score:
         direction = "LONG"
-    elif score <= -cfg.min_abs_score:
+    elif score <= -short_min:
+        direction = "SHORT"
         direction = "SHORT"
 
     return CandidateScore(
