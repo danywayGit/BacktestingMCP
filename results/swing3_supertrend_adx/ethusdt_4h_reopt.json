@@ -1,0 +1,21 @@
+{
+  "strategy": "swing3_supertrend_adx",
+  "symbol": "ETHUSDT",
+  "timeframe": "4h",
+  "best_params": {
+    "st_period": 14,
+    "st_factor": 3.0,
+    "adx_threshold": 25,
+    "adx_period": 14,
+    "ema_filter": 200,
+    "atr_stop_mult": 2.5
+  },
+  "metrics": {
+    "sharpe": 1.8127414302264748,
+    "trades": 15,
+    "wr": 86.66666666666667,
+    "ret": 7.399448039192939,
+    "dd": -1.4475407456759792,
+    "pf": 5.934765132799518
+  }
+}

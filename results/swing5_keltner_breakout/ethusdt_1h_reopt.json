@@ -1,0 +1,18 @@
+{
+  "strategy": "swing5_keltner_breakout",
+  "symbol": "ETHUSDT",
+  "timeframe": "1h",
+  "best_params": {
+    "kc_length": 18,
+    "kc_mult": 1.5,
+    "atr_stop_mult": 1.5,
+    "rr_ratio": 2.5
+  },
+  "metrics": {
+    "sharpe": 4.03331219034979,
+    "trades": 14,
+    "wr": 42.857142857142854,
+    "ret": 5.3086126840741485,
+    "dd": -2.7755617942694766
+  }
+}
