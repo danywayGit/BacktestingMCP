@@ -888,7 +888,6 @@ CONFIG_V6_2 = ScoringConfig(
 # All signals logged will carry this version in the config_version column.
 ACTIVE_CONFIG = CONFIG_V7_0
 
-
 CONFIG_V7_0 = ScoringConfig(
     version="7.0",
     name="Filtered_Quality_Gate",
@@ -934,5 +933,6 @@ ALL_CONFIGS: dict[str, ScoringConfig] = {
         CONFIG_V5_0, CONFIG_V5_1, CONFIG_V5_2,
         # CEO suggested patterns
         CONFIG_V6_0, CONFIG_V6_1, CONFIG_V6_2,
+        CONFIG_V7_0,
     ]
 }
