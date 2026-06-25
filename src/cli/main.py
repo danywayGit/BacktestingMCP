@@ -1086,10 +1086,25 @@ def edge_daily_summary():
     import pandas as pd
 
     since = datetime.now(timezone.utc) - timedelta(days=1)
-    rows = db.get_resolved_edge_signals(since=since)
+    since = datetime.now(timezone.utc) - timedelta(days=1)
+    rows = db.get_resolved_edge_signals(resolved_since=since)
     if not rows:
-        msg = "📊 *Daily Edge Scanner — {date}*\n\nNo signals resolved in the last 24h."
-        click.echo(msg.format(date=datetime.now(timezone.utc).strftime('%Y-%m-%d')))
+        msg = (
+            "📊 *Daily Edge Scanner — {date}*"
+            "\n\nNo signals resolved in the last 24h."
+            "\n(PENDING: {pending} | Total DB: {total})"
+        )
+        from ..data.database import db as _db
+        import sqlite3
+        conn = sqlite3.connect(_db.db_path)
+        pending = conn.execute("SELECT COUNT(*) FROM edge_signals WHERE status='PENDING'").fetchone()[0]
+        total = conn.execute("SELECT COUNT(*) FROM edge_signals").fetchone()[0]
+        conn.close()
+        click.echo(msg.format(
+            date=datetime.now(timezone.utc).strftime('%Y-%m-%d'),
+            pending=pending,
+            total=total,
+        ))
         return
 
     df = pd.DataFrame(rows)

@@ -333,6 +333,11 @@ class ScoringConfig:
     """Minimum relative volume vs 10-bar average. 0 = no filter.
     1.0 = at least average. 1.5 = 50% above average. 2.0 = double average."""
 
+    min_atr_pct: float = 0.0
+    """Minimum ATR% (14-period ATR / close). 0 = no filter.
+    Filters out low-volatility symbols that tend to produce FLAT resolutions.
+    0.3 for 1h, 0.5 for active pairs, 1.0+ for volatile pairs."""
+
     min_adx: float = 0.0
     """Minimum ADX for trending market confirmation. 0 = no filter.
     25 = weakly trending. 40 = strongly trending."""
@@ -907,6 +912,8 @@ CONFIG_V7_0 = ScoringConfig(
     # RSI range for momentum - avoid extreme overbought/oversold
     min_rsi=30,
     max_rsi=70,
+    # Volatility filter — reject low-vol setups to avoid FLAT resolutions
+    min_atr_pct=0.3,
     # Alert thresholds
     alert_min_score=7.0,
     alert_require_multi_source=True,
