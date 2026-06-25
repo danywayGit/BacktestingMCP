@@ -342,8 +342,26 @@ class ScoringConfig:
     """Minimum ADX for trending market confirmation. 0 = no filter.
     25 = weakly trending. 40 = strongly trending."""
 
+    # ── Regime-aware direction bias ──────────────────────────────────────
+    regime_dir_bear_short_bonus: float = 0.0
+    """Bonus score added to SHORT signals when market regime is BEAR_TRENDING.
+    In a bear market short trades naturally perform better. 2.0 = +2 score.
+    0.0 = disabled."""
+
+    regime_dir_bear_long_penalty: float = 0.0
+    """Penalty subtracted from LONG signals when market regime is BEAR_TRENDING.
+    In a bear market long trades are risky. 2.0 = -2 score.
+    0.0 = disabled."""
+
+    regime_dir_bull_long_bonus: float = 0.0
+    """Bonus score added to LONG signals when market regime is BULL_TRENDING.
+    0.0 = disabled."""
+
+    regime_dir_bull_short_penalty: float = 0.0
+    """Penalty subtracted from SHORT signals when market regime is BULL_TRENDING.
+    0.0 = disabled."""
+
     min_rsi: float = 0.0
-    """Minimum RSI14. 0 = no filter. Use 45+ to require bullish momentum."""
 
     max_rsi: float = 0.0
     """Maximum RSI14. 0 = no filter. Use 70 to avoid overbought entries."""
@@ -914,6 +932,11 @@ CONFIG_V7_0 = ScoringConfig(
     max_rsi=70,
     # Volatility filter — reject low-vol setups to avoid FLAT resolutions
     min_atr_pct=0.3,
+    # Regime-aware direction bias — SHORT favored in bear, LONG favored in bull
+    regime_dir_bear_short_bonus=2.0,
+    regime_dir_bear_long_penalty=2.0,
+    regime_dir_bull_long_bonus=2.0,
+    regime_dir_bull_short_penalty=2.0,
     # Alert thresholds
     alert_min_score=7.0,
     alert_require_multi_source=True,

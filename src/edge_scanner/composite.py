@@ -43,6 +43,30 @@ from .scoring_config import (
 )
 from ..integrations.binance_symbols import is_on_binance_futures
 
+# ── Regime detection cache ─────────────────────────────────────────────────
+_regime_cache: dict = {}
+_regime_cache_time: datetime | None = None
+REGIME_CACHE_TTL_SEC = 900  # 15 min cache lifetime
+
+def _detect_regime_cached() -> dict:
+    """Get the current market regime, with a 15-minute cache to avoid
+    redundant OHLCV fetches during multi-symbol scans."""
+    global _regime_cache, _regime_cache_time
+    now = datetime.now(timezone.utc)
+    if _regime_cache_time is not None and (now - _regime_cache_time).total_seconds() < REGIME_CACHE_TTL_SEC:
+        return _regime_cache
+    try:
+        from .regime_detector import detect_regime
+        _regime_cache = detect_regime('BTC/USDT', 'H1', 30)
+        _regime_cache_time = now
+    except Exception as exc:
+        logger.warning("Regime detection failed: %s", exc)
+        _regime_cache = {"regime": "UNKNOWN", "adx": 0.0, "volatility": 0.0,
+                         "price_trend": 0.0, "confidence": 0.0}
+        _regime_cache_time = now
+    return _regime_cache
+
+
 logger = logging.getLogger(__name__)
 
 # Legacy module-level constants — kept for backward compat, sourced from ACTIVE_CONFIG.
@@ -317,7 +341,25 @@ def score_symbol(
         direction = "LONG"
     elif score <= -short_min:
         direction = "SHORT"
-        direction = "SHORT"
+
+    # ── Regime-aware direction bias ──────────────────────────────────────
+    # In BEAR_TRENDING, SHORT signals get a bonus and LONG signals get a penalty
+    # In BULL_TRENDING, the reverse applies.
+    regime_info = _detect_regime_cached()
+    regime = regime_info.get("regime", "UNKNOWN")
+    if direction == "SHORT" and regime == "BEAR_TRENDING" and cfg.regime_dir_bear_short_bonus > 0:
+        score += cfg.regime_dir_bear_short_bonus
+        components["regime_bias"] = f"bear+short={cfg.regime_dir_bear_short_bonus:+.0f}"
+    elif direction == "LONG" and regime == "BEAR_TRENDING" and cfg.regime_dir_bear_long_penalty > 0:
+        score -= cfg.regime_dir_bear_long_penalty
+        components["regime_bias"] = f"bear+long={-cfg.regime_dir_bear_long_penalty:+.0f}"
+    elif direction == "LONG" and regime == "BULL_TRENDING" and cfg.regime_dir_bull_long_bonus > 0:
+        score += cfg.regime_dir_bull_long_bonus
+        components["regime_bias"] = f"bull+long={cfg.regime_dir_bull_long_bonus:+.0f}"
+    elif direction == "SHORT" and regime == "BULL_TRENDING" and cfg.regime_dir_bull_short_penalty > 0:
+        score -= cfg.regime_dir_bull_short_penalty
+        components["regime_bias"] = f"bull+short={-cfg.regime_dir_bull_short_penalty:+.0f}"
+    components["regime"] = regime
 
     return CandidateScore(
         symbol=symbol,
