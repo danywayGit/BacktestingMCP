@@ -537,13 +537,21 @@ class CryptoDatabase:
                 WHERE id = ?
             """, (exit_price, forward_return_pct, outcome, datetime.now(timezone.utc).isoformat(), signal_id))
 
-    def get_resolved_edge_signals(self, since: Optional[datetime] = None) -> List[Dict[str, Any]]:
-        """Resolved signals, for win-rate / forward-performance reporting."""
+    def get_resolved_edge_signals(self, since: Optional[datetime] = None, resolved_since: Optional[datetime] = None) -> List[Dict[str, Any]]:
+        """Resolved signals, for win-rate / forward-performance reporting.
+
+        Args:
+            since: If set, only signals whose entry_time >= since are returned.
+            resolved_since: If set, only signals whose resolved_at >= resolved_since are returned.
+        """
         query = "SELECT * FROM edge_signals WHERE status = 'RESOLVED'"
         params: List[Any] = []
         if since:
             query += " AND entry_time >= ?"
             params.append(since.isoformat())
+        if resolved_since:
+            query += " AND resolved_at >= ?"
+            params.append(resolved_since.isoformat())
         query += " ORDER BY entry_time"
 
         with self.get_connection() as conn:

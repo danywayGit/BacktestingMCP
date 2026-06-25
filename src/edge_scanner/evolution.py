@@ -53,6 +53,28 @@ class ConfigStats:
         return self.wins + self.losses
 
     @property
+    def flat_rate(self) -> float:
+        """Percentage of signals that resolved as FLAT (no edge)."""
+        if self.total_signals == 0:
+            return 0.0
+        return (self.flats / self.total_signals) * 100.0
+
+    @property
+    def signal_quality_score(self) -> float:
+        """Overall quality score: higher = better edge.
+        
+        Combines win-rate and flat-avoidance:
+        quality = win_rate * (1 - flat_rate/100) * 100
+        Higher scores mean the config consistently finds direction (low FLAT rate)
+        AND predicts correctly (high win-rate).
+        """
+        if self.total_signals == 0:
+            return 0.0
+        wr_factor = self.win_rate / 100.0
+        non_flat_factor = self.non_flat_trades / max(self.total_signals, 1)
+        return wr_factor * non_flat_factor * 100.0
+
+    @property
     def win_rate(self) -> float:
         if self.non_flat_trades == 0:
             return 0.0
@@ -99,7 +121,9 @@ class ConfigStats:
             'losses': self.losses,
             'flats': self.flats,
             'non_flat_trades': self.non_flat_trades,
+            'flat_rate': round(self.flat_rate, 1),
             'win_rate': round(self.win_rate, 1),
+            'signal_quality_score': round(self.signal_quality_score, 2),
             'avg_return_pct': round(self.avg_return_pct, 2),
             'avg_win_pct': round(self.avg_win_pct, 2),
             'avg_loss_pct': round(self.avg_loss_pct, 2),
@@ -357,12 +381,15 @@ def _build_report(
     if ranked:
         lines.append("📊 *Config Rankings*")
         lines.append("```")
-        lines.append(f"{'Config':<12} {'WR%':>6} {'Trades':>7} {'AvgRet%':>8} {'PF':>6} {'Score':>7}")
-        lines.append("-" * 48)
+        lines.append(f"{'Config':<12} {'WR%':>6} {'Flat%':>7} {'Quality':>8} {'Trades':>7} {'AvgRet%':>8} {'PF':>6} {'Score':>7}")
+        lines.append("-" * 64)
         for i, cfg in enumerate(ranked[:8]):  # Top 8
             marker = " ← ACTIVE" if cfg.config_version == active_version else ""
+            flat_flag = " ⚠️" if cfg.flat_rate > 80 else ""
             lines.append(
                 f"{cfg.config_version:<12} {cfg.win_rate:>5.1f}% "
+                f"{cfg.flat_rate:>6.1f}%{flat_flag}"
+                f"{cfg.signal_quality_score:>7.1f}  "
                 f"{cfg.non_flat_trades:>5}/{cfg.total_signals:<4} "
                 f"{cfg.avg_return_pct:>7.2f}% "
                 f"{cfg.profit_factor if cfg.profit_factor != float('inf') else '∞':>6}"

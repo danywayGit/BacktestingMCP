@@ -23,8 +23,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from datetime import datetime, timezone, timedelta
+from typing import Any, Dict, List, Optional, Set
+
+import numpy as np
+import pandas as pd
 
 from config.settings import CRYPTO_PAIRS, TimeFrame
 from ..core.backtesting_engine import engine
@@ -156,6 +159,41 @@ def discover_candidates(per_side_size: int = 20, config: Optional[ScoringConfig]
     return candidates
 
 
+def _filtered_result(
+    symbol: str, pair: str, coin_type: str, config_version: str,
+    components: Dict[str, Any],
+) -> CandidateScore:
+    """Build a filtered-out CandidateScore (score=0, direction=None)."""
+    return CandidateScore(
+        symbol=symbol, pair=pair, composite_score=0.0, direction=None,
+        last_close=None, components=components,
+        config_version=config_version, coin_type=coin_type,
+    )
+
+
+def _compute_atr_pct(data: pd.DataFrame, period: int = 14) -> float:
+    """Compute ATR as a percentage of the latest close price.
+    
+    Returns ATR% (e.g. 0.5 means 0.5% of close price). Returns 0.0 if
+    insufficient data.
+    """
+    if len(data) < period + 1:
+        return 0.0
+    high = data["High"].values
+    low = data["Low"].values
+    close = data["Close"].values
+    tr = np.maximum(high[1:] - low[1:],
+                    np.abs(high[1:] - close[:-1]),
+                    np.abs(low[1:] - close[:-1]))
+    if len(tr) < period:
+        return 0.0
+    atr = np.mean(tr[-period:])
+    last_close = float(close[-1])
+    if last_close == 0:
+        return 0.0
+    return (atr / last_close) * 100.0
+
+
 def score_symbol(
     symbol: str,
     screener_row: Dict[str, Any],
@@ -239,6 +277,13 @@ def score_symbol(
             scan_result = evaluate_scan(data, "all")
             triggered_scans = [name for name, details in scan_result.items() if details.get("triggered")]
             score += len(triggered_scans) * cfg.scanner_hit_weight
+
+            # ATR volatility filter — reject low-volatility setups
+            if cfg.min_atr_pct > 0:
+                atr_val = _compute_atr_pct(data, period=14)
+                if atr_val < cfg.min_atr_pct:
+                    components["filtered_out"] = f"ATR%={atr_val:.2f}% < min={cfg.min_atr_pct}%"
+                    return _filtered_result(symbol, pair, coin_type, cfg.version, components)
     except Exception as exc:
         logger.warning("Could not fetch/scan OHLCV for %s: %s", pair, exc)
     components["backtestingmcp_scanner_hits"] = triggered_scans
