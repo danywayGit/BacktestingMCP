@@ -489,6 +489,39 @@ class CryptoDatabase:
             rows = cursor.fetchall()
         return [dict(zip(columns, row)) for row in rows]
 
+    def get_pending_edge_signal(self, symbol: str, direction: str) -> Optional[Dict[str, Any]]:
+        """Return a single PENDING signal for this symbol+direction, or None."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, symbol, pair, timeframe, direction, composite_score,
+                       entry_price, entry_time, horizon_hours, components, config_version
+                FROM edge_signals
+                WHERE status = 'PENDING' AND symbol = ? AND direction = ?
+                LIMIT 1
+            """, (symbol, direction))
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            columns = [d[0] for d in cursor.description]
+        return dict(zip(columns, row))
+
+    def update_edge_signal(
+        self,
+        signal_id: int,
+        composite_score: float,
+        entry_price: float,
+        components: Dict[str, Any],
+        config_version: str,
+    ) -> None:
+        """Update an existing PENDING signal with latest score/price (keeps entry_time)."""
+        with self.get_connection() as conn:
+            conn.execute("""
+                UPDATE edge_signals
+                SET composite_score = ?, entry_price = ?, components = ?, config_version = ?
+                WHERE id = ? AND status = 'PENDING'
+            """, (composite_score, entry_price, json.dumps(components), config_version, signal_id))
+
     def resolve_edge_signal(
         self,
         signal_id: int,

@@ -28,11 +28,32 @@ MIN_MOVE_PCT = 0.3
 
 
 def log_signals(scores: List[CandidateScore], timeframe: TimeFrame, horizon_hours: int = DEFAULT_HORIZON_HOURS) -> int:
-    """Persist the actionable (LONG/SHORT) signals from a scan cycle."""
+    """Persist the actionable (LONG/SHORT) signals from a scan cycle.
+
+    Deduplicates: if a PENDING signal already exists for the same symbol + direction,
+    the new one is skipped (no duplicate alerts). The existing PENDING signal's
+    score is updated to reflect the latest scan.
+    """
     logged = 0
+    updated = 0
     for score in scores:
         if score.direction is None or score.last_close is None:
             continue
+
+        # Dedup: check if this symbol+direction already has a PENDING signal
+        existing = db.get_pending_edge_signal(score.symbol, score.direction)
+        if existing is not None:
+            # Update existing signal with latest score/price (keeps earlier entry_time)
+            db.update_edge_signal(
+                signal_id=existing["id"],
+                composite_score=score.composite_score,
+                entry_price=score.last_close,
+                components=score.components,
+                config_version=score.config_version,
+            )
+            updated += 1
+            continue
+
         db.insert_edge_signal(
             symbol=score.symbol,
             pair=score.pair,
@@ -46,6 +67,9 @@ def log_signals(scores: List[CandidateScore], timeframe: TimeFrame, horizon_hour
             coin_type=score.coin_type,
         )
         logged += 1
+
+    if updated > 0:
+        logger.info("Dedup: updated %d existing PENDING signals (skipped duplicates)", updated)
     return logged
 
 
