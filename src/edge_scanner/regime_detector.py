@@ -112,7 +112,7 @@ def _compute_atr_pct(df: pd.DataFrame, period: int = 14) -> pd.Series:
 
 def detect_regime(
     symbol: str = "BTC/USDT",
-    timeframe: TimeFrame = TimeFrame.H1,
+    timeframe: str = "H1",
     lookback_days: int = 30,
 ) -> dict:
     """Detect the current market regime from OHLCV data.
@@ -121,8 +121,9 @@ def detect_regime(
     ----------
     symbol : str
         Trading pair symbol, e.g. "BTC/USDT" (default).
-    timeframe : TimeFrame
-        Candle timeframe for analysis (default: H1).
+    timeframe : str
+        Candle timeframe for analysis (default: H1). Accepts strings like
+        "H1", "4h", "1d" which are mapped to TimeFrame enum internally.
     lookback_days : int
         How many days of history to fetch (default: 30).
 
@@ -138,6 +139,15 @@ def detect_regime(
         }
     """
     from ..core.backtesting_engine import engine
+    from config.settings import TimeFrame
+
+    # Convert string timeframe to TimeFrame enum
+    if isinstance(timeframe, str):
+        tf_map = {"h1": TimeFrame.H1, "4h": TimeFrame.H4, "1d": TimeFrame.D1}
+        timeframe_enum = tf_map.get(timeframe.lower(), TimeFrame.H1)
+    else:
+        timeframe_enum = timeframe
+    timeframe = timeframe_enum
 
     end_date = datetime.now(timezone.utc)
     start_date = end_date - timedelta(days=lookback_days)

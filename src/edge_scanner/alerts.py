@@ -26,6 +26,7 @@ TELEGRAM_CHANNEL_ID = -1001482338614  # @CryptoAlertsTradingView
 TELEGRAM_API_URL = "https://api.telegram.org"
 
 ALERT_MIN_SCORE = 7.0
+HIGH_CONFIDENCE_THRESHOLD = 9.0  # Score ≥ 9.0 = 🔥 high-confidence alert
 ALERT_MULTI_SOURCE = True
 
 # Default risk parameters (only used when actual ATR data exists)
@@ -103,6 +104,7 @@ def _is_multi_source(c: CandidateScore) -> bool:
 def _format_alert(c: CandidateScore) -> str:
     """Alert with proven data only. N/A where no data exists."""
     direction_emoji = "🟢" if c.direction == "LONG" else "🔴"
+    confidence_marker = " 🔥" if abs(c.composite_score) >= HIGH_CONFIDENCE_THRESHOLD else ""
     comp = c.components
 
     # Entry price
@@ -158,7 +160,7 @@ def _format_alert(c: CandidateScore) -> str:
     sources_str = " · ".join(source_parts) if source_parts else "—"
 
     lines = [
-        f"{direction_emoji} *{c.symbol}* — {c.direction} ({c.config_version})",
+        f"{direction_emoji} *{c.symbol}* — {c.direction} ({c.config_version}){confidence_marker}",
         f"┌ Entry: `{price_str}`",
         f"├ Stop:  `{stop_str}`",
         f"├ 🎯 Tgt: `{target_str}`  R:R `{rr_str}`",
