@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import List
+from typing import List, Tuple, Optional
 
 import pandas as pd
 
@@ -19,15 +19,13 @@ from config.settings import TimeFrame
 from ..core.backtesting_engine import engine
 from ..data.database import db
 from .composite import CandidateScore
+from ..edge_scanner.scoring_config import ALL_CONFIGS
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_HORIZON_HOURS = 24
 # Forward moves smaller than this are treated as noise, not a real win/loss.
 MIN_MOVE_PCT = 0.3
-# ATR-based risk parameters for target/stop computation
-ATR_MULT_STOP = 1.5   # stop = ATR × 1.5
-RR_RATIO = 2.0        # risk 1 → reward 2
 
 
 def _get_atr(pair: str, timeframe: TimeFrame) -> float:
@@ -50,7 +48,14 @@ def _get_atr(pair: str, timeframe: TimeFrame) -> float:
         return 0.0
 
 
-def _compute_atr_stop_target(symbol: str, direction: str, entry_price: float, timeframe: TimeFrame) -> tuple:
+def _compute_atr_stop_target(
+    symbol: str,
+    direction: str,
+    entry_price: float,
+    timeframe: TimeFrame,
+    atr_stop_mult: float,
+    rr_ratio: float,
+) -> tuple[float, float]:
     """Compute ATR-based stop and target prices for a signal.
 
     Returns (target_price, stop_price). If ATR is unavailable, returns
@@ -59,21 +64,21 @@ def _compute_atr_stop_target(symbol: str, direction: str, entry_price: float, ti
     pair = f"{symbol.upper()}USDT"
     atr = _get_atr(pair, timeframe)
     if atr > 0:
-        stop_distance = atr * ATR_MULT_STOP
+        stop_distance = atr * atr_stop_mult
         if direction == "LONG":
             stop_price = round(entry_price - stop_distance, 8)
-            target_price = round(entry_price + stop_distance * RR_RATIO, 8)
+            target_price = round(entry_price + stop_distance * rr_ratio, 8)
         else:
             stop_price = round(entry_price + stop_distance, 8)
-            target_price = round(entry_price - stop_distance * RR_RATIO, 8)
+            target_price = round(entry_price - stop_distance * rr_ratio, 8)
     else:
         move = entry_price * 0.02
         if direction == "LONG":
-            stop_price = round(entry_price - move * ATR_MULT_STOP, 8)
-            target_price = round(entry_price + move * RR_RATIO, 8)
+            stop_price = round(entry_price - move * atr_stop_mult, 8)
+            target_price = round(entry_price + move * rr_ratio, 8)
         else:
-            stop_price = round(entry_price + move * ATR_MULT_STOP, 8)
-            target_price = round(entry_price - move * RR_RATIO, 8)
+            stop_price = round(entry_price + move * atr_stop_mult, 8)
+            target_price = round(entry_price - move * rr_ratio, 8)
     return target_price, stop_price
 
 
@@ -99,8 +104,17 @@ def log_signals(scores: List[CandidateScore], timeframe: TimeFrame, horizon_hour
             continue
 
         # Compute ATR-based stop and target prices for this signal
+        config = ALL_CONFIGS.get(score.config_version)
+        if config is not None:
+            atr_stop_mult = config.atr_stop_mult
+            rr_ratio = config.rr_ratio
+        else:
+            # Fallback to sensible defaults if config version not found
+            atr_stop_mult = 1.5
+            rr_ratio = 2.0
         target_price, stop_price = _compute_atr_stop_target(
             score.symbol, score.direction, score.last_close, timeframe,
+            atr_stop_mult, rr_ratio,
         )
 
         # Dedup per config-version: same symbol+direction+config = update, not insert
