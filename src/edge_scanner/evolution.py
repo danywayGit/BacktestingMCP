@@ -47,6 +47,8 @@ class ConfigStats:
         self.total_return_pct = 0.0
         self.first_signal_time: Optional[datetime] = None
         self.last_signal_time: Optional[datetime] = None
+        self.avg_time_to_resolve_hours: float = 0.0
+        self.sum_time_to_resolve_hours: float = 0.0
 
     @property
     def non_flat_trades(self) -> int:
@@ -131,6 +133,7 @@ class ConfigStats:
             'expectancy': round(self.expectancy, 2),
             'composite_rank_score': round(self.composite_rank_score, 2),
             'total_return_pct': round(self.total_return_pct, 2),
+            'avg_time_to_resolve_hours': round(self.avg_time_to_resolve_hours, 2),
         }
 
 
@@ -143,7 +146,7 @@ def analyze_configs(db_path: str = 'data/crypto.db') -> Dict[str, ConfigStats]:
 
     rows = conn.execute("""
         SELECT config_version, outcome, forward_return_pct,
-               entry_time, resolved_at
+               entry_time, resolved_at, time_to_resolve_hours
         FROM edge_signals
         WHERE status = 'RESOLVED' AND outcome IS NOT NULL
         ORDER BY config_version
@@ -176,6 +179,11 @@ def analyze_configs(db_path: str = 'data/crypto.db') -> Dict[str, ConfigStats]:
 
         cfg.total_return_pct += ret
 
+        # Track resolution time
+        ttr = row['time_to_resolve_hours']
+        if ttr is not None and ttr > 0:
+            cfg.sum_time_to_resolve_hours += ttr
+
         if entry_time:
             t = datetime.fromisoformat(entry_time)
             if cfg.first_signal_time is None or t < cfg.first_signal_time:
@@ -191,6 +199,8 @@ def analyze_configs(db_path: str = 'data/crypto.db') -> Dict[str, ConfigStats]:
             cfg.avg_loss_pct = cfg.max_loss_pct
         if cfg.total_signals > 0:
             cfg.avg_return_pct = cfg.total_return_pct / cfg.total_signals
+        if cfg.sum_time_to_resolve_hours > 0 and cfg.total_signals > 0:
+            cfg.avg_time_to_resolve_hours = cfg.sum_time_to_resolve_hours / cfg.total_signals
 
     conn.close()
     return configs
@@ -381,8 +391,8 @@ def _build_report(
     if ranked:
         lines.append("📊 *Config Rankings*")
         lines.append("```")
-        lines.append(f"{'Config':<12} {'WR%':>6} {'Flat%':>7} {'Quality':>8} {'Trades':>7} {'AvgRet%':>8} {'PF':>6} {'Score':>7}")
-        lines.append("-" * 64)
+        lines.append(f"{'Config':<12} {'WR%':>6} {'Flat%':>7} {'Quality':>8} {'Trades':>7} {'AvgHrs':>8} {'AvgRet%':>8} {'PF':>6} {'Score':>7}")
+        lines.append("-" * 72)
         for i, cfg in enumerate(ranked[:8]):  # Top 8
             marker = " ← ACTIVE" if cfg.config_version == active_version else ""
             flat_flag = " ⚠️" if cfg.flat_rate > 80 else ""
@@ -391,6 +401,7 @@ def _build_report(
                 f"{cfg.flat_rate:>6.1f}%{flat_flag}"
                 f"{cfg.signal_quality_score:>7.1f}  "
                 f"{cfg.non_flat_trades:>5}/{cfg.total_signals:<4} "
+                f"{cfg.avg_time_to_resolve_hours:>7.1f}h "
                 f"{cfg.avg_return_pct:>7.2f}% "
                 f"{cfg.profit_factor if cfg.profit_factor != float('inf') else '∞':>6}"
                 f"{cfg.composite_rank_score:>7.1f}{marker}"

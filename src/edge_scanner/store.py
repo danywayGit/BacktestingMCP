@@ -150,18 +150,42 @@ def log_signals(scores: List[CandidateScore], timeframe: TimeFrame, horizon_hour
     return logged
 
 
-def _fetch_window_data(pair: str, timeframe: TimeFrame, start: datetime, end: datetime) -> tuple:
-    """Fetch OHLCV data over a time window and extract HIGH, LOW, and CLOSE.
+def _fetch_window_data(pair: str, timeframe: TimeFrame, start: datetime, end: datetime):
+    """Fetch OHLCV data over a time window.
 
-    Returns (high, low, close) as floats, or (None, None, None) on failure.
+    Returns (dataframe, high, low, close) or (None, None, None, None) on failure.
     """
     try:
         data = engine.get_data(pair, timeframe, start, end)
         if data.empty:
-            return None, None, None
-        return (float(data["High"].max()), float(data["Low"].min()), float(data["Close"].iloc[-1]))
+            return None, None, None, None
+        return (data, float(data["High"].max()), float(data["Low"].min()), float(data["Close"].iloc[-1]))
     except Exception:
-        return None, None, None
+        return None, None, None, None
+
+
+def _find_first_hit_hours(data, entry_time: datetime, level: float, direction: str, hit_type: str) -> float:
+    """Find the first bar where target or stop was breached.
+
+    Returns the hours from entry_time to the first hit bar.
+    hit_type: 'target' (check High for LONG, Low for SHORT)
+              'stop'  (check Low for LONG, High for SHORT)
+    """
+    if data is None or data.empty:
+        return 0.0
+    for idx, row in data.iterrows():
+        bar_time = idx if isinstance(idx, datetime) else entry_time
+        if hit_type == "target":
+            if direction == "LONG" and row["High"] >= level:
+                return (bar_time - entry_time).total_seconds() / 3600
+            elif direction == "SHORT" and row["Low"] <= level:
+                return (bar_time - entry_time).total_seconds() / 3600
+        else:  # stop
+            if direction == "LONG" and row["Low"] <= level:
+                return (bar_time - entry_time).total_seconds() / 3600
+            elif direction == "SHORT" and row["High"] >= level:
+                return (bar_time - entry_time).total_seconds() / 3600
+    return 0.0
 
 
 def resolve_due_signals() -> int:
@@ -189,7 +213,7 @@ def resolve_due_signals() -> int:
         direction = signal["direction"]
 
         # Fetch the full OHLCV window from entry to now
-        window_high, window_low, exit_price = _fetch_window_data(
+        df, window_high, window_low, exit_price = _fetch_window_data(
             signal["pair"], timeframe, entry_time, due_at,
         )
 
@@ -200,23 +224,28 @@ def resolve_due_signals() -> int:
         outcome = "FLAT"  # default
         raw_return_pct = 0.0
         directional_return_pct = 0.0
+        time_to_resolve_hours = 0.0
 
         # Check target/stop hits DURING the window
         if target_price is not None:
             if direction == "LONG" and window_high >= target_price:
                 directional_return_pct = ((target_price - entry_price) / entry_price) * 100
                 outcome = "WIN"
+                time_to_resolve_hours = _find_first_hit_hours(df, entry_time, target_price, direction, "target")
             elif direction == "SHORT" and window_low <= target_price:
                 directional_return_pct = ((entry_price - target_price) / entry_price) * 100
                 outcome = "WIN"
+                time_to_resolve_hours = _find_first_hit_hours(df, entry_time, target_price, direction, "target")
 
         if stop_price is not None and outcome == "FLAT":
             if direction == "LONG" and window_low <= stop_price:
                 directional_return_pct = ((stop_price - entry_price) / entry_price) * 100
                 outcome = "LOSS"
+                time_to_resolve_hours = _find_first_hit_hours(df, entry_time, stop_price, direction, "stop")
             elif direction == "SHORT" and window_high >= stop_price:
                 directional_return_pct = ((entry_price - stop_price) / entry_price) * 100
                 outcome = "LOSS"
+                time_to_resolve_hours = _find_first_hit_hours(df, entry_time, stop_price, direction, "stop")
 
         # If neither target nor stop was hit, fall back to endpoint comparison
         if outcome == "FLAT" and exit_price is not None:
@@ -229,7 +258,8 @@ def resolve_due_signals() -> int:
             else:
                 outcome = "FLAT"
 
-        db.resolve_edge_signal(signal["id"], exit_price, directional_return_pct, outcome)
+        db.resolve_edge_signal(signal["id"], exit_price or 0.0, directional_return_pct, outcome,
+                               time_to_resolve_hours=time_to_resolve_hours)
         resolved += 1
     return resolved
 
