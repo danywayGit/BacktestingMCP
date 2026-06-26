@@ -511,6 +511,16 @@ class CryptoDatabase:
             columns = [d[0] for d in cursor.description]
         return dict(zip(columns, row))
 
+    def get_edge_signal(self, signal_id: int) -> Optional[Dict[str, Any]]:
+        """Fetch a single edge signal by its ID."""
+        with self.get_connection() as conn:
+            cursor = conn.execute("SELECT * FROM edge_signals WHERE id = ?", (signal_id,))
+            row = cursor.fetchone()
+            if row:
+                columns = [d[0] for d in cursor.description]
+                return dict(zip(columns, row))
+        return None
+
     def update_edge_signal(
         self,
         signal_id: int,
@@ -532,15 +542,25 @@ class CryptoDatabase:
         exit_price: float,
         forward_return_pct: float,
         outcome: str,
+        time_to_resolve_hours: float = 0.0,
     ) -> None:
         """Record the actual forward outcome of a previously logged signal."""
+        if time_to_resolve_hours <= 0:
+            # Fallback: use the signal's own horizon_hours as the estimated time
+            signal = self.get_edge_signal(signal_id)
+            if signal and signal.get("entry_time"):
+                et = datetime.fromisoformat(signal["entry_time"])
+                if et.tzinfo is None:
+                    et = et.replace(tzinfo=timezone.utc)
+                time_to_resolve_hours = (datetime.now(timezone.utc) - et).total_seconds() / 3600
         with self.get_connection() as conn:
             conn.execute("""
                 UPDATE edge_signals
                 SET status = 'RESOLVED', exit_price = ?, forward_return_pct = ?,
-                    outcome = ?, resolved_at = ?
+                    outcome = ?, resolved_at = ?, time_to_resolve_hours = ?
                 WHERE id = ?
-            """, (exit_price, forward_return_pct, outcome, datetime.now(timezone.utc).isoformat(), signal_id))
+            """, (exit_price, forward_return_pct, outcome, datetime.now(timezone.utc).isoformat(),
+                  round(time_to_resolve_hours, 4), signal_id))
 
     def get_resolved_edge_signals(self, since: Optional[datetime] = None, resolved_since: Optional[datetime] = None) -> List[Dict[str, Any]]:
         """Resolved signals, for win-rate / forward-performance reporting.
