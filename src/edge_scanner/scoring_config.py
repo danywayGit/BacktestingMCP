@@ -313,9 +313,22 @@ class ScoringConfig:
     """If True, at least one non-trend source must confirm the direction:
     volume_relative > 1.0 OR signal feed match OR scanner hit OR on-chain match.
     Prevents signals based on trend alone."""
+    # ── Volume Divergence (leading indicator) ──────────────────────────────
+    volume_divergence_weight: float = 0.0
+    """Weight for volume-price divergence score. Non-zero enables early-entry
+    divergence detection that catches moves before the consensus trend forms."""
 
+    smart_money_index_weight: float = 0.0
+    """Weight for smart-money accumulation index. Based on up-volume vs
+    down-volume imbalance. Detects buy/sell pressure."""
+
+    low_float_squeeze_weight: float = 0.0
+    """Weight for low-float volume squeeze detection. High scores for
+    AI/AGENT/MEME coins with sudden volume spikes."""
+
+    # ── Alert thresholds ────────────────────────────────────────────────────
     alert_min_score: float = 7.0
-    """Minimum |composite_score| to send a Telegram alert."""
+    """Minimum absolute composite score to trigger a Telegram alert."""
 
     alert_require_multi_source: bool = True
     """Alerts require >= 2 independent sources confirming direction."""
@@ -950,6 +963,56 @@ CONFIG_V7_0 = ScoringConfig(
     display_types_extra=[],
 )
 
+CONFIG_V7_2 = ScoringConfig(
+    version="7.2",
+    description=(
+        "V7.0_Filtered_Quality_Gate + Volume Divergence Early Entry: "
+        "Adds volume-price divergence detection as a leading indicator. "
+        "Catches accumulation (volume spikes before price moves) and "
+        "exhaustion (price up on declining volume). Based on Wyckoff, "
+        "Blume 1994, and Karpoff 1987 research."
+    ),
+    # Same core weights as V7.0
+    trend_weight=0.4,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.3,
+    onchain_netflow_weight=0.1,
+    # Extended scoring signals
+    adx_weight=0.1,
+    obv_trend_weight=0.05,
+    medium_term_trend_weight=0.1,
+    rsi_momentum_weight=0.05,
+    price_change_1w_weight=0.0,
+    tr_vs_atr_weight=0.0,
+    # Volume divergence leading indicators — NEW in v7.2
+    volume_divergence_weight=3.0,
+    smart_money_index_weight=2.0,
+    low_float_squeeze_weight=1.5,
+    # Quality filters (same as V7.0)
+    min_abs_score=5.0,
+    min_trend_abs_score=5,
+    require_non_trend_confirmation=True,
+    min_volume_relative=0.5,
+    min_adx=20,
+    min_rsi=30,
+    max_rsi=70,
+    min_atr_pct=0.3,
+    # Regime-aware direction bias (same as V7.0)
+    regime_dir_bear_short_bonus=2.0,
+    regime_dir_bear_long_penalty=2.0,
+    regime_dir_bull_long_bonus=2.0,
+    regime_dir_bull_short_penalty=2.0,
+    # Alert thresholds
+    alert_min_score=7.0,
+    alert_require_multi_source=True,
+    # Filters
+    min_market_cap_usd=0.0,
+    max_market_cap_usd=0.0,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    display_types_extra=[],
+)
+
 
 
 # ---------------------------------------------------------------------------
@@ -975,5 +1038,6 @@ ALL_CONFIGS: dict[str, ScoringConfig] = {
         # CEO suggested patterns
         CONFIG_V6_0, CONFIG_V6_1, CONFIG_V6_2,
         CONFIG_V7_0,
+        CONFIG_V7_2,
     ]
 }
