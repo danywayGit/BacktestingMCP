@@ -458,6 +458,8 @@ class CryptoDatabase:
         horizon_hours: int,
         config_version: str = "v1.0",
         coin_type: str = "OTHER",
+        target_price: Optional[float] = None,
+        stop_price: Optional[float] = None,
     ) -> int:
         """Log a composite-scanner signal so its forward outcome can be tracked."""
         with self.get_connection() as conn:
@@ -465,15 +467,18 @@ class CryptoDatabase:
             cursor.execute("""
                 INSERT INTO edge_signals
                 (symbol, pair, timeframe, direction, composite_score, components,
-                 config_version, coin_type, entry_price, entry_time, horizon_hours)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 config_version, coin_type, entry_price, entry_time, horizon_hours,
+                 target_price, stop_price)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 symbol, pair, timeframe, direction, composite_score,
-                json.dumps(components, cls=_NumpyEncoder),
-                config_version, coin_type,
-                entry_price, datetime.now(timezone.utc).isoformat(), horizon_hours,
+                json.dumps(components), config_version, coin_type,
+                entry_price, datetime.now(timezone.utc).isoformat(),
+                horizon_hours, target_price, stop_price,
             ))
-            return cursor.lastrowid
+            signal_id = cursor.lastrowid
+        logger.info("Logged %s %s signal #%d (score=%+.2f, horizon=%dh)", symbol, direction, signal_id, composite_score, horizon_hours)
+        return signal_id
 
     def get_pending_edge_signals(self) -> List[Dict[str, Any]]:
         """Signals whose tracking horizon has elapsed and are ready to be resolved."""

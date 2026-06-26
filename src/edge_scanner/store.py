@@ -25,6 +25,56 @@ logger = logging.getLogger(__name__)
 DEFAULT_HORIZON_HOURS = 24
 # Forward moves smaller than this are treated as noise, not a real win/loss.
 MIN_MOVE_PCT = 0.3
+# ATR-based risk parameters for target/stop computation
+ATR_MULT_STOP = 1.5   # stop = ATR × 1.5
+RR_RATIO = 2.0        # risk 1 → reward 2
+
+
+def _get_atr(pair: str, timeframe: TimeFrame) -> float:
+    """Fetch ATR(14) from recent OHLCV data. Returns 0.0 if unavailable."""
+    try:
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=30)
+        data = engine.get_data(pair, timeframe, start, end)
+        if data.empty or len(data) < 20:
+            return 0.0
+        high, low, close = data["High"], data["Low"], data["Close"]
+        tr = pd.concat([
+            high - low,
+            (high - close.shift(1)).abs(),
+            (low - close.shift(1)).abs(),
+        ], axis=1).max(axis=1)
+        atr = tr.rolling(14).mean().iloc[-1]
+        return float(atr) if pd.notna(atr) else 0.0
+    except Exception:
+        return 0.0
+
+
+def _compute_atr_stop_target(symbol: str, direction: str, entry_price: float, timeframe: TimeFrame) -> tuple:
+    """Compute ATR-based stop and target prices for a signal.
+
+    Returns (target_price, stop_price). If ATR is unavailable, returns
+    fallback using a fixed 2% expected move.
+    """
+    pair = f"{symbol.upper()}USDT"
+    atr = _get_atr(pair, timeframe)
+    if atr > 0:
+        stop_distance = atr * ATR_MULT_STOP
+        if direction == "LONG":
+            stop_price = round(entry_price - stop_distance, 8)
+            target_price = round(entry_price + stop_distance * RR_RATIO, 8)
+        else:
+            stop_price = round(entry_price + stop_distance, 8)
+            target_price = round(entry_price - stop_distance * RR_RATIO, 8)
+    else:
+        move = entry_price * 0.02
+        if direction == "LONG":
+            stop_price = round(entry_price - move * ATR_MULT_STOP, 8)
+            target_price = round(entry_price + move * RR_RATIO, 8)
+        else:
+            stop_price = round(entry_price + move * ATR_MULT_STOP, 8)
+            target_price = round(entry_price - move * RR_RATIO, 8)
+    return target_price, stop_price
 
 
 def log_signals(scores: List[CandidateScore], timeframe: TimeFrame, horizon_hours: int = DEFAULT_HORIZON_HOURS) -> int:
@@ -35,12 +85,23 @@ def log_signals(scores: List[CandidateScore], timeframe: TimeFrame, horizon_hour
     creating a duplicate. Different config versions may have separate PENDING
     signals for the same symbol — this enables fair win-rate comparison between
     configs during evolution analysis.
+
+    For each signal, ATR-based target and stop prices are computed from OHLCV
+    data and stored alongside the entry price. At resolution time, the actual
+    HIGH/LOW of the tracking window is checked against these levels — a signal
+    resolves as WIN if price hit the target, LOSS if it hit the stop, and FLAT
+    only if neither level was reached during the full horizon.
     """
     logged = 0
     updated = 0
     for score in scores:
         if score.direction is None or score.last_close is None:
             continue
+
+        # Compute ATR-based stop and target prices for this signal
+        target_price, stop_price = _compute_atr_stop_target(
+            score.symbol, score.direction, score.last_close, timeframe,
+        )
 
         # Dedup per config-version: same symbol+direction+config = update, not insert
         existing = db.get_pending_edge_signal(score.symbol, score.direction, score.config_version)
@@ -65,6 +126,8 @@ def log_signals(scores: List[CandidateScore], timeframe: TimeFrame, horizon_hour
             horizon_hours=horizon_hours,
             config_version=score.config_version,
             coin_type=score.coin_type,
+            target_price=target_price,
+            stop_price=stop_price,
         )
         logged += 1
 
@@ -73,17 +136,28 @@ def log_signals(scores: List[CandidateScore], timeframe: TimeFrame, horizon_hour
     return logged
 
 
-def _fetch_current_price(pair: str, timeframe: TimeFrame) -> float:
-    end_date = datetime.now(timezone.utc)
-    start_date = end_date - timedelta(days=5)
-    data = engine.get_data(pair, timeframe, start_date, end_date)
-    if data.empty:
-        raise ValueError(f"No recent data available for {pair}")
-    return float(data["Close"].iloc[-1])
+def _fetch_window_data(pair: str, timeframe: TimeFrame, start: datetime, end: datetime) -> tuple:
+    """Fetch OHLCV data over a time window and extract HIGH, LOW, and CLOSE.
+
+    Returns (high, low, close) as floats, or (None, None, None) on failure.
+    """
+    try:
+        data = engine.get_data(pair, timeframe, start, end)
+        if data.empty:
+            return None, None, None
+        return (float(data["High"].max()), float(data["Low"].min()), float(data["Close"].iloc[-1]))
+    except Exception:
+        return None, None, None
 
 
 def resolve_due_signals() -> int:
-    """Resolve every PENDING signal whose horizon has elapsed."""
+    """Resolve every PENDING signal whose horizon has elapsed.
+
+    Uses target/stop-based resolution: checks if price hit the target or stop
+    DURING the tracking window (using HIGH/LOW), not just at the endpoint.
+    This correctly captures trades that hit profit target mid-window then
+    retraced — those would be WINs under the old close-only logic.
+    """
     resolved = 0
     now = datetime.now(timezone.utc)
     for signal in db.get_pending_edge_signals():
@@ -94,21 +168,52 @@ def resolve_due_signals() -> int:
         if now < due_at:
             continue
 
-        try:
-            exit_price = _fetch_current_price(signal["pair"], TimeFrame(signal["timeframe"]))
-        except Exception as exc:  # noqa: BLE001 - missing data shouldn't block other resolutions
-            logger.warning("Could not resolve signal %s (%s): %s", signal["id"], signal["pair"], exc)
+        timeframe = TimeFrame(signal["timeframe"])
+        target_price = signal.get("target_price")
+        stop_price = signal.get("stop_price")
+        entry_price = signal["entry_price"]
+        direction = signal["direction"]
+
+        # Fetch the full OHLCV window from entry to now
+        window_high, window_low, exit_price = _fetch_window_data(
+            signal["pair"], timeframe, entry_time, due_at,
+        )
+
+        if window_high is None:
+            logger.warning("Could not resolve signal %s (%s): no OHLCV data", signal["id"], signal["pair"])
             continue
 
-        raw_return_pct = (exit_price - signal["entry_price"]) / signal["entry_price"] * 100
-        directional_return_pct = raw_return_pct if signal["direction"] == "LONG" else -raw_return_pct
+        outcome = "FLAT"  # default
+        raw_return_pct = 0.0
+        directional_return_pct = 0.0
 
-        if directional_return_pct > MIN_MOVE_PCT:
-            outcome = "WIN"
-        elif directional_return_pct < -MIN_MOVE_PCT:
-            outcome = "LOSS"
-        else:
-            outcome = "FLAT"
+        # Check target/stop hits DURING the window
+        if target_price is not None:
+            if direction == "LONG" and window_high >= target_price:
+                directional_return_pct = ((target_price - entry_price) / entry_price) * 100
+                outcome = "WIN"
+            elif direction == "SHORT" and window_low <= target_price:
+                directional_return_pct = ((entry_price - target_price) / entry_price) * 100
+                outcome = "WIN"
+
+        if stop_price is not None and outcome == "FLAT":
+            if direction == "LONG" and window_low <= stop_price:
+                directional_return_pct = ((stop_price - entry_price) / entry_price) * 100
+                outcome = "LOSS"
+            elif direction == "SHORT" and window_high >= stop_price:
+                directional_return_pct = ((entry_price - stop_price) / entry_price) * 100
+                outcome = "LOSS"
+
+        # If neither target nor stop was hit, fall back to endpoint comparison
+        if outcome == "FLAT" and exit_price is not None:
+            raw_return_pct = (exit_price - entry_price) / entry_price * 100
+            directional_return_pct = raw_return_pct if direction == "LONG" else -raw_return_pct
+            if directional_return_pct > MIN_MOVE_PCT:
+                outcome = "WIN"
+            elif directional_return_pct < -MIN_MOVE_PCT:
+                outcome = "LOSS"
+            else:
+                outcome = "FLAT"
 
         db.resolve_edge_signal(signal["id"], exit_price, directional_return_pct, outcome)
         resolved += 1
