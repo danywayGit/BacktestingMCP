@@ -43,7 +43,6 @@ from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
-
 # ---------------------------------------------------------------------------
 # Global stablecoin blocklist — ALWAYS excluded regardless of config version.
 # These tokens have no tradeable edge — their "trend" is just peg maintenance.
@@ -162,15 +161,13 @@ COIN_TYPE_MAP: dict[str, str] = {
     "BTT": "INFRA",  # BitTorrent (file sharing network)
     # Gaming / NFT / Metaverse
     "AXS": "GAMING", "SAND": "GAMING", "MANA": "GAMING", "ENJ": "GAMING",
-    "GALA": "GAMING", "PIXEL": "GAMING", "PRIME": "GAMING",
-    "MAGIC": "GAMING", "YGG": "GAMING", "PYR": "GAMING", "ILV": "GAMING",
+    "GALA": "GAMING", "PIXEL": "GAMING", "PRIME": "GAMING", "ILV": "GAMING",
     "BEAM": "GAMING", "RON": "GAMING",
     "ZEREBRO": "GAMING",  # Zerebro (gaming ecosystem)
     "CARDS": "GAMING",
     # RWA / Tokenized Assets
     "ONDO": "DEFI",  # ONDO Finance (RWA)
 }
-
 
 def get_coin_type(symbol: str) -> str:
     """Return coin type category, defaulting to 'OTHER'."""
@@ -307,12 +304,13 @@ class ScoringConfig:
 
     min_trend_abs_score: float = 0.0
     """Minimum absolute SHORT_TERM_TREND score required. 0 = no filter.
-    Set to 5.0 to require at least \"Up (5/10)\" for LONG or \"Down (5/10)\" for SHORT."""
+    Set to 5.0 to require at least "Up (5/10)" for LONG or "Down (5/10)" for SHORT."""
 
     require_non_trend_confirmation: bool = False
     """If True, at least one non-trend source must confirm the direction:
     volume_relative > 1.0 OR signal feed match OR scanner hit OR on-chain match.
     Prevents signals based on trend alone."""
+
     # ── Volume Divergence (leading indicator) ──────────────────────────────
     volume_divergence_weight: float = 0.0
     """Weight for volume-price divergence score. Non-zero enables early-entry
@@ -325,6 +323,15 @@ class ScoringConfig:
     low_float_squeeze_weight: float = 0.0
     """Weight for low-float volume squeeze detection. High scores for
     AI/AGENT/MEME coins with sudden volume spikes."""
+
+    # ── Risk management (target/stop computation) ──────────────────────────
+    atr_stop_mult: float = 1.5
+    """ATR multiplier for stop loss placement. stop = entry ± (ATR × mult).
+    SWING strategies optimized to 1.5-2.0. Higher = wider stop, more room."""
+
+    rr_ratio: float = 2.0
+    """Risk-to-reward ratio. target = entry ± (stop_distance × RR).
+    SWING strategies optimized to 1.5-2.5. Higher = more ambitious targets."""
 
     # ── Alert thresholds ────────────────────────────────────────────────────
     alert_min_score: float = 7.0
@@ -375,6 +382,7 @@ class ScoringConfig:
     0.0 = disabled."""
 
     min_rsi: float = 0.0
+    """Minimum RSI14. 0 = no filter."""
 
     max_rsi: float = 0.0
     """Maximum RSI14. 0 = no filter. Use 70 to avoid overbought entries."""
@@ -425,8 +433,7 @@ class ScoringConfig:
 
     def passes_filters(self, symbol: str, screener_row: dict) -> tuple[bool, str]:
         """Check if a symbol passes this config's filters.
-        Returns (passes: bool, reason: str). reason is '' if passes=True.
-        """
+        Returns (passes: bool, reason: str). reason is '' if passes=True."""
         additional = screener_row.get("additionalData", {}) if screener_row else {}
 
         # Market cap filters
@@ -518,422 +525,364 @@ class ScoringConfig:
         # 1-week price change momentum
         if self.price_change_1w_weight > 0:
             pct = parse_price_change_pct(additional.get("PRICE_CHANGE_1W", 0))
-            # Normalize: ±10% weekly change → ±1.0 contribution
-            contrib = max(-1.0, min(1.0, pct / 10)) * self.price_change_1w_weight
-            extra += contrib
+            contribution = max(-1.0, min(1.0, pct / 10)) * self.price_change_1w_weight
+            extra += contribution
             components["price_change_1w_pct"] = pct
 
-        # TR/ATR breakout intensity
+        # TR/ATR ratio — breakout detection
         if self.tr_vs_atr_weight > 0:
-            tr_vs_atr = parse_float(additional.get("TR_VS_ATR", 1.0), 1.0)
-            if tr_vs_atr > 1.0:
-                contrib = min(tr_vs_atr - 1.0, 2.0) * self.tr_vs_atr_weight
-                extra += contrib if direction_hint >= 0 else -contrib
-            components["tr_vs_atr"] = tr_vs_atr
+            ratio = parse_float(additional.get("TR_VS_ATR", 0))
+            if ratio > 0:
+                contrib = max(0.0, min(1.0, (ratio - 1) / 2)) * self.tr_vs_atr_weight  # assume max 3.0 for normalization
+                extra += contrib
+            components["tr_vs_atr"] = ratio
 
         return extra, components
 
 
 # ---------------------------------------------------------------------------
-# Scoring Config Library
-#
-# DESIGN PHILOSOPHY:
-# Each version tests ONE clear hypothesis about what predicts positive
-# forward returns in crypto swing trading. The description states:
-#   1. THE THEORY — what market behaviour it believes in
-#   2. THE CRITERIA — exact combination of filters + weights used
-#   3. THE PREDICTION — what kind of signals it produces vs v1.0
-#
-# Versions are grouped by major theme:
-#   v1.x — Baseline variants (filter / weight changes on base formula)
-#   v2.x — Multi-timeframe alignment (adds MEDIUM_TERM_TREND as filter/signal)
-#   v3.x — Momentum-quality (RSI + ADX confirm genuine momentum)
-#   v4.x — Volume-breakout intensity (TR/ATR + OBV as primary signals)
-#   v5.x — Coin-type-specific (custom weights tuned per asset class)
+# Configuration definitions
 # ---------------------------------------------------------------------------
 
-# ── v1.x — Baseline variants ─────────────────────────────────────────────
-
 CONFIG_V1_0 = ScoringConfig(
-    version="v1.0",
-    description=(
-        "BASELINE — Broad universe, standard weights, stablecoins/stocks always excluded. "
-        "Theory: the raw combination of altFINS trend score + unusual volume + signal feed "
-        "confirmation + on-chain exchange flow has positive expectancy across any liquid crypto. "
-        "No market cap, RSI, ADX or coin type restrictions — maximum signal count. "
-        "Serves as the performance benchmark every other version is measured against. "
-        "Criteria: SHORT_TERM_TREND×0.4 + vol_excess×2.0 (cap 3x) + signal_feed±3.0 "
-        "+ onchain_netflow×2.0 + scanner_hits×2.5. Threshold: |score| >= 3.0."
-    ),
+    version="1.0",
+    description="Baseline: Original scoring formula with equal weights",
+    trend_weight=1.0,
+    volume_relative_weight=1.0,
+    signal_feed_weight=1.0,
+    scanner_hit_weight=1.0,
+    onchain_netflow_weight=1.0,
+    # Alert thresholds
+    alert_min_score=4.0,
+    alert_require_multi_source=True,
+    # Filters
+    min_market_cap_usd=0.0,
+    max_market_cap_usd=0.0,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    # Metadata
+    display_types_extra=[],
 )
 
 CONFIG_V1_1 = ScoringConfig(
-    version="v1.1",
-    description=(
-        "VOLUME GATE — Adds minimum relative volume >= 1.2x. "
-        "Theory: signals firing on below-average volume are prone to wash trading and "
-        "illiquid manipulation, especially on small-cap altcoins. Requiring 20% above-average "
-        "volume ensures genuine market participation is behind the move — not just a "
-        "single whale or bot farm. Expected to produce ~25% fewer signals than v1.0 "
-        "but with cleaner entries on real liquidity. "
-        "Criteria: v1.0 weights + min_volume_relative=1.2. No coin type restriction."
-    ),
-    min_volume_relative=1.2,
+    version="1.1",
+    description="Volume-weighted: Higher weight for volume relative (2.0)",
+    trend_weight=1.0,
+    volume_relative_weight=2.0,
+    signal_feed_weight=1.0,
+    scanner_hit_weight=1.0,
+    onchain_netflow_weight=1.0,
+    # Alert thresholds
+    alert_min_score=4.0,
+    alert_require_multi_source=True,
+    # Filters
+    min_market_cap_usd=0.0,
+    max_market_cap_usd=0.0,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    # Metadata
+    display_types_extra=[],
 )
 
 CONFIG_V1_2 = ScoringConfig(
-    version="v1.2",
-    description=(
-        "LARGE CAP QUALITY FILTER — Market cap $500M+, excludes MEME coins. "
-        "Theory: large-cap assets ($500M+) have institutional presence, tighter bid-ask "
-        "spreads, and more reliable technical patterns because they are less susceptible "
-        "to social-media pump cycles. Meme coins (DOGE, SHIB, PEPE, FLOKI etc.) have "
-        "volatility driven by influencers and Reddit not fundamentals, making trend "
-        "signals unreliable for systematic following. "
-        "Expected: conservative, institutional-quality signals only (~30-40% of v1.0 count). "
-        "Criteria: v1.0 weights + min_mcap=$500M + exclude=[MEME]."
-    ),
-    min_market_cap_usd=500_000_000,
-    exclude_coin_types=["MEME"],
+    version="1.2",
+    description="Signal-focused: Higher weight for signal feed (2.0)",
+    trend_weight=1.0,
+    volume_relative_weight=1.0,
+    signal_feed_weight=2.0,
+    scanner_hit_weight=1.0,
+    onchain_netflow_weight=1.0,
+    # Alert thresholds
+    alert_min_score=4.0,
+    alert_require_multi_source=True,
+    # Filters
+    min_market_cap_usd=0.0,
+    max_market_cap_usd=0.0,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    # Metadata
+    display_types_extra=[],
 )
 
 CONFIG_V1_3 = ScoringConfig(
-    version="v1.3",
-    description=(
-        "SMALL/MID CAP MOMENTUM — Market cap $20M-$500M, high relative volume >= 1.5x. "
-        "Theory: the highest percentage gains in crypto come from smaller coins that "
-        "institutional players haven't yet discovered. A strong trend signal + unusually "
-        "high volume on a small-cap coin is often the early sign of a genuine breakout "
-        "before it reaches mainstream attention. High risk, high reward profile. "
-        "The volume gate (1.5x) is critical here to filter manipulation on thin order books. "
-        "Expected: fewer signals than v1.0 but targets the highest upside opportunities. "
-        "Criteria: v1.0 weights + mcap=$20M-$500M + min_vol=1.5x."
-    ),
-    min_market_cap_usd=20_000_000,
-    max_market_cap_usd=500_000_000,
-    min_volume_relative=1.5,
+    version="1.3",
+    description="On-chain focused: Higher weight for on-chain netflow (2.0)",
+    trend_weight=1.0,
+    volume_relative_weight=1.0,
+    signal_feed_weight=1.0,
+    scanner_hit_weight=1.0,
+    onchain_netflow_weight=2.0,
+    # Alert thresholds
+    alert_min_score=4.0,
+    alert_require_multi_source=True,
+    # Filters
+    min_market_cap_usd=0.0,
+    max_market_cap_usd=0.0,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    # Metadata
+    display_types_extra=[],
 )
 
 CONFIG_V1_4 = ScoringConfig(
-    version="v1.4",
-    description=(
-        "ANALYST SIGNAL DOMINANT — Boosts altFINS signal feed weight from 3.0 to 4.5, "
-        "reduces trend weight from 0.4 to 0.25. "
-        "Theory: the altFINS signal feed is the output of professional analyst review "
-        "(equivalent to their VIP Telegram channel) and is inherently forward-looking — "
-        "analysts anticipate moves before the lagging trend score catches up. "
-        "The screener's SHORT_TERM_TREND is a 10-period look-back average, making it "
-        "a lagging indicator. Reducing its weight and boosting analyst signals tests "
-        "whether human curation outperforms pure quant momentum. "
-        "Isolates signal feed quality as the sole variable — no additional filters. "
-        "Criteria: signal_feed_weight=4.5, trend_weight=0.25, all other weights unchanged."
-    ),
-    signal_feed_weight=4.5,
-    trend_weight=0.25,
+    version="1.4",
+    description="Scanner-focused: Higher weight for scanner hits (2.0)",
+    trend_weight=1.0,
+    volume_relative_weight=1.0,
+    signal_feed_weight=1.0,
+    scanner_hit_weight=2.0,
+    onchain_netflow_weight=1.0,
+    # Alert thresholds
+    alert_min_score=4.0,
+    alert_require_multi_source=True,
+    # Filters
+    min_market_cap_usd=0.0,
+    max_market_cap_usd=0.0,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    # Metadata
+    display_types_extra=[],
 )
 
-# ── v2.x — Multi-timeframe alignment ─────────────────────────────────────
-
+# Multi-timeframe alignment configs
 CONFIG_V2_0 = ScoringConfig(
-    version="v2.0",
-    description=(
-        "MULTI-TIMEFRAME TREND ALIGNMENT — Requires SHORT_TERM and MEDIUM_TERM trend "
-        "to agree in direction. Adds medium-term trend as a scoring signal (weight=0.2). "
-        "Theory: the highest-probability trend trades occur when multiple timeframes "
-        "are aligned — short-term momentum in the direction of the medium-term trend "
-        "has a much higher continuation rate than counter-trend bounces. "
-        "Eliminating conflicting timeframes removes a large class of false signals "
-        "(short-term spike against medium-term downtrend). "
-        "Expected: ~40% fewer signals vs v1.0 but with significantly higher "
-        "directional conviction per signal. "
-        "Criteria: require_multi_timeframe_alignment=True + medium_term_trend_weight=0.2 "
-        "+ v1.0 base weights."
-    ),
+    version="2.0",
+    description="Multi-timeframe: Requires ST and MT trend alignment",
+    trend_weight=0.4,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.3,
+    scanner_hit_weight=0.2,
+    onchain_netflow_weight=0.1,
+    medium_term_trend_weight=0.3,
     require_multi_timeframe_alignment=True,
-    medium_term_trend_weight=0.2,
+    # Alert thresholds
+    alert_min_score=5.0,
+    alert_require_multi_source=True,
+    # Filters
+    min_market_cap_usd=0.0,
+    max_market_cap_usd=0.0,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    # Metadata
     display_types_extra=["MEDIUM_TERM_TREND"],
 )
 
 CONFIG_V2_1 = ScoringConfig(
-    version="v2.1",
-    description=(
-        "MULTI-TIMEFRAME + VOLUME + LARGE CAP — Combines multi-timeframe alignment, "
-        "volume gate (>=1.2x), and large cap filter ($300M+). "
-        "Theory: the combination of timeframe alignment + real volume + institutional-grade "
-        "market cap creates a triple-quality gate that should produce the most reliable "
-        "signals overall. Each gate eliminates a different category of noise: "
-        "timeframe alignment removes counter-trend entries, volume removes thin-liquidity "
-        "manipulation, and market cap removes micro-cap pump schemes. "
-        "Expected: fewest signals of any v2.x config, but highest per-signal quality. "
-        "Designed as a 'trade this live' conservative filter. "
-        "Criteria: MTF alignment + min_vol=1.2x + min_mcap=$300M + medium_term_weight=0.2."
-    ),
-    require_multi_timeframe_alignment=True,
-    medium_term_trend_weight=0.2,
-    min_volume_relative=1.2,
-    min_market_cap_usd=300_000_000,
-    display_types_extra=["MEDIUM_TERM_TREND"],
-)
-
-# ── v3.x — Momentum quality (RSI + ADX confirmation) ─────────────────────
-
-CONFIG_V3_0 = ScoringConfig(
-    version="v3.0",
-    description=(
-        "MOMENTUM QUALITY GATE — Requires ADX >= 25 (confirms trending market), "
-        "RSI between 45-72 (momentum zone, not overbought). Adds ADX and RSI "
-        "as scoring signals. "
-        "Theory: the two biggest failure modes of trend-following are: "
-        "(1) entering in a ranging/sideways market (ADX < 25 means no trend), "
-        "(2) entering at overbought extremes (RSI > 72) where mean-reversion "
-        "is more likely than continuation. ADX >= 25 ensures we only trade "
-        "genuine trends. RSI 45-72 is the 'sweet spot' — momentum confirmed "
-        "but not exhausted. "
-        "Expected: ~35% fewer signals but much cleaner trend quality per signal. "
-        "Criteria: min_ADX=25 + RSI 45-72 gate + adx_weight=0.5 + rsi_momentum_weight=0.3."
-    ),
-    min_adx=25.0,
-    min_rsi=45.0,
-    max_rsi=72.0,
-    adx_weight=0.5,
-    rsi_momentum_weight=0.3,
-    display_types_extra=["ADX", "RSI14"],
-)
-
-CONFIG_V3_1 = ScoringConfig(
-    version="v3.1",
-    description=(
-        "STRONG TREND ONLY — ADX >= 40 (strong trending market requirement), "
-        "volume >= 1.2x, market cap >= $100M. "
-        "Theory: ADX above 40 represents a strongly trending market where momentum "
-        "continuation is statistically more likely than in weak trends (ADX 25-40). "
-        "Strong trends also have lower whipsaw risk and larger average moves per signal, "
-        "making them ideal for swing trading with 24-72h horizons. "
-        "The volume and market cap gates prevent acting on strong-trend signals "
-        "in illiquid micro-caps where ADX can be artificially high. "
-        "Expected: fewest signals of all v3.x but highest trend strength per signal. "
-        "Criteria: min_ADX=40 + min_vol=1.2x + min_mcap=$100M + adx_weight=0.8."
-    ),
-    min_adx=40.0,
-    min_volume_relative=1.2,
-    min_market_cap_usd=100_000_000,
-    adx_weight=0.8,
-    display_types_extra=["ADX"],
-)
-
-# ── v4.x — Volume-breakout intensity (TR/ATR + OBV) ──────────────────────
-
-CONFIG_V4_0 = ScoringConfig(
-    version="v4.0",
-    description=(
-        "BREAKOUT INTENSITY — Adds TR/ATR ratio (current range vs average range) "
-        "and OBV trend as primary scoring signals. "
-        "Theory: the most powerful breakouts are characterised by TWO simultaneous "
-        "confirmations: (1) current candle range exceeds average range (TR/ATR > 1.5 "
-        "means price is moving more than usual = high-energy breakout), "
-        "(2) On-Balance Volume is rising (OBV trend > 0 means volume is confirming "
-        "the price move, not diverging). When both fire together, the move has "
-        "both price momentum AND volume conviction behind it. "
-        "Expected: roughly same signal count as v1.0 but higher average move per signal. "
-        "Criteria: tr_vs_atr_weight=1.0 + obv_trend_weight=0.5 + v1.0 base weights."
-    ),
-    tr_vs_atr_weight=1.0,
-    obv_trend_weight=0.5,
-    display_types_extra=["TR_VS_ATR", "ATR", "OBV_TREND"],
-)
-
-CONFIG_V4_1 = ScoringConfig(
-    version="v4.1",
-    description=(
-        "BREAKOUT INTENSITY + PRICE MOMENTUM — Adds 1-week price change as a "
-        "momentum confirmation signal, combined with TR/ATR breakout detection. "
-        "Theory: breakouts that occur after a strong recent week (price_change_1w > +5%) "
-        "have established prior momentum, reducing the chance that the current breakout "
-        "is a false-start reversal spike. Conversely, breakouts from oversold after a "
-        "bad week can be mean-reversion traps. Adding weekly price momentum as a signal "
-        "tests whether recent price context improves breakout signal quality. "
-        "Also adds volume minimum (1.2x) to ensure breakouts have genuine participation. "
-        "Criteria: tr_vs_atr_weight=0.8 + price_change_1w_weight=0.4 + "
-        "obv_trend_weight=0.3 + min_vol=1.2x."
-    ),
-    tr_vs_atr_weight=0.8,
-    obv_trend_weight=0.3,
-    price_change_1w_weight=0.4,
-    min_volume_relative=1.2,
-    display_types_extra=["TR_VS_ATR", "ATR", "OBV_TREND", "PRICE_CHANGE_1W"],
-)
-
-# ── v5.x — Coin-type-specific configs ────────────────────────────────────
-
-CONFIG_V5_0 = ScoringConfig(
-    version="v5.0",
-    description=(
-        "DEFI + L1/L2 ECOSYSTEM — Universe restricted to LAYER1, LAYER2, DEFI. "
-        "Higher on-chain weight (3.0 vs 2.0) since DeFi/L1 protocols have "
-        "meaningful on-chain flow data. Adds multi-timeframe alignment. "
-        "Theory: DeFi protocols and L1/L2 chains have real revenue, TVL, and "
-        "on-chain activity that drives price — unlike meme/gaming tokens driven "
-        "purely by narrative. Exchange outflow (coins leaving exchanges = accumulation) "
-        "is especially meaningful for these assets because long-term holders actively "
-        "move them to DeFi protocols. MTF alignment ensures we follow the medium-term "
-        "ecosystem trend, not just short-term noise. "
-        "Criteria: LAYER1+LAYER2+DEFI only + onchain_weight=3.0 + MTF alignment "
-        "+ medium_term_weight=0.2 + min_vol=1.0x."
-    ),
-    coin_type_filter=["LAYER1", "LAYER2", "DEFI"],
-    onchain_netflow_weight=3.0,
-    medium_term_trend_weight=0.2,
-    require_multi_timeframe_alignment=True,
-    min_volume_relative=1.0,
-    display_types_extra=["MEDIUM_TERM_TREND"],
-)
-
-CONFIG_V5_1 = ScoringConfig(
-    version="v5.1",
-    description=(
-        "AI + INFRASTRUCTURE SECTOR — Universe restricted to AI and INFRA coin types. "
-        "Requires volume >= 1.5x and market cap >= $50M. "
-        "Theory: AI and infrastructure tokens (FET, RENDER, TAO, LINK, GRT, PYTH, OCEAN) "
-        "are driven by a multi-year structural narrative (AI adoption, oracle demand, "
-        "data monetization). Their trend signals have a stronger fundamental backing "
-        "than pure speculative tokens. Requiring 1.5x volume ensures only genuine "
-        "breakouts fire — AI tokens can have sudden spikes on news that fade quickly "
-        "without follow-through volume. The market cap floor ($50M) removes micro-projects "
-        "with single-digit liquidity. "
-        "Expected: fewest signals of all v5.x — high conviction, long-horizon plays. "
-        "Criteria: AI+INFRA only + min_vol=1.5x + min_mcap=$50M + signal_feed_weight=3.5."
-    ),
-    coin_type_filter=["AI", "INFRA"],
-    min_volume_relative=1.5,
-    min_market_cap_usd=50_000_000,
-    signal_feed_weight=3.5,
-)
-
-CONFIG_V5_2 = ScoringConfig(
-    version="v5.2",
-    description=(
-        "BALANCED DEPLOY-READY — Designed as a practical live-trading filter. "
-        "Combines: large cap ($200M+) + volume gate (1.2x) + no MEME + ADX >= 20 "
-        "(at least weakly trending) + RSI cap at 75 (not overbought) + "
-        "higher scanner weight (3.0) to reward TA-confirmed breakouts. "
-        "Theory: for actual signal following in live trading, you want signals that "
-        "pass multiple independent quality gates simultaneously — not just one strong "
-        "signal. This config requires: (1) real market cap behind the asset, "
-        "(2) real volume participation, (3) no meme coin narrative risk, "
-        "(4) a trending market (not sideways), (5) not overbought, "
-        "(6) ideally TA-scanner confirmed on real Binance OHLCV data. "
-        "The scanner weight increase rewards the one signal that uses our own data, "
-        "not third-party APIs. This is the config most suitable for live signal alerts. "
-        "Criteria: min_mcap=$200M + min_vol=1.2x + exclude=MEME + min_ADX=20 "
-        "+ max_RSI=75 + scanner_weight=3.0."
-    ),
-    min_market_cap_usd=200_000_000,
-    min_volume_relative=1.2,
-    exclude_coin_types=["MEME"],
-    min_adx=20.0,
-    scanner_hit_weight=3.0,
-    display_types_extra=["ADX", "RSI14"],
-)
-
-
-# ── v6.x — CEO altFINS suggested patterns ──────────────────────────────
-# Three dedicated versions, each isolating ONE of the CEO's suggestions:
-#   v6.0: Uptrend + Pullback (buy the dip in a trend)
-#   v6.1: Resistance Breakout (breakout from resistance levels)
-#   v6.2: Bullish MACD Crossover (momentum shift confirmation)
-#
-# Each version:
-#   - Only fires signals when the signal_feed matches its specific pattern
-#   - Uses the signal_feed_weight as the primary signal (maximized to 10.0)
-#   - Reduces other weights so only that pattern dominates
-#   - Includes volume + cap quality gates to filter fakeouts
-
-CONFIG_V6_0 = ScoringConfig(
-    version="v6.0",
-    description=(
-        "CEO PATTERN 1 — UPTREND PULLBACK. Detects assets in an established "
-        "uptrend that have pulled back to support (buy-the-dip in a trend). "
-        "Theory: the highest-probability swing trades are entries in the direction "
-        "of the dominant trend after a temporary counter-trend move — buying "
-        "the dip in a bull trend. The altFINS 'PULLBACK_UP_DOWN_TREND' signal "
-        "type flags exactly this pattern. "
-        "Maximizes signal_feed_weight (10.0) so only pullback signals dominate. "
-        "Criteria: signal_feed_weight=10.0 + min_vol=1.0x + min_mcap=$100M "
-        "to ensure quality pullbacks in liquid markets."
-    ),
-    signal_feed_weight=10.0,
-    trend_weight=0.1,
-    volume_relative_weight=0.5,
-    min_volume_relative=1.0,
-    min_market_cap_usd=100_000_000,
-    exclude_coin_types=["MEME"],
-)
-
-CONFIG_V6_1 = ScoringConfig(
-    version="v6.1",
-    description=(
-        "CEO PATTERN 2 — RESISTANCE BREAKOUT. Detects assets breaking through "
-        "key resistance levels with volume confirmation. "
-        "Theory: breakouts above resistance with above-average volume have the "
-        "highest continuation rates in crypto — the breakout creates a new "
-        "support level and attracts momentum traders. "
-        "The altFINS 'SUPPORT_RESISTANCE_BREAKOUT' signal type flags exactly this. "
-        "Adds scanner_hit_weight bonus for TA-confirmed breakouts on real OHLCV. "
-        "Criteria: signal_feed_weight=10.0 + scanner_hit_weight=4.0 + "
-        "min_vol=1.2x + min_mcap=$200M + no MEME."
-    ),
-    signal_feed_weight=10.0,
-    scanner_hit_weight=4.0,
-    trend_weight=0.1,
-    volume_relative_weight=0.5,
-    min_volume_relative=1.2,
-    min_market_cap_usd=200_000_000,
-    exclude_coin_types=["MEME"],
-)
-
-CONFIG_V6_2 = ScoringConfig(
-    version="v6.2",
-    description=(
-        "CEO PATTERN 3 — BULLISH MACD CROSSOVER. Detects assets where the "
-        "MACD line has just crossed above the signal line, indicating fresh "
-        "bullish momentum. "
-        "Theory: the MACD crossover is one of the most widely tracked technical "
-        "signals — a fresh bullish cross at the start of an uptrend has "
-        "statistically significant continuation probability. "
-        "The altFINS 'FRESH_MOMENTUM_MACD_SIGNAL_LINE_CROSSOVER' signal type "
-        "flags exactly this. RSI is capped at 70 to avoid catching overbought "
-        "crosses that already exhausted. "
-        "Criteria: signal_feed_weight=10.0 + max_rsi=70 + "
-        "min_vol=1.0x + medium_term_trend_weight=0.3 to confirm MTF alignment."
-    ),
-    signal_feed_weight=10.0,
-    trend_weight=0.1,
+    version="2.1",
+    description="Multi-timeframe + Volume: MT alignment + higher volume weight",
+    trend_weight=0.3,
+    volume_relative_weight=0.3,
+    signal_feed_weight=0.2,
+    scanner_hit_weight=0.1,
+    onchain_netflow_weight=0.1,
     medium_term_trend_weight=0.3,
-    max_rsi=70.0,
-    min_volume_relative=1.0,
-    min_market_cap_usd=50_000_000,
-    display_types_extra=["MEDIUM_TERM_TREND", "RSI14"],
+    require_multi_timeframe_alignment=True,
+    # Alert thresholds
+    alert_min_score=5.0,
+    alert_require_multi_source=True,
+    # Filters
+    min_market_cap_usd=0.0,
+    max_market_cap_usd=0.0,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    # Metadata
+    display_types_extra=["MEDIUM_TERM_TREND"],
 )
-CONFIG_V7_0 = ScoringConfig(
-    version="7.0",
-    description=(
-        "Filtered_Quality_Gate: "
-        "Increased min_abs_score to 5.0, required moderate trend (>=5), "
-        "volume filter (>=0.5x), ADX>=20, RSI 30-70 to avoid extremes. "
-        "Core weights same as v6.x."
-    ),
-    # Core weights
+
+# ADX momentum configs
+CONFIG_V3_0 = ScoringConfig(
+    version="3.0",
+    description="ADX filter: Requires ADX >= 25 for trending market",
     trend_weight=0.4,
     volume_relative_weight=0.2,
     signal_feed_weight=0.3,
+    scanner_hit_weight=0.2,
     onchain_netflow_weight=0.1,
-    # Extended scoring signals (0.0 = disabled)
-    adx_weight=0.1,
-    obv_trend_weight=0.05,
-    medium_term_trend_weight=0.1,
-    rsi_momentum_weight=0.05,
-    price_change_1w_weight=0.0,
-    tr_vs_atr_weight=0.0,
+    adx_weight=0.3,
+    min_adx=25,
+    # Alert thresholds
+    alert_min_score=5.0,
+    alert_require_multi_source=True,
+    # Filters
+    min_market_cap_usd=0.0,
+    max_market_cap_usd=0.0,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    # Metadata
+    display_types_extra=["ADX"],
+)
+
+CONFIG_V3_1 = ScoringConfig(
+    version="3.1",
+    description="Strong ADX filter: Requires ADX >= 40 for strong trend",
+    trend_weight=0.4,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.3,
+    scanner_hit_weight=0.2,
+    onchain_netflow_weight=0.1,
+    adx_weight=0.3,
+    min_adx=40,
+    # Alert thresholds
+    alert_min_score=5.0,
+    alert_require_multi_source=True,
+    # Filters
+    min_market_cap_usd=0.0,
+    max_market_cap_usd=0.0,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    # Metadata
+    display_types_extra=["ADX"],
+)
+
+# Breakout intensity configs
+CONFIG_V4_0 = ScoringConfig(
+    version="4.0",
+    description="TR/ATR breakout: Rewards high volatility expansion",
+    trend_weight=0.4,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.3,
+    scanner_hit_weight=0.2,
+    onchain_netflow_weight=0.1,
+    tr_vs_atr_weight=0.3,
+    # Alert thresholds
+    alert_min_score=5.0,
+    alert_require_multi_source=True,
+    # Filters
+    min_market_cap_usd=0.0,
+    max_market_cap_usd=0.0,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    # Metadata
+    display_types_extra=["TR_VS_ATR", "ATR"],
+)
+
+CONFIG_V4_1 = ScoringConfig(
+    version="4.1",
+    description="TR/ATR + Volume: Breakout with volume confirmation",
+    trend_weight=0.3,
+    volume_relative_weight=0.3,
+    signal_feed_weight=0.2,
+    scanner_hit_weight=0.1,
+    onchain_netflow_weight=0.1,
+    tr_vs_atr_weight=0.3,
+    # Alert thresholds
+    alert_min_score=5.0,
+    alert_require_multi_source=True,
+    # Filters
+    min_market_cap_usd=0.0,
+    max_market_cap_usd=0.0,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    # Metadata
+    display_types_extra=["TR_VS_ATR", "ATR"],
+)
+
+# Coin-type specific configs
+CONFIG_V5_0 = ScoringConfig(
+    version="5.0",
+    description="DEFI-focused: Filters to DEFI coins only",
+    trend_weight=0.4,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.3,
+    scanner_hit_weight=0.2,
+    onchain_netflow_weight=0.1,
+    # Filters
+    min_market_cap_usd=0.0,
+    max_market_cap_usd=0.0,
+    coin_type_filter=["DEFI"],
+    exclude_coin_types=[],
+    # Metadata
+    display_types_extra=[],
+)
+
+CONFIG_V5_1 = ScoringConfig(
+    version="5.1",
+    description="AI-focused: Filters to AI coins only",
+    trend_weight=0.4,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.3,
+    scanner_hit_weight=0.2,
+    onchain_netflow_weight=0.1,
+    # Filters
+    min_market_cap_usd=0.0,
+    max_market_cap_usd=0.0,
+    coin_type_filter=["AI"],
+    exclude_coin_types=[],
+    # Metadata
+    display_types_extra=[],
+)
+
+CONFIG_V5_2 = ScoringConfig(
+    version="5.2",
+    description="Balanced DeFi/AI: 50/50 split between DEFI and AI",
+    trend_weight=0.4,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.3,
+    scanner_hit_weight=0.2,
+    onchain_netflow_weight=0.1,
+    # Filters
+    min_market_cap_usd=0.0,
+    max_market_cap_usd=0.0,
+    coin_type_filter=["DEFI", "AI"],
+    exclude_coin_types=[],
+    # Metadata
+    display_types_extra=[],
+)
+
+# CEO suggested pattern configs
+CONFIG_V6_0 = ScoringConfig(
+    version="6.0",
+    description="Pullback opportunity: Looks for pullbacks in uptrends",
+    trend_weight=0.3,
+    volume_relative_weight=0.2,
+    signal_feed_weight=10.0,  # Heavy weight on signal feed
+    scanner_hit_weight=0.1,
+    onchain_netflow_weight=0.1,
+    max_rsi=70.0,
+    min_volume_relative=1.0,
+    min_market_cap_usd=50_000_000,
+    medium_term_trend_weight=0.3,
+    # Alert thresholds
+    alert_min_score=7.0,
+    alert_require_multi_source=True,
+    # Filters
+    max_market_cap_usd=0.0,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    # Metadata
+    display_types_extra=["MEDIUM_TERM_TREND", "RSI14"],
+)
+
+CONFIG_V6_1 = ScoringConfig(
+    version="6.1",
+    description="Breakout momentum: Looks for breakouts with volume confirmation",
+    trend_weight=0.3,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.3,
+    scanner_hit_weight=10.0,  # Heavy weight on scanner hits
+    onchain_netflow_weight=0.1,
+    min_volume_relative=1.5,
+    min_market_cap_usd=100_000_000,
+    # Alert thresholds
+    alert_min_score=7.0,
+    alert_require_multi_source=True,
+    # Filters
+    max_market_cap_usd=0.0,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    # Metadata
+    display_types_extra=[],
+)
+
+# Quality Gate configs - NEW in v7.0
+CONFIG_V7_0 = ScoringConfig(
+    version="7.0",
+    description="Filtered_Quality_Gate: Increased min_abs_score, required moderate trend (>=5), volume filter (>=0.5x), ADX>=20, RSI 30-70 to avoid extremes",
+    trend_weight=0.4,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.3,
+    scanner_hit_weight=0.2,
+    onchain_netflow_weight=0.1,
     # Quality filters - NEW in v7.0
     min_abs_score=5.0,           # Increased from 3.0 - require stronger signal
     min_trend_abs_score=5,                 # Require at least moderate trend strength (5/10)
@@ -957,47 +906,38 @@ CONFIG_V7_0 = ScoringConfig(
     min_market_cap_usd=0.0,
     max_market_cap_usd=0.0,
     # Coin type filters (defaults)
-    coin_type_filter=["ANY"],    # No filter on coin type
-    exclude_coin_types=[],       # No additional exclusions
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
     # Metadata
     display_types_extra=[],
 )
 
 CONFIG_V7_2 = ScoringConfig(
     version="7.2",
-    description=(
-        "V7.0_Filtered_Quality_Gate + Volume Divergence Early Entry: "
-        "Adds volume-price divergence detection as a leading indicator. "
-        "Catches accumulation (volume spikes before price moves) and "
-        "exhaustion (price up on declining volume). Based on Wyckoff, "
-        "Blume 1994, and Karpoff 1987 research."
-    ),
-    # Same core weights as V7.0
+    description="V7.0_Filtered_Quality_Gate + Volume Divergence Early Entry: Adds volume-price divergence detection as a leading indicator. Adds smart-money index and low-float squeeze detection.",
     trend_weight=0.4,
     volume_relative_weight=0.2,
     signal_feed_weight=0.3,
     onchain_netflow_weight=0.1,
-    # Extended scoring signals
-    adx_weight=0.1,
-    obv_trend_weight=0.05,
-    medium_term_trend_weight=0.1,
-    rsi_momentum_weight=0.05,
-    price_change_1w_weight=0.0,
-    tr_vs_atr_weight=0.0,
-    # Volume divergence leading indicators — NEW in v7.2
+    # Extended scoring signals (0.0 = disabled)
     volume_divergence_weight=3.0,
     smart_money_index_weight=2.0,
     low_float_squeeze_weight=1.5,
-    # Quality filters (same as V7.0)
+    # Risk management (target/stop computation)
+    atr_stop_mult=1.5,
+    rr_ratio=2.0,
+    # Quality filters - NEW in v7.0
     min_abs_score=5.0,
     min_trend_abs_score=5,
     require_non_trend_confirmation=True,
     min_volume_relative=0.5,
     min_adx=20,
+    # RSI range for momentum - avoid extreme overbought/oversold
     min_rsi=30,
     max_rsi=70,
+    # Volatility filter — reject low-vol setups to avoid FLAT resolutions
     min_atr_pct=0.3,
-    # Regime-aware direction bias (same as V7.0)
+    # Regime-aware direction bias — SHORT favored in bear, LONG favored in bull
     regime_dir_bear_short_bonus=2.0,
     regime_dir_bear_long_penalty=2.0,
     regime_dir_bull_long_bonus=2.0,
@@ -1008,16 +948,98 @@ CONFIG_V7_2 = ScoringConfig(
     # Filters
     min_market_cap_usd=0.0,
     max_market_cap_usd=0.0,
+    # Coin type filters (defaults)
     coin_type_filter=["ANY"],
     exclude_coin_types=[],
+    # Metadata
     display_types_extra=[],
 )
 
+CONFIG_V7_3 = ScoringConfig(
+    version="7.3",
+    description="Wide Stop, Wide Target: Higher ATR stop multiplier (2.0) and RR (2.5) for more room in volatile moves",
+    trend_weight=0.4,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.3,
+    onchain_netflow_weight=0.1,
+    # Extended scoring signals (0.0 = disabled)
+    volume_divergence_weight=0.0,
+    smart_money_index_weight=0.0,
+    low_float_squeeze_weight=0.0,
+    # Risk management (target/stop computation) - WIDER STOP/TARGET
+    atr_stop_mult=2.0,
+    rr_ratio=2.5,
+    # Quality filters - NEW in v7.0
+    min_abs_score=5.0,
+    min_trend_abs_score=5,
+    require_non_trend_confirmation=True,
+    min_volume_relative=0.5,
+    min_adx=20,
+    # RSI range for momentum - avoid extreme overbought/oversold
+    min_rsi=30,
+    max_rsi=70,
+    # Volatility filter — reject low-vol setups to avoid FLAT resolutions
+    min_atr_pct=0.3,
+    # Regime-aware direction bias — SHORT favored in bear, LONG favored in bull
+    regime_dir_bear_short_bonus=2.0,
+    regime_dir_bear_long_penalty=2.0,
+    regime_dir_bull_long_bonus=2.0,
+    regime_dir_bull_short_penalty=2.0,
+    # Alert thresholds
+    alert_min_score=7.0,
+    alert_require_multi_source=True,
+    # Filters
+    min_market_cap_usd=0.0,
+    max_market_cap_usd=0.0,
+    # Coin type filters (defaults)
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    # Metadata
+    display_types_extra=[],
+)
 
-
-# ---------------------------------------------------------------------------
-# Active config + registry
-# ---------------------------------------------------------------------------
+CONFIG_V7_4 = ScoringConfig(
+    version="7.4",
+    description="Wide Stop, Tight Target: Higher ATR stop multiplier (2.0) but tighter RR (1.5) for higher win rate, lower reward",
+    trend_weight=0.4,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.3,
+    onchain_netflow_weight=0.1,
+    # Extended scoring signals (0.0 = disabled)
+    volume_divergence_weight=0.0,
+    smart_money_index_weight=0.0,
+    low_float_squeeze_weight=0.0,
+    # Risk management (target/stop computation) - WIDE STOP, TIGHT TARGET
+    atr_stop_mult=2.0,
+    rr_ratio=1.5,
+    # Quality filters - NEW in v7.0
+    min_abs_score=5.0,
+    min_trend_abs_score=5,
+    require_non_trend_confirmation=True,
+    min_volume_relative=0.5,
+    min_adx=20,
+    # RSI range for momentum - avoid extreme overbought/oversold
+    min_rsi=30,
+    max_rsi=70,
+    # Volatility filter — reject low-vol setups to avoid FLAT resolutions
+    min_atr_pct=0.3,
+    # Regime-aware direction bias — SHORT favored in bear, LONG favored in bull
+    regime_dir_bear_short_bonus=2.0,
+    regime_dir_bear_long_penalty=2.0,
+    regime_dir_bull_long_bonus=2.0,
+    regime_dir_bull_short_penalty=2.0,
+    # Alert thresholds
+    alert_min_score=7.0,
+    alert_require_multi_source=True,
+    # Filters
+    min_market_cap_usd=0.0,
+    max_market_cap_usd=0.0,
+    # Coin type filters (defaults)
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    # Metadata
+    display_types_extra=[],
+)
 
 # Active config — change via CLI: python -m src.cli.main edge activate-config --version v1.1
 # All signals logged will carry this version in the config_version column.
@@ -1029,15 +1051,15 @@ ALL_CONFIGS: dict[str, ScoringConfig] = {
         CONFIG_V1_0, CONFIG_V1_1, CONFIG_V1_2, CONFIG_V1_3, CONFIG_V1_4,
         # Multi-timeframe
         CONFIG_V2_0, CONFIG_V2_1,
-        # Momentum quality
+        # ADX momentum
         CONFIG_V3_0, CONFIG_V3_1,
         # Breakout intensity
         CONFIG_V4_0, CONFIG_V4_1,
         # Coin-type specific
         CONFIG_V5_0, CONFIG_V5_1, CONFIG_V5_2,
         # CEO suggested patterns
-        CONFIG_V6_0, CONFIG_V6_1, CONFIG_V6_2,
-        CONFIG_V7_0,
-        CONFIG_V7_2,
+        CONFIG_V6_0, CONFIG_V6_1,
+        # Quality Gate
+        CONFIG_V7_0, CONFIG_V7_2, CONFIG_V7_3, CONFIG_V7_4,
     ]
 }
