@@ -308,6 +308,34 @@ def score_symbol(
                 if atr_val < cfg.min_atr_pct:
                     components["filtered_out"] = f"ATR%={atr_val:.2f}% < min={cfg.min_atr_pct}%"
                     return _filtered_result(symbol, pair, coin_type, cfg.version, components)
+
+            # Volume divergence — leading indicator (catches moves before trend)
+            div_adj = 0.0
+            if cfg.volume_divergence_weight > 0 or cfg.smart_money_index_weight > 0 or cfg.low_float_squeeze_weight > 0:
+                try:
+                    from .volume_divergence import compute_divergence_score, compute_smart_money_index, is_low_float_squeeze
+
+                    if cfg.volume_divergence_weight > 0:
+                        d_adj, d_details = compute_divergence_score(data)
+                        div_adj += d_adj * cfg.volume_divergence_weight
+                        components.update(d_details)
+
+                    if cfg.smart_money_index_weight > 0:
+                        sm_adj, sm_details = compute_smart_money_index(data)
+                        div_adj += sm_adj * cfg.smart_money_index_weight
+                        components.update(sm_details)
+
+                    if cfg.low_float_squeeze_weight > 0:
+                        is_sqz, sqz_score = is_low_float_squeeze(data, coin_type)
+                        if is_sqz:
+                            div_adj += sqz_score * cfg.low_float_squeeze_weight
+                            components["low_float_squeeze"] = sqz_score
+
+                    if div_adj != 0:
+                        score += div_adj
+                        components["volume_divergence_total"] = round(div_adj, 2)
+                except Exception as exc:
+                    logger.debug("Volume divergence computation failed: %s", exc)
     except Exception as exc:
         logger.warning("Could not fetch/scan OHLCV for %s: %s", pair, exc)
     components["backtestingmcp_scanner_hits"] = triggered_scans
