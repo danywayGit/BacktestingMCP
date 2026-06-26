@@ -318,8 +318,9 @@ def _do_promote(config_version: str) -> None:
     # Map version string to config constant name
     version_to_const = {
         '7.0': 'CONFIG_V7_0',
-        '7.1': 'CONFIG_V7_1',
-        'v8.0': 'CONFIG_V8_0',
+        '7.2': 'CONFIG_V7_2',
+        '7.3': 'CONFIG_V7_3',
+        '7.4': 'CONFIG_V7_4',
         'v1.0': 'CONFIG_V1_0',
         'v1.1': 'CONFIG_V1_1',
         'v1.2': 'CONFIG_V1_2',
@@ -398,7 +399,7 @@ def _build_report(
             flat_flag = " ⚠️" if cfg.flat_rate > 80 else ""
             lines.append(
                 f"{cfg.config_version:<12} {cfg.win_rate:>5.1f}% "
-                f"{cfg.flat_rate:>6.1f}%{flat_flag}"
+                f"{cfg.flat_rate:>6.1f}%{flat_flag:<5}"
                 f"{cfg.signal_quality_score:>7.1f}  "
                 f"{cfg.non_flat_trades:>5}/{cfg.total_signals:<4} "
                 f"{cfg.avg_time_to_resolve_hours:>7.1f}h "
