@@ -3,6 +3,7 @@ Database module for storing and retrieving cryptocurrency market data.
 """
 
 import json
+import logging
 import sqlite3
 import numpy as np
 import pandas as pd
@@ -10,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, List, Tuple, Dict, Any
 from contextlib import contextmanager
+
+logger = logging.getLogger(__name__)
 
 from config.settings import settings, TimeFrame
 
