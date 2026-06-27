@@ -1255,6 +1255,57 @@ def edge_patterns(lookback, symbols, output):
             click.echo(f"    {s.symbol:12s} {s.direction:8s}{price_str}")
 
 
+@edge.command('fund-rate')
+@click.option('--poll', is_flag=True, help='Poll funding rates from Binance API and cache them')
+@click.option('--show', is_flag=True, help='Show cached funding rates')
+@click.option('--symbols', default=None, help='Comma-separated symbols (default: show all with data)')
+def edge_fund_rate(poll, show, symbols):
+    """Poll or view Binance funding rate data for funding mean-reversion scoring (V8.0).
+
+    Funding rates are cached in-memory with a 5-minute TTL. Use --poll to
+    refresh data before running a scan cycle.
+    """
+    from ..integrations import binance_funding
+
+    if poll:
+        # Poll funding rates for all tradeable symbols
+        sym_list = symbols.split(",") if symbols else [
+            "BTC", "ETH", "SOL", "DOGE", "ADA", "LINK", "AVAX",
+            "DOT", "MATIC", "UNI", "ATOM", "NEAR", "APT", "SUI",
+            "SEI", "TIA", "INJ", "OP", "ARB",
+        ]
+        click.echo(f"Polling funding rates for {len(sym_list)} symbols...")
+        results = binance_funding.poll_all_funding(sym_list)
+        oi_results = binance_funding.poll_all_open_interest(sym_list)
+        click.echo(f"Funding data: {len(results)}/{len(sym_list)} symbols refreshed")
+        click.echo(f"OI data: {len(oi_results)}/{len(sym_list)} symbols refreshed")
+        if results:
+            extremes = {s: d for s, d in results.items() if abs(d.get("funding_rate", 0)) > 0.006}
+            if extremes:
+                click.echo(f"\nExtreme funding rates ({len(extremes)} symbols):")
+                for s, d in sorted(extremes.items(), key=lambda x: -abs(x[1].get("funding_rate", 0)))[:10]:
+                    fr = d["funding_rate"] * 100
+                    click.echo(f"  {s:<8} {fr:>+7.3f}%  mark=${d.get('mark_price', 0):.4f}")
+        return
+
+    if show:
+        # Show what's in the cache / could be fetched
+        sym_list = symbols.split(",") if symbols else ["BTC", "ETH", "SOL"]
+        click.echo(f"{'Symbol':<8} {'Funding%':>10} {'Momentum':>10} {'OI':>10}")
+        click.echo("-" * 42)
+        for s in sym_list:
+            fr = binance_funding.get_funding_rate(s)
+            mom = binance_funding.get_funding_momentum(s)
+            oi = binance_funding.get_oi_change(s)
+            fr_str = f"{fr*100:>+7.3f}%" if fr is not None else "   N/A  "
+            mom_str = f"{mom*10000:>+7.3f}" if mom is not None else "   N/A  "
+            oi_str = f"{oi*100:>+7.2f}%" if oi is not None else "   N/A  "
+            click.echo(f"{s:<8} {fr_str:>10} {mom_str:>10} {oi_str:>10}")
+        return
+
+    click.echo("Use --poll to fetch data or --show to view cached data.")
+
+
 @cli.group()
 def results():
     """View backtest results."""
