@@ -157,13 +157,37 @@ def _format_alert(c: CandidateScore) -> str:
     if netflow is not None:
         source_parts.append("On-chain")
 
+    # Funding rate data (V8.0)
+    funding_rate = comp.get("funding_rate")
+    funding_momentum = comp.get("funding_momentum")
+    if funding_rate is not None:
+        source_parts.append(f"Funding {funding_rate:+.3f}%")
+    if funding_momentum is not None:
+        source_parts.append(f"Mom {funding_momentum:+.2f}")
+
     sources_str = " · ".join(source_parts) if source_parts else "—"
+
+    # Position sizing based on score tier
+    score = abs(c.composite_score)
+    if score >= 9.0:
+        risk_pct = "2.0"
+        sizing_icon = "🔒"
+    elif score >= 8.0:
+        risk_pct = "1.0"
+        sizing_icon = "🔒"
+    elif score >= 7.0:
+        risk_pct = "0.5"
+        sizing_icon = "🔒"
+    else:
+        risk_pct = "—"
+        sizing_icon = ""
 
     lines = [
         f"{direction_emoji} *{c.symbol}* — {c.direction} ({c.config_version}){confidence_marker}",
         f"┌ Entry: `{price_str}`",
         f"├ Stop:  `{stop_str}`",
         f"├ 🎯 Tgt: `{target_str}`  R:R `{rr_str}`",
+        f"├ Position Risk: {risk_pct}% {sizing_icon}",
         f"└ Time:  `{timeframe_label}` · Type: `{coin_type}`",
         f"Score: `{c.composite_score:+.2f}`  |  {sources_str}",
         f"Resolved: {wr_str}",

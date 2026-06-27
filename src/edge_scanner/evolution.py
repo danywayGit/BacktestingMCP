@@ -24,9 +24,9 @@ from typing import Any, Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 # ── Thresholds ──────────────────────────────────────────────────────────────
-MIN_NON_FLAT_TRADES = 50       # Minimum non-flat trades for statistical significance
-MIN_WIN_RATE_IMPROVEMENT = 5.0  # Percentage points better than current active
-MIN_CONFIG_AGE_DAYS = 1         # Days a config must have been active (1 for testing, increase to 7 for prod)
+MIN_NON_FLAT_TRADES = 20       # Minimum non-flat trades for statistical significance (was 50)
+MIN_WIN_RATE_IMPROVEMENT = 3.0  # Percentage points better than current active (was 5.0)
+MIN_CONFIG_AGE_DAYS = 3         # Days a config must have been active (was 7)
 STATS_CACHE_TTL_HOURS = 6      # How long to cache per-config stats
 
 # ── Data Structures ─────────────────────────────────────────────────────────
