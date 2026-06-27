@@ -27,6 +27,7 @@ from typing import Dict, List, Optional, Tuple
 
 import httpx
 import pandas as pd
+import sqlite3
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,27 @@ def _clear_cache() -> None:
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
+
+def _get_db() -> sqlite3.Connection:
+    """Get a connection to the crypto database."""
+    conn = sqlite3.connect('data/crypto.db')
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _save_funding_snapshot(symbol: str, data: dict, oi: Optional[float] = None) -> None:
+    """Persist one funding + OI snapshot to the funding_history table."""
+    try:
+        db = _get_db()
+        db.execute(
+            "INSERT INTO funding_history (symbol, funding_rate, mark_price, open_interest, fetched_at) VALUES (?, ?, ?, ?, ?)",
+            (symbol, data.get("funding_rate", 0), data.get("mark_price", 0), oi or 0, datetime.now(timezone.utc).isoformat()),
+        )
+        db.commit()
+        db.close()
+    except Exception as exc:
+        logger.debug("Failed to save funding snapshot for %s: %s", symbol, exc)
+
 
 def fetch_funding_rate(symbol: str, force: bool = False) -> Optional[dict]:
     """Fetch the latest premium index (funding rate) for a symbol.
@@ -97,24 +119,27 @@ def get_funding_rate(symbol: str) -> Optional[float]:
 
 
 def get_funding_momentum(symbol: str, hours: int = 1) -> Optional[float]:
-    """Estimate funding rate change over the last N hours.
+    """Compute real funding rate change per hour over the last N hours.
 
-    Uses recent funding_time timestamps if available in cache.
-    Returns +0.00003 = +0.003%/hour (rising/favorable for LONG).
-    Returns None if data unavailable.
+    Queries stored funding_history to find the rate 'hours' ago and
+    computes delta/hour. Returns None if not enough history exists.
     """
-    # For now, estimate from the stored next_funding_time vs current time
-    # A proper implementation would poll historical funding rates.
-    data = fetch_funding_rate(symbol)
-    if data is None:
+    try:
+        db = _get_db()
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+        # Get the oldest snapshot in the window
+        old = db.execute(
+            "SELECT funding_rate FROM funding_history WHERE symbol=? AND fetched_at <= ? ORDER BY fetched_at ASC LIMIT 1",
+            (symbol, cutoff),
+        ).fetchone()
+        current = get_funding_rate(symbol)
+        db.close()
+        if old is not None and current is not None:
+            delta = current - old["funding_rate"]
+            return delta / max(hours, 1)
         return None
-    # Simple heuristic: if current funding is extreme (>0.006 or <-0.006),
-    # assume it's normalizing toward zero (momentum opposite to extreme)
-    fr = data["funding_rate"]
-    if abs(fr) > 0.006:
-        # Extreme → assume mean-reversion momentum
-        return -fr * 0.01  # scaled to ~0.00006 for 0.6% extreme
-    return None
+    except Exception:
+        return None
 
 
 def fetch_open_interest(symbol: str, force: bool = False) -> Optional[float]:
@@ -136,16 +161,27 @@ def fetch_open_interest(symbol: str, force: bool = False) -> Optional[float]:
 
 
 def get_oi_change(symbol: str, hours: int = 2) -> Optional[float]:
-    """Estimate OI change fraction over N hours.
+    """Compute real OI change fraction over N hours.
 
+    Queries stored funding_history for OI snapshots.
     Returns e.g., -0.05 = 5% decrease (shorts covering — bullish for LONG).
     Returns None if data unavailable.
     """
-    current = fetch_open_interest(symbol)
-    if current is None:
-        return None
-    # Simple fallback: no historical OI tracked yet, assume stable
-    return 0.0
+    try:
+        db = _get_db()
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+        old = db.execute(
+            "SELECT open_interest FROM funding_history WHERE symbol=? AND fetched_at <= ? AND open_interest > 0 ORDER BY fetched_at ASC LIMIT 1",
+            (symbol, cutoff),
+        ).fetchone()
+        current = fetch_open_interest(symbol)
+        db.close()
+        if old is not None and current is not None and old["open_interest"] > 0:
+            return (current - old["open_interest"]) / old["open_interest"]
+        # Fallback: no history yet, assume neutral
+        return 0.0
+    except Exception:
+        return 0.0
 
 
 def get_funding_interval(symbol: str) -> int:
@@ -162,6 +198,7 @@ def poll_all_funding(symbols: List[str]) -> Dict[str, dict]:
     """Fetch funding rates for a list of symbols in one batch.
 
     Returns {symbol: funding_data_dict}.
+    Also persists each snapshot to the funding_history table.
     Used by the edge-fund-rate CLI command to refresh all cached data before a scan.
     """
     results: Dict[str, dict] = {}
@@ -169,7 +206,9 @@ def poll_all_funding(symbols: List[str]) -> Dict[str, dict]:
         data = fetch_funding_rate(sym, force=True)
         if data:
             results[sym] = data
-    logger.info("Funding poll: %d/%d symbols refreshed", len(results), len(symbols))
+            oi = fetch_open_interest(sym)
+            _save_funding_snapshot(sym, data, oi)
+    logger.info("Funding poll: %d/%d symbols refreshed and persisted", len(results), len(symbols))
     return results
 
 
