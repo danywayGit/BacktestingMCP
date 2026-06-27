@@ -324,6 +324,33 @@ class ScoringConfig:
     """Weight for low-float volume squeeze detection. High scores for
     AI/AGENT/MEME coins with sudden volume spikes."""
 
+    # ── Funding Rate Mean-Reversion (leading indicator) ─────────────────────
+    funding_rate_weight: float = 0.0
+    """Weight for extreme funding rate signal. Funding rate < -0.006 (LONG)
+    or > +0.006 (SHORT) adds score proportional to extremity.
+    Score contribution: |funding_rate| * 100 * weight (e.g., 0.008 * 100 * 5 = +4)."""
+
+    funding_momentum_weight: float = 0.0
+    """Weight for funding rate momentum (rate of change). When funding is
+    extreme and normalizing, adds bonus: +score for LONG if funding rising,
+    +score for SHORT if funding falling."""
+
+    oi_change_weight: float = 0.0
+    """Weight for open interest change confirmation. OI declining = short
+    covering (bullish for LONG). OI rising = short adding (bearish)."""
+
+    min_abs_funding_rate: float = 0.0
+    """Minimum absolute funding rate to activate funding scoring.
+    0.006 = 0.6% extreme threshold. 0 = no filter."""
+
+    min_funding_momentum: float = 0.0
+    """Minimum funding rate change per hour to contribute score.
+    0.00003 = +0.003%/hour. 0 = no filter."""
+
+    max_oi_change: float = 0.0
+    """Maximum absolute OI change fraction to allow funding scoring.
+    0.02 = 2% max OI increase. 0 = no filter."""
+
     # ── Risk management (target/stop computation) ──────────────────────────
     atr_stop_mult: float = 1.5
     """ATR multiplier for stop loss placement. stop = entry ± (ATR × mult).
@@ -1043,6 +1070,57 @@ CONFIG_V7_4 = ScoringConfig(
     display_types_extra=[],
 )
 
+CONFIG_V8_0 = ScoringConfig(
+    version="8.0",
+    description="Funding Rate Mean-Reversion: Uses extreme funding rates as primary entry signal. Requires |funding| > 0.006 + rising momentum + OI confirmation. Tighter stops and faster exits.",
+    # Core weights — reduced reliance on altFINS, funding is primary
+    trend_weight=0.3,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.2,
+    scanner_hit_weight=0.1,
+    onchain_netflow_weight=0.1,
+    # Extended scoring signals (0.0 = disabled)
+    volume_divergence_weight=0.0,
+    smart_money_index_weight=0.0,
+    low_float_squeeze_weight=0.0,
+    # Funding Rate Mean-Reversion — PRIMARY signal source
+    funding_rate_weight=5.0,
+    funding_momentum_weight=3.0,
+    oi_change_weight=2.0,
+    min_abs_funding_rate=0.006,
+    min_funding_momentum=0.0,
+    max_oi_change=0.02,
+    # Risk management — tighter, faster for funding-driven moves
+    atr_stop_mult=1.0,
+    rr_ratio=1.5,
+    # Quality filters — lighter, funding rate is the confirmation
+    min_abs_score=5.0,
+    min_trend_abs_score=3,
+    require_non_trend_confirmation=False,
+    min_volume_relative=0.0,
+    min_adx=0,
+    # RSI range — no filter (funding works in all regimes)
+    min_rsi=0,
+    max_rsi=0,
+    # Volatility filter — no ATR filter (funding can work in low vol)
+    min_atr_pct=0.0,
+    # Regime-aware direction bias
+    regime_dir_bear_short_bonus=2.0,
+    regime_dir_bear_long_penalty=2.0,
+    regime_dir_bull_long_bonus=2.0,
+    regime_dir_bull_short_penalty=2.0,
+    # Alert thresholds
+    alert_min_score=7.0,
+    alert_require_multi_source=False,
+    # Filters
+    min_market_cap_usd=0.0,
+    max_market_cap_usd=0.0,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    # Metadata
+    display_types_extra=[],
+)
+
 # Active config — change via CLI: python -m src.cli.main edge activate-config --version v1.1
 # All signals logged will carry this version in the config_version column.
 ACTIVE_CONFIG = CONFIG_V7_0
@@ -1063,5 +1141,7 @@ ALL_CONFIGS: dict[str, ScoringConfig] = {
         CONFIG_V6_0, CONFIG_V6_1,
         # Quality Gate
         CONFIG_V7_0, CONFIG_V7_2, CONFIG_V7_3, CONFIG_V7_4,
+        # Funding Rate Mean-Reversion
+        CONFIG_V8_0,
     ]
 }

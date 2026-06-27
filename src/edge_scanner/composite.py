@@ -36,6 +36,7 @@ from ..integrations import altfins_client
 from ..integrations.altfins_client import AltfinsError, parse_trend_score
 from ..integrations import santiment_client
 from ..integrations.santiment_client import SantimentError
+from ..integrations import binance_funding
 from .scoring_config import (
     ScoringConfig, ACTIVE_CONFIG, get_coin_type,
     is_stablecoin_or_stock, parse_trend_score_extended,
@@ -277,8 +278,55 @@ def score_symbol(
             logger.debug("No on-chain data for %s: %s", symbol, exc)
     components["onchain_netflow_ratio"] = netflow_ratio
 
+    # Direction hint for scoring order: positive = bullish so far
+    direction_hint = score
+
+    # ── Funding Rate Mean-Reversion scoring (NEW in v8.0) ─────────────────
+    funding_rate: Optional[float] = None
+    funding_momentum: Optional[float] = None
+    oi_change: Optional[float] = None
+    if cfg.funding_rate_weight > 0 or cfg.funding_momentum_weight > 0 or cfg.oi_change_weight > 0:
+        try:
+            # Fetch funding data (cached 5 min in binance_funding module)
+            fr = binance_funding.get_funding_rate(symbol)
+            if fr is not None and (cfg.min_abs_funding_rate == 0 or abs(fr) >= cfg.min_abs_funding_rate):
+                funding_rate = round(fr * 100, 3)  # Store as percentage (e.g., -0.6%)
+                # Score contribution: extreme funding = strong positioning pressure
+                # Shorts paying heavily (negative funding) = bullish for LONG
+                # Longs paying heavily (positive funding) = bearish for SHORT
+                fr_score = abs(fr) * 100 * cfg.funding_rate_weight
+                if direction_hint >= 0:  # Bullish context
+                    # Negative funding (shorts paying) = bullish
+                    score += fr_score if fr < 0 else -fr_score * 0.5
+                else:
+                    score += fr_score if fr > 0 else -fr_score * 0.5
+
+                # Funding momentum — is funding normalizing?
+                mom = binance_funding.get_funding_momentum(symbol)
+                if mom is not None and (cfg.min_funding_momentum == 0 or abs(mom) >= cfg.min_funding_momentum):
+                    funding_momentum = round(mom * 10000, 2)  # Scaled for display
+                    mom_score = abs(mom) * 10000 * cfg.funding_momentum_weight
+                    # If direction matches momentum (e.g., LONG + funding rising), bonus
+                    if (direction_hint >= 0 and mom > 0) or (direction_hint < 0 and mom < 0):
+                        score += mom_score
+
+                # OI change — OI declining = short covering (confirms LONG direction)
+                oi = binance_funding.get_oi_change(symbol)
+                if oi is not None and (cfg.max_oi_change == 0 or abs(oi) <= cfg.max_oi_change):
+                    oi_change = round(oi * 100, 2)  # As percentage
+                    oi_score = abs(oi) * 100 * cfg.oi_change_weight
+                    # Declining OI (shorts covering) = bullish for LONG
+                    if direction_hint >= 0 and oi < 0:
+                        score += oi_score
+                    elif direction_hint < 0 and oi > 0:
+                        score += oi_score
+        except Exception as exc:
+            logger.debug("Funding scoring failed for %s: %s", symbol, exc)
+    components["funding_rate"] = funding_rate
+    components["funding_momentum"] = funding_momentum
+    components["oi_change"] = oi_change
+
     # Extended scoring signals (ADX, OBV, RSI, TR/ATR, price momentum)
-    direction_hint = score  # positive = bullish context so far
     extra_score, extra_components = cfg.compute_extended_score(additional, score, direction_hint)
     score += extra_score
     components.update(extra_components)
