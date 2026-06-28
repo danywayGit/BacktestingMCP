@@ -153,10 +153,46 @@ def log_signals(scores: List[CandidateScore], timeframe: TimeFrame, horizon_hour
 def _fetch_window_data(pair: str, timeframe: TimeFrame, start: datetime, end: datetime):
     """Fetch OHLCV data over a time window.
 
+    Falls back to Binance live API when local DB has no data.
     Returns (dataframe, high, low, close) or (None, None, None, None) on failure.
     """
     try:
         data = engine.get_data(pair, timeframe, start, end)
+        if data.empty:
+            # Fallback: fetch from Binance Futures klines API directly
+            import httpx
+            import pandas as pd
+            import math
+            # Map TimeFrame to Binance interval strings
+            tf_name = timeframe.name if hasattr(timeframe, 'name') else str(timeframe)
+            interval_map = {
+                'H1': '1h', 'H4': '4h', 'H12': '12h',
+                'D1': '1d', 'M15': '15m', 'M30': '30m',
+                'M5': '5m', 'M1': '1m',
+            }
+            interval = interval_map.get(tf_name, '1h')
+            # Binance symbol format: remove slash, keep USDT suffix
+            api_symbol = pair.replace('/', '')
+            if not api_symbol.endswith('USDT'):
+                # Attempt to derive from pair name
+                base = pair.split('/')[0] if '/' in pair else pair.split('USDT')[0] if 'USDT' in pair else pair
+                api_symbol = base + 'USDT'
+            params = {
+                'symbol': api_symbol,
+                'interval': interval,
+                'startTime': int(math.floor(start.timestamp() * 1000)),
+                'endTime': int(math.ceil(end.timestamp() * 1000)),
+                'limit': 500,
+            }
+            resp = httpx.get('https://fapi.binance.com/fapi/v1/klines', params=params, timeout=10.0)
+            if resp.status_code == 200:
+                klines = resp.json()
+                if klines and len(klines) > 0:
+                    data = pd.DataFrame(klines).iloc[:, :6]
+                    data.columns = ['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume']
+                    data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms')
+                    data.set_index('timestamp', inplace=True)
+                    data = data.astype(float)
         if data.empty:
             return None, None, None, None
         return (data, float(data["High"].max()), float(data["Low"].min()), float(data["Close"].iloc[-1]))
