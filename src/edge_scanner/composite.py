@@ -320,6 +320,28 @@ def score_symbol(
                         score += oi_score
                     elif direction_hint < 0 and oi > 0:
                         score += oi_score
+
+                # Funding interval bonus — shorter intervals = more expensive = stronger signal
+                if cfg.funding_interval_weight > 0:
+                    interval = binance_funding.get_funding_interval(symbol)
+                    if interval > 0:
+                        interval_mult = 8.0 / interval  # 8h=1x, 4h=2x, 2h=4x, 1h=8x
+                        score += interval_mult * cfg.funding_interval_weight
+
+                # Pre-funding dip bonus — 15-45 min before funding when extreme
+                if cfg.pre_funding_dip_weight > 0:
+                    data = binance_funding.fetch_funding_rate(symbol)
+                    if data and data.get("next_funding_time", 0) > 0:
+                        now_ms = datetime.now(timezone.utc).timestamp() * 1000
+                        gap_min = (data["next_funding_time"] - now_ms) / 60000
+                        if 10 <= gap_min <= 50 and abs(fr) >= cfg.min_abs_funding_rate:
+                            score += cfg.pre_funding_dip_weight
+
+                # Interval switch bonus — interval decreased = volatility event
+                if cfg.interval_switch_weight > 0:
+                    change = binance_funding.detect_interval_change(symbol)
+                    if change and change.get("changed"):
+                        score += cfg.interval_switch_weight
         except Exception as exc:
             logger.debug("Funding scoring failed for %s: %s", symbol, exc)
     components["funding_rate"] = funding_rate

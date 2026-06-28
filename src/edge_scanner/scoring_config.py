@@ -351,6 +351,22 @@ class ScoringConfig:
     """Maximum absolute OI change fraction to allow funding scoring.
     0.02 = 2% max OI increase. 0 = no filter."""
 
+    # ── Funding Interval & Pre-Funding Dip (added Jun 2026) ──────────────
+    funding_interval_weight: float = 0.0
+    """Weight for funding interval bonus. Shorter intervals (1h) are more
+    expensive than longer (8h). Scaled: score = (8/interval) × weight.
+    8h = 1×, 4h = 2×, 2h = 4×, 1h = 8×."""
+
+    pre_funding_dip_weight: float = 0.0
+    """Weight for pre-funding dip entry bonus. When funding is extreme
+    and next funding is 15-45 min away, adds score bonus for the expected
+    dip/settlement bounce. Higher = more aggressive dip capture."""
+
+    interval_switch_weight: float = 0.0
+    """Weight for funding interval switch signal. When a symbol's funding
+    interval decreases (e.g., 4h→1h), it signals a volatility event.
+    Adds score bonus proportional to the interval change magnitude."""
+
     # ── Risk management (target/stop computation) ──────────────────────────
     atr_stop_mult: float = 1.5
     """ATR multiplier for stop loss placement. stop = entry ± (ATR × mult).
@@ -1085,11 +1101,15 @@ CONFIG_V8_0 = ScoringConfig(
     low_float_squeeze_weight=0.0,
     # Funding Rate Mean-Reversion — PRIMARY signal source
     funding_rate_weight=5.0,
-    funding_momentum_weight=3.0,
+    funding_momentum_weight=5.0,  # Increased from 3.0 per paper: momentum explains 50%+ of gap
     oi_change_weight=2.0,
     min_abs_funding_rate=0.006,
     min_funding_momentum=0.0,
     max_oi_change=0.02,
+    # Funding interval & pre-funding dip (added Jun 2026)
+    funding_interval_weight=2.0,
+    pre_funding_dip_weight=3.0,
+    interval_switch_weight=5.0,
     # Risk management — tighter, faster for funding-driven moves
     atr_stop_mult=1.0,
     rr_ratio=1.5,
