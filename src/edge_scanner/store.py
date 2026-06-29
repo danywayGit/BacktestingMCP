@@ -163,6 +163,7 @@ def _fetch_window_data(pair: str, timeframe: TimeFrame, start: datetime, end: da
             import httpx
             import pandas as pd
             import math
+            import time as _time
             # Map TimeFrame to Binance interval strings
             tf_name = timeframe.name if hasattr(timeframe, 'name') else str(timeframe)
             interval_map = {
@@ -174,7 +175,6 @@ def _fetch_window_data(pair: str, timeframe: TimeFrame, start: datetime, end: da
             # Binance symbol format: remove slash, keep USDT suffix
             api_symbol = pair.replace('/', '')
             if not api_symbol.endswith('USDT'):
-                # Attempt to derive from pair name
                 base = pair.split('/')[0] if '/' in pair else pair.split('USDT')[0] if 'USDT' in pair else pair
                 api_symbol = base + 'USDT'
             params = {
@@ -184,15 +184,50 @@ def _fetch_window_data(pair: str, timeframe: TimeFrame, start: datetime, end: da
                 'endTime': int(math.ceil(end.timestamp() * 1000)),
                 'limit': 500,
             }
-            resp = httpx.get('https://fapi.binance.com/fapi/v1/klines', params=params, timeout=10.0)
-            if resp.status_code == 200:
-                klines = resp.json()
-                if klines and len(klines) > 0:
-                    data = pd.DataFrame(klines).iloc[:, :6]
-                    data.columns = ['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume']
-                    data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms')
-                    data.set_index('timestamp', inplace=True)
-                    data = data.astype(float)
+            url = 'https://fapi.binance.com/fapi/v1/klines'
+            # Try once, with rate-limit retry
+            for attempt in range(2):
+                try:
+                    resp = httpx.get(url, params=params, timeout=10.0)
+                    if resp.status_code == 429:
+                        # Rate limited — read Retry-After header
+                        retry_after = resp.headers.get('Retry-After')
+                        if retry_after:
+                            wait = float(retry_after) + 5
+                        else:
+                            wait = 65  # Binance default: 60s + 5s buffer
+                        logger.warning(
+                            "Binance rate limited for %s, waiting %.0fs (attempt %d/2)",
+                            api_symbol, wait, attempt + 1,
+                        )
+                        _time.sleep(wait)
+                        continue
+                    if resp.status_code != 200:
+                        logger.debug(
+                            "Binance klines returned %d for %s: %s",
+                            resp.status_code, api_symbol, resp.text[:200],
+                        )
+                        continue
+                    klines = resp.json()
+                    if klines and len(klines) > 0:
+                        data = pd.DataFrame(klines).iloc[:, :6]
+                        data.columns = ['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume']
+                        data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms')
+                        data.set_index('timestamp', inplace=True)
+                        data = data.astype(float)
+                    break  # Success or non-retryable error
+                except httpx.TimeoutException:
+                    logger.debug("Binance klines timeout for %s (attempt %d/2)", api_symbol, attempt + 1)
+                    if attempt == 0:
+                        _time.sleep(1)
+                        continue
+                    break
+                except Exception:
+                    logger.debug("Binance klines failed for %s (attempt %d/2)", api_symbol, attempt + 1)
+                    if attempt == 0:
+                        _time.sleep(1)
+                        continue
+                    break
         if data.empty:
             return None, None, None, None
         return (data, float(data["High"].max()), float(data["Low"].min()), float(data["Close"].iloc[-1]))
