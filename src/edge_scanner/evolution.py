@@ -24,10 +24,11 @@ from typing import Any, Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 # ── Thresholds ──────────────────────────────────────────────────────────────
-MIN_NON_FLAT_TRADES = 20       # Minimum non-flat trades for statistical significance (was 50)
-MIN_WIN_RATE_IMPROVEMENT = 3.0  # Percentage points better than current active (was 5.0)
+MIN_NON_FLAT_TRADES = 20       # Minimum non-flat trades for statistical significance
+MIN_WIN_RATE_IMPROVEMENT = 0.0  # Replaced by z-test below — kept at 0 for fallback
 MIN_CONFIG_AGE_DAYS = 3         # Days a config must have been active (was 7)
 STATS_CACHE_TTL_HOURS = 6      # How long to cache per-config stats
+SIGNIFICANCE_LEVEL = 0.10       # p-value threshold for promotion (10% = moderate confidence)
 
 # ── Data Structures ─────────────────────────────────────────────────────────
 
@@ -206,6 +207,25 @@ def analyze_configs(db_path: str = 'data/crypto.db') -> Dict[str, ConfigStats]:
     return configs
 
 
+def _two_proportion_z_test(wins1: int, n1: int, wins2: int, n2: int) -> tuple:
+    """Two-proportion z-test comparing config win rates.
+
+    Returns (z_score, p_value) for one-tailed test (candidate > active).
+    Lower p-value = stronger evidence candidate outperforms.
+    """
+    import math
+    from scipy.stats import norm
+    p1 = wins1 / max(n1, 1)
+    p2 = wins2 / max(n2, 1)
+    p_bar = (wins1 + wins2) / max(n1 + n2, 1)
+    se = math.sqrt(p_bar * (1 - p_bar) * (1/n1 + 1/n2)) if n1 > 0 and n2 > 0 else 0
+    if se == 0:
+        return 0.0, 1.0
+    z = (p1 - p2) / se
+    p_value = 1.0 - norm.cdf(z)
+    return round(z, 3), round(p_value, 4)
+
+
 def rank_configs(stats: Dict[str, ConfigStats], min_trades: int = MIN_NON_FLAT_TRADES) -> List[ConfigStats]:
     """Rank configs by composite score, filtering those with enough data."""
     eligible = [c for c in stats.values() if c.non_flat_trades >= min_trades]
@@ -268,16 +288,27 @@ def auto_evolve(db_path: str = 'data/crypto.db', dry_run: bool = True) -> Dict[s
     if active_has_data and best.config_version != active_version:
         active_stats = stats[active_version]
         improvement = best.win_rate - active_stats.win_rate
-        if improvement >= MIN_WIN_RATE_IMPROVEMENT:
+
+        # Two-proportion z-test instead of flat improvement threshold
+        z, p = _two_proportion_z_test(
+            best.wins, best.non_flat_trades,
+            active_stats.wins, active_stats.non_flat_trades,
+        )
+        if p < SIGNIFICANCE_LEVEL and improvement > 0:
             can_promote = True
             promotion_reason = (
-                f"{best.config_version} outperforms {active_version} by "
-                f"{improvement:.1f}pp win-rate ({best.win_rate:.1f}% vs {active_stats.win_rate:.1f}%)"
+                f"{best.config_version} statistically outperforms {active_version} "
+                f"(+{improvement:.1f}pp WR, z={z:.2f}, p={p:.4f})"
+            )
+        elif improvement > 0:
+            promotion_reason = (
+                f"{best.config_version} leads by {improvement:.1f}pp but "
+                f"not significant (p={p:.4f} > {SIGNIFICANCE_LEVEL})"
             )
         else:
             promotion_reason = (
-                f"{best.config_version} leads but only {improvement:.1f}pp above "
-                f"{active_version} (needs ≥{MIN_WIN_RATE_IMPROVEMENT}pp)"
+                f"{active_version} holds the lead ({active_stats.win_rate:.1f}% vs "
+                f"{best.win_rate:.1f}%)"
             )
     elif not active_has_data and best.config_version != active_version:
         promotion_reason = (
