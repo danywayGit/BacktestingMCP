@@ -141,6 +141,41 @@ def parse_llm_response(response: str) -> Optional[Dict[str, Any]]:
     return config
 
 
+def _get_api_key() -> Optional[str]:
+    """Get OpenRouter API key — tries multiple sources in order."""
+    # 1. Try Hermes credential store
+    hermes_env = "/home/hermes/.hermes/.env"
+    if os.path.exists(hermes_env):
+        try:
+            with open(hermes_env) as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("OPENROUTER_API_KEY=") or line.startswith("export OPENROUTER_API_KEY="):
+                        val = line.split("=", 1)[1].strip('"').strip("'")
+                        if val:
+                            return val
+        except (OSError, IOError):
+            pass
+    # 2. Try environment variable
+    key = os.environ.get("OPENROUTER_API_KEY")
+    if key and len(key) > 10:
+        return key
+    # 3. Try BacktestingMCP .env
+    btmcp_env = os.path.join(os.path.dirname(__file__), "..", "..", ".env")
+    if os.path.exists(btmcp_env):
+        try:
+            with open(btmcp_env) as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("OPENROUTER_API_KEY=") or line.startswith("export OPENROUTER_API_KEY="):
+                        val = line.split("=", 1)[1].strip('"').strip("'")
+                        if val:
+                            return val
+        except (OSError, IOError):
+            pass
+    return None
+
+
 def generate_new_config(stats: Dict[str, Any], active_version: str,
                         provider: str = "openrouter", model: str = "deepseek/deepseek-v4-flash") -> Optional[Dict[str, Any]]:
     """Use an LLM to generate a new scoring config based on evolution stats.
@@ -158,7 +193,7 @@ def generate_new_config(stats: Dict[str, Any], active_version: str,
 
     try:
         import httpx
-        api_key = os.environ.get("OPENROUTER_API_KEY")
+        api_key = _get_api_key()
         if not api_key:
             logger.error("OPENROUTER_API_KEY not set")
             return None
@@ -238,25 +273,27 @@ def register_config_as_code(config: Dict[str, Any], version_str: str = "7.3") ->
         content = content[:active_line] + "\n" + "\n".join(block_lines) + "\n" + content[active_line:]
 
     # Also register in ALL_CONFIGS if it exists
-    all_configs_line = content.find("ALL_CONFIGS = [")
+    all_configs_line = content.find("ALL_CONFIGS: dict[str, ScoringConfig] = {")
     if all_configs_line == -1:
-        all_configs_line = content.find("ALL_CONFIGS= [")
-    if all_configs_line == -1:
-        all_configs_line = content.find("ALL_CONFIGS=[")
+        all_configs_line = content.find("ALL_CONFIGS = {")
     if all_configs_line != -1:
-        # Find the closing bracket of the list
-        insert_pos = all_configs_line
-        depth = 0
-        while insert_pos < len(content):
-            if content[insert_pos] == "[":
-                depth += 1
-            elif content[insert_pos] == "]":
-                depth -= 1
-                if depth == 0:
-                    # Insert before the closing bracket
-                    content = content[:insert_pos] + f"    {const_name},\n" + content[insert_pos:]
-                    break
-            insert_pos += 1
+        # Find the line containing the list inside the dict value
+        # Pattern: {c.version: c for c in [
+        list_start = content.find("c for c in [", all_configs_line)
+        if list_start != -1:
+            # Find the closing bracket of the list
+            depth = 0
+            pos = list_start
+            while pos < len(content):
+                if content[pos] == "[":
+                    depth += 1
+                elif content[pos] == "]":
+                    depth -= 1
+                    if depth == 0:
+                        # Insert before the closing bracket
+                        content = content[:pos] + f"        {const_name},\n" + content[pos:]
+                        break
+                pos += 1
 
     try:
         with open(filepath, "w") as f:
