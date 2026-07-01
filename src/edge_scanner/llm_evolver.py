@@ -19,16 +19,15 @@ logger = logging.getLogger(__name__)
 CONFIG_SCHEMA = {
     "min_abs_score": {"type": "float", "range": [5.0, 9.0], "default": 7.0},
     "min_adx": {"type": "float", "range": [15, 30], "default": 20},
-    "max_adx": {"type": "float", "range": [40, 60], "default": 55},
-    "rsi_min": {"type": "float", "range": [20, 40], "default": 30},
-    "rsi_max": {"type": "float", "range": [60, 80], "default": 70},
+    "min_rsi": {"type": "float", "range": [20, 40], "default": 30},
+    "max_rsi": {"type": "float", "range": [60, 80], "default": 70},
     "min_atr_pct": {"type": "float", "range": [0.0, 1.0], "default": 0.3},
     "atr_stop_mult": {"type": "float", "range": [0.5, 4.0], "default": 1.5},
     "rr_ratio": {"type": "float", "range": [1.0, 4.0], "default": 2.0},
     "trend_weight": {"type": "float", "range": [0.0, 0.6], "default": 0.4},
-    "volume_weight": {"type": "float", "range": [0.0, 0.4], "default": 0.2},
+    "volume_relative_weight": {"type": "float", "range": [0.0, 0.4], "default": 0.2},
     "signal_feed_weight": {"type": "float", "range": [0.0, 0.4], "default": 0.3},
-    "onchain_weight": {"type": "float", "range": [0.0, 0.3], "default": 0.1},
+    "onchain_netflow_weight": {"type": "float", "range": [0.0, 0.3], "default": 0.1},
     "volume_divergence_weight": {"type": "float", "range": [0.0, 5.0], "default": 3.0},
     "smart_money_index_weight": {"type": "float", "range": [0.0, 4.0], "default": 2.0},
     "low_float_squeeze_weight": {"type": "float", "range": [0.0, 3.0], "default": 1.5},
@@ -130,7 +129,7 @@ def parse_llm_response(response: str) -> Optional[Dict[str, Any]]:
                 config[key] = rmax
 
     # Ensure weights sum to 1.0
-    weight_keys = ["trend_weight", "volume_weight", "signal_feed_weight", "onchain_weight"]
+    weight_keys = ["trend_weight", "volume_relative_weight", "signal_feed_weight", "onchain_netflow_weight"]
     weight_sum = sum(config.get(k, 0) for k in weight_keys)
     if abs(weight_sum - 1.0) > 0.01:
         # Normalize
@@ -272,28 +271,22 @@ def register_config_as_code(config: Dict[str, Any], version_str: str = "7.3") ->
     else:
         content = content[:active_line] + "\n" + "\n".join(block_lines) + "\n" + content[active_line:]
 
-    # Also register in ALL_CONFIGS if it exists
+    # Also register in ALL_CONFIGS if it exists — append to the list before the closing ]
     all_configs_line = content.find("ALL_CONFIGS: dict[str, ScoringConfig] = {")
     if all_configs_line == -1:
         all_configs_line = content.find("ALL_CONFIGS = {")
     if all_configs_line != -1:
-        # Find the line containing the list inside the dict value
-        # Pattern: {c.version: c for c in [
-        list_start = content.find("c for c in [", all_configs_line)
-        if list_start != -1:
-            # Find the closing bracket of the list
-            depth = 0
-            pos = list_start
-            while pos < len(content):
-                if content[pos] == "[":
-                    depth += 1
-                elif content[pos] == "]":
-                    depth -= 1
-                    if depth == 0:
-                        # Insert before the closing bracket
-                        content = content[:pos] + f"        {const_name},\n" + content[pos:]
-                        break
-                pos += 1
+        # Find the closing bracket of the innermost list inside the dict value
+        # Pattern: {c.version: c for c in [..., CONFIG_V8_0, ]}
+        prefix = f"{const_name},\n"
+        # Simple approach: find the first standalone `]` after the dict body opener
+        body_start = content.find("{", all_configs_line)
+        if body_start != -1:
+            # Find the LAST `]` before the closing `}`
+            # Crawl forward to find the closing braces structure
+            inner_list_end = content.rfind("]", body_start, content.rfind("}"))
+            if inner_list_end != -1:
+                content = content[:inner_list_end] + "\n        " + prefix + content[inner_list_end:]
 
     try:
         with open(filepath, "w") as f:
@@ -332,12 +325,12 @@ def auto_evolve_with_llm(db_path: str = "data/crypto.db", dry_run: bool = True) 
         return result
 
     active_version = "7.0"  # TODO: read from scoring_config dynamically
-
-    # Check if active has enough data
     active = stats.get(active_version)
+
+    # Check if active has enough data — but still generate even if not
+    # (we can learn from all configs, not just the active one)
     if active and active.non_flat_trades < 20:
-        result["reason"] = f"Active config {active_version} only has {active.non_flat_trades} trades — need 20+"
-        return result
+        logger.info("Active config %s only has %d trades — but generating anyway from all config data", active_version, active.non_flat_trades)
 
     logger.info("Calling LLM to generate improved config...")
     new_config = generate_new_config(stats, active_version)

@@ -1143,6 +1143,44 @@ CONFIG_V8_0 = ScoringConfig(
 
 # Active config — change via CLI: python -m src.cli.main edge activate-config --version v1.1
 # All signals logged will carry this version in the config_version column.
+
+
+# ── CONFIG_V7_5 — Auto-generated 2026-07-01 19:47 ──
+CONFIG_V7_5 = ScoringConfig(
+    version="7.5",
+    description="LLM-generated: relax V7.0 filters for more signals. Lower min_abs_score (6.5), wider RSI, lower min_atr_pct, increased vol-div weight.",
+    min_abs_score=6.5,
+    min_adx=18,
+    min_rsi=25,
+    max_rsi=75,
+    min_atr_pct=0.2,
+    atr_stop_mult=1.5,
+    rr_ratio=2.0,
+    trend_weight=0.4,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.35,
+    scanner_hit_weight=0.2,
+    onchain_netflow_weight=0.1,
+    # Extended scoring
+    volume_divergence_weight=3.5,
+    smart_money_index_weight=2.0,
+    low_float_squeeze_weight=1.5,
+    # Regime bias
+    regime_dir_bear_short_bonus=2.0,
+    regime_dir_bear_long_penalty=2.0,
+    regime_dir_bull_long_bonus=2.0,
+    regime_dir_bull_short_penalty=2.0,
+    # Alert thresholds
+    alert_min_score=7.0,
+    alert_require_multi_source=True,
+    # Filters
+    min_market_cap_usd=0.0,
+    max_market_cap_usd=0.0,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    display_types_extra=[],
+)
+
 ACTIVE_CONFIG = CONFIG_V7_0
 
 ALL_CONFIGS: dict[str, ScoringConfig] = {
@@ -1160,7 +1198,7 @@ ALL_CONFIGS: dict[str, ScoringConfig] = {
         # CEO suggested patterns
         CONFIG_V6_0, CONFIG_V6_1,
         # Quality Gate
-        CONFIG_V7_0, CONFIG_V7_2, CONFIG_V7_3, CONFIG_V7_4,
+        CONFIG_V7_0, CONFIG_V7_2, CONFIG_V7_3, CONFIG_V7_4, CONFIG_V7_5,
         # Funding Rate Mean-Reversion
         CONFIG_V8_0,
     ]
