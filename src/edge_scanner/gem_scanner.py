@@ -205,7 +205,7 @@ def scan_gems(pages: int = 5, start_page: int = 3) -> List[GemCandidate]:
     Each page = 250 coins. Pages 3-20 cover MCap ranks ~500-5000.
     Default: pages 3-7 (ranks ~500-1750).
     """
-    from src.integrations.binance_symbols import is_on_binance_futures
+    from src.integrations.binance_symbols import is_on_binance
 
     candidates: List[GemCandidate] = []
     total_scanned = 0
@@ -244,7 +244,7 @@ def scan_gems(pages: int = 5, start_page: int = 3) -> List[GemCandidate]:
                 fdv = c.get("fully_diluted_valuation")
 
                 # Quick filter: must be on Binance
-                if not is_on_binance_futures(symbol):
+                if not is_on_binance(symbol):
                     continue
 
                 total_scanned += 1
@@ -290,7 +290,7 @@ def scan_gems(pages: int = 5, start_page: int = 3) -> List[GemCandidate]:
                     price_change_30d=c.get("price_change_percentage_30d_in_currency"),
                     price_change_1y=c.get("price_change_percentage_1y_in_currency"),
                     market_cap_rank=c.get("market_cap_rank"),
-                    on_binance_futures=is_on_binance_futures(symbol),
+                    on_binance_futures=is_on_binance(symbol),
                     coin_gecko_id=c.get("id", ""),
                 )
                 gem = _score_gem(gem)
