@@ -16,20 +16,21 @@ import time
 import logging
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 logger = logging.getLogger(__name__)
 
 # ── Scoring weights ────────────────────────────────────────────────────────
 
 WEIGHTS = {
-    "market_cap": 0.20,         # Small-mid cap = more room to grow
+    "market_cap": 0.15,         # Small-mid cap = more room to grow
     "vol_mcap_ratio": 0.15,     # Liquidity relative to size
-    "distance_from_ath": 0.20,  # Down from ATH = reversion potential
+    "distance_from_ath": 0.15,  # Down from ATH = reversion potential
     "supply_dilution": 0.10,    # Low FDV/MCap = less future dilution
     "circulating_ratio": 0.10,  # 20-80% circulating = sweet spot
     "binance_futures": 0.10,    # Listed on Binance Futures = bonus
-    "price_momentum": 0.15,     # Slight negative or neutral = entry opportunity
+    "price_momentum": 0.10,     # Slight negative or neutral = entry opportunity
+    "coin_age": 0.15,           # Under 2 years = room to grow
 }
 
 # Scoring thresholds
@@ -61,6 +62,7 @@ class GemCandidate:
     market_cap_rank: Optional[int]
     on_binance_futures: bool
     coin_gecko_id: str
+    atl_date: Optional[str] = None        # CoinGecko ATL date — proxy for coin age
     score: float = 0.0
     breakdown: Dict[str, float] = field(default_factory=dict)
 
@@ -161,6 +163,35 @@ def _score_gem(c: GemCandidate) -> GemCandidate:
         mom_score = 0.0
     score += mom_score * WEIGHTS["price_momentum"]
     breakdown["momentum"] = round(mom_score * WEIGHTS["price_momentum"], 3)
+
+    # 8. Coin age — young coins (< 2 years) have more growth potential
+    age_years = None
+    if c.atl_date:
+        try:
+            atl_dt = datetime.fromisoformat(c.atl_date.replace("Z", "+00:00"))
+            age_years = (datetime.now(timezone.utc) - atl_dt).total_seconds() / (365.25 * 86400)
+        except (ValueError, TypeError):
+            pass
+    # Also use 1y price data as proxy: None means no 1y data = young coin
+    if c.price_change_1y is None:
+        age_score = 0.8  # Less than 1 year of tracked data = very young
+    elif age_years is not None:
+        if age_years <= 1:
+            age_score = 0.9  # Under 1 year
+        elif age_years <= 2:
+            age_score = 0.7  # 1-2 years
+        elif age_years <= 3:
+            age_score = 0.3  # 2-3 years
+        else:
+            age_score = 0.0  # > 3 years — too old
+    elif c.price_change_1y is not None:
+        # Has 1y data, no ATL date — at least 1 year old, check if under 2
+        # Use 1y change as rough proxy
+        age_score = 0.3  # Known to be at least 1 year
+    else:
+        age_score = 0.2
+    score += age_score * WEIGHTS["coin_age"]
+    breakdown["coin_age"] = round(age_score * WEIGHTS["coin_age"], 3)
 
     c.score = round(score, 4)
     c.breakdown = breakdown
@@ -275,6 +306,31 @@ def scan_gems(pages: int = 5, start_page: int = 3) -> List[GemCandidate]:
 
     candidates.sort(key=lambda x: x.score, reverse=True)
     logger.info("Scanned %d Binance coins, found %d gem candidates", total_scanned, len(candidates))
+
+    # Enrich top 30 candidates with ATL dates for better age scoring
+    import time as _time2
+    for i, gem in enumerate(candidates[:30]):
+        if gem.price_change_1y is not None or gem.atl_date:
+            continue  # Already has age data
+        try:
+            time.sleep(0.5)  # Rate limit
+            resp = httpx.get(
+                f"https://api.coingecko.com/api/v3/coins/{gem.coin_gecko_id}",
+                params={"localization": "false", "tickers": "false", "community_data": "false", "sparkline": "false"},
+                timeout=10.0,
+            )
+            if resp.status_code == 200:
+                coin_data = resp.json()
+                md = coin_data.get("market_data", {})
+                atl_dt = md.get("atl_date", {}).get("usd")
+                if atl_dt:
+                    gem.atl_date = atl_dt
+                    gem = _score_gem(gem)  # Re-score with better age data
+                    candidates[i] = gem
+        except Exception:
+            pass
+
+    candidates.sort(key=lambda x: x.score, reverse=True)
     return candidates
 
 
