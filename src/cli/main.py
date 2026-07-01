@@ -1080,6 +1080,19 @@ def edge_report(group_by, min_n, since_days, breakeven):
     click.echo(summary.to_string(index=False))
 
 
+@edge.command('gems')
+@click.option('--pages', default=5, help='Number of CoinGecko pages to scan (250 coins each)')
+@click.option('--start-page', default=3, help='Start from this page (1=top 250)')
+@click.option('--top', default=20, help='Number of top gems to show')
+def edge_gems(pages, start_page, top):
+    """Scan for spot gem candidates with strong tokenomics for 3-6 month holds."""
+    from ..edge_scanner.gem_scanner import scan_gems, format_gem_report
+    click.echo(f"Scanning {pages} CoinGecko pages...")
+    candidates = scan_gems(pages=pages, start_page=start_page)
+    report = format_gem_report(candidates, top_n=top)
+    click.echo(report)
+
+
 @edge.command('daily-summary')
 def edge_daily_summary():
     """Generate a daily summary for Telegram — top signals, resolutions, win-rates."""
