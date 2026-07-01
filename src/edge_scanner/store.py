@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 DEFAULT_HORIZON_HOURS = 24
 # Forward moves smaller than this are treated as noise, not a real win/loss.
 MIN_MOVE_PCT = 0.3
+# Round-trip transaction costs (entry fee + exit fee + slippage)
+# Binance USDT-M Futures taker: 0.04% per trade
+COST_BPS = 11  # 4bps entry + 4bps exit + 3bps slippage = 11bps = 0.11%
 
 
 def _get_atr(pair: str, timeframe: TimeFrame) -> float:
@@ -334,6 +337,29 @@ def resolve_due_signals() -> int:
                 outcome = "LOSS"
             else:
                 outcome = "FLAT"
+
+        # Subtract round-trip transaction costs from return
+        cost_pct = COST_BPS / 100.0  # e.g. 11 bps = 0.11%
+        net_return_pct = directional_return_pct - cost_pct
+
+        # Re-classify outcome based on net (after-costs) return
+        if outcome == "WIN":
+            if net_return_pct <= 0:
+                outcome = "FLAT"
+                directional_return_pct = 0.0
+            else:
+                directional_return_pct = net_return_pct
+        elif outcome == "LOSS":
+            directional_return_pct = directional_return_pct - cost_pct  # Costs make loss worse
+        elif outcome == "FLAT" and abs(net_return_pct) > MIN_MOVE_PCT:
+            if net_return_pct > 0:
+                outcome = "WIN"
+                directional_return_pct = net_return_pct
+            else:
+                outcome = "LOSS"
+                directional_return_pct = net_return_pct
+        else:
+            directional_return_pct = net_return_pct  # Still FLAT, but record the true net
 
         db.resolve_edge_signal(signal["id"], exit_price or 0.0, directional_return_pct, outcome,
                                time_to_resolve_hours=time_to_resolve_hours)
