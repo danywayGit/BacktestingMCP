@@ -1080,6 +1080,20 @@ def edge_report(group_by, min_n, since_days, breakeven):
     click.echo(summary.to_string(index=False))
 
 
+@edge.command('auto-evolve')
+@click.option('--dry-run/--no-dry-run', default=True,
+              help='Preview without registering (default: True)')
+def edge_auto_evolve(dry_run):
+    """Use LLM to auto-generate an improved ScoringConfig based on evolution stats."""
+    from ..edge_scanner.llm_evolver import auto_evolve_with_llm
+    click.echo("Running LLM-driven evolution...")
+    result = auto_evolve_with_llm(dry_run=dry_run)
+    click.echo(f"Action: {result.get('action')}")
+    click.echo(f"Reason: {result.get('reason')}")
+    if result.get('new_config'):
+        click.echo(f"Suggested config: {json.dumps(result['new_config'], indent=2)}")
+
+
 @edge.command('gems')
 @click.option('--pages', default=5, help='Number of CoinGecko pages to scan (250 coins each)')
 @click.option('--start-page', default=3, help='Start from this page (1=top 250)')
