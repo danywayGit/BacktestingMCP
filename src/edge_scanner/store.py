@@ -267,9 +267,15 @@ def resolve_due_signals() -> int:
     This correctly captures trades that hit profit target mid-window then
     retraced — those would be WINs under the old close-only logic.
     """
+    from ..integrations.binance_symbols import is_on_binance_futures
     resolved = 0
     now = datetime.now(timezone.utc)
     for signal in db.get_pending_edge_signals():
+        # Skip symbols not on Binance Futures — prevents API timeouts
+        if not is_on_binance_futures(signal.get("symbol", "")):
+            db.resolve_edge_signal(signal["id"], 0.0, 0.0, "FLAT", time_to_resolve_hours=24.0)
+            resolved += 1
+            continue
         entry_time = datetime.fromisoformat(signal["entry_time"])
         if entry_time.tzinfo is None:
             entry_time = entry_time.replace(tzinfo=timezone.utc)
