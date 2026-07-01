@@ -335,11 +335,12 @@ def resolve_due_signals() -> int:
     return resolved
 
 
-def performance_report(group_by: str = "symbol", min_n: int = 5, since_days: int = 90) -> pd.DataFrame:
+def performance_report(group_by: str = "symbol", min_n: int = 5, since_days: int = 90, breakeven: bool = True) -> pd.DataFrame:
     """Win-rate / avg return grouped by symbol, hour-of-day, direction, config version, or coin type.
 
-    Mirrors the win-rate-by-segment approach BackTestingSignals uses for
-    Telegram/Discord calls, applied to the edge scanner's own signals.
+    When group_by='config', adds breakeven WR column based on each config's
+    rr_ratio. Breakeven WR = 1 / (1 + R:R). Configs with WR above breakeven
+    are profitable; configs below are losing money despite raw win rate.
     """
     since = datetime.now(timezone.utc) - timedelta(days=since_days)
     rows = db.get_resolved_edge_signals(since=since)
@@ -369,4 +370,29 @@ def performance_report(group_by: str = "symbol", min_n: int = 5, since_days: int
     summary["win_rate"] = (summary["win_rate"] * 100).round(1)
     summary["avg_return_pct"] = summary["avg_return_pct"].round(3)
     summary = summary[summary["n"] >= min_n].sort_values("win_rate", ascending=False)
+
+    # Add breakeven WR column when grouping by config
+    if breakeven and group_by == "config":
+        from src.edge_scanner.scoring_config import ALL_CONFIGS
+        config_rr = {}
+        for cfg_obj in ALL_CONFIGS.values():
+            ver_str = str(cfg_obj.version)
+            config_rr[ver_str] = cfg_obj.rr_ratio
+            config_rr["v" + ver_str] = cfg_obj.rr_ratio
+
+        be_rows = []
+        for _, row in summary.iterrows():
+            g = row["group"]
+            rr = config_rr.get(g)
+            if rr is None:
+                be_rows.append(None)
+            else:
+                be_wr = round(1 / (1 + rr) * 100, 1)
+                be_rows.append(be_wr)
+        summary["be_wr"] = be_rows
+        summary["status"] = summary.apply(
+            lambda r: "🟢" if r["be_wr"] and r["win_rate"] >= r["be_wr"] else ("🔴" if r["be_wr"] else "—"),
+            axis=1,
+        )
+
     return summary
