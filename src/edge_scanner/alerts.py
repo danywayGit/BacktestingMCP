@@ -167,27 +167,31 @@ def _format_alert(c: CandidateScore) -> str:
 
     sources_str = " · ".join(source_parts) if source_parts else "—"
 
-    # Position sizing based on score tier
+    # Position sizing based on score tier × R:R adjustment
     score = abs(c.composite_score)
+    # Base size from confidence tier
     if score >= 9.0:
-        risk_pct = "2.0"
-        sizing_icon = "🔒"
+        base_pct = 2.0
     elif score >= 8.0:
-        risk_pct = "1.0"
-        sizing_icon = "🔒"
+        base_pct = 1.0
     elif score >= 7.0:
-        risk_pct = "0.5"
-        sizing_icon = "🔒"
+        base_pct = 0.5
     else:
-        risk_pct = "—"
-        sizing_icon = ""
+        base_pct = 0.0
+    # R:R adjustment: higher R:R → larger position (capped)
+    # Kelly-inspired: at R:R 2.0 = 1×, at R:R 1.0 = 0.5×, at R:R 3.0 = 1.5×
+    rr_adjust = min(c.rr_ratio or RR_RATIO, 4.0) / 2.0 if c.rr_ratio else 1.0
+    risk_pct = round(base_pct * rr_adjust, 1)
+    risk_pct_str = f"{risk_pct}" if risk_pct > 0 else "—"
+    sizing_note = f" ×{rr_adjust:.1f}R" if rr_adjust != 1.0 else ""
+    sizing_icon = "🔒" if risk_pct > 0 else ""
 
     lines = [
         f"{direction_emoji} *{c.symbol}* — {c.direction} ({c.config_version}){confidence_marker}",
         f"┌ Entry: `{price_str}`",
         f"├ Stop:  `{stop_str}`",
         f"├ 🎯 Tgt: `{target_str}`  R:R `{rr_str}`",
-        f"├ Position Risk: {risk_pct}% {sizing_icon}",
+        f"├ Position Risk: {risk_pct_str}% {sizing_icon}{sizing_note}",
         f"└ Time:  `{timeframe_label}` · Type: `{coin_type}`",
         f"Score: `{c.composite_score:+.2f}`  |  {sources_str}",
         f"Resolved: {wr_str}",

@@ -1065,7 +1065,9 @@ def edge_track():
               type=click.Choice(['symbol', 'hour', 'direction', 'config', 'coin_type']))
 @click.option('--min-n', default=5, help='Minimum resolved signals required to show a group')
 @click.option('--since-days', default=90, help='Lookback window for resolved signals')
-def edge_report(group_by, min_n, since_days):
+@click.option('--breakeven/--no-breakeven', default=True,
+              help="Show breakeven WR based on each config R:R ratio")
+def edge_report(group_by, min_n, since_days, breakeven):
     """Show win-rate / avg return of resolved signals, grouped by segment.
 
     Use --group-by config to compare performance across scoring config versions.

@@ -106,6 +106,7 @@ class CandidateScore:
     components: Dict[str, Any] = field(default_factory=dict)
     config_version: str = "v1.0"   # which ScoringConfig produced this signal
     coin_type: str = "OTHER"        # LAYER1 / LAYER2 / DEFI / MEME / AI / etc.
+    rr_ratio: float = 2.0           # Risk-reward ratio from the scoring config
 
 
 def _altfins_to_pair(symbol: str) -> str:
@@ -468,6 +469,7 @@ def score_symbol(
         components=components,
         config_version=cfg.version,
         coin_type=coin_type,
+        rr_ratio=cfg.rr_ratio,
     )
 
 
