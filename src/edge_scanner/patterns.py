@@ -67,6 +67,11 @@ PATTERN_SIGNAL_TYPES: Dict[str, str] = {
     "SIGNALS_SUMMARY_RECTANGLE": "Rectangle",
     "SIGNALS_SUMMARY_TRADING_RANGE": "Trading Range",
     "SIGNALS_SUMMARY_TRADING_RANGE_V2": "Trading Range (squeeze)",
+    # Trend & momentum signals — these are what altFINS actually produces
+    "SIGNALS_SUMMARY_STRONG_UP_DOWN_TREND": "Strong Trend (up/down)",
+    "UP_DOWN_TREND_AND_FRESH_MOMENTUM_INFLECTION": "Trend + Momentum Inflection",
+    "PULLBACK_UP_DOWN_TREND": "Pullback (up/down trend)",
+    "FRESH_MOMENTUM_MACD_SIGNAL_LINE_CROSSOVER": "MACD Signal Line Crossover",
     # Candle patterns (mild interest — signals short-term)
     "SIGNALS_SUMMARY_HAMMER": "Hammer",
     "SIGNALS_SUMMARY_INVERTED_HAMMER": "Inverted Hammer",
@@ -97,6 +102,11 @@ DEFAULT_PATTERN_SCAN = [
     "SIGNALS_SUMMARY_FLAG",
     "SIGNALS_SUMMARY_PENNANT",
     "SIGNALS_SUMMARY_TRADING_RANGE_V2",
+    # Dynamic trend/momentum signals — these are what altFINS currently produces
+    "SIGNALS_SUMMARY_STRONG_UP_DOWN_TREND",
+    "UP_DOWN_TREND_AND_FRESH_MOMENTUM_INFLECTION",
+    "PULLBACK_UP_DOWN_TREND",
+    "FRESH_MOMENTUM_MACD_SIGNAL_LINE_CROSSOVER",
 ]
 
 
