@@ -8,3 +8,30 @@ venv/
 .DS_Store
 results/
 data/crypto_data.db
+
+# Database
+data/crypto.db
+
+# Backup files
+*.backup
+*.bak
+*.bak2
+
+# Temp scripts — clean these up after use
+add_v7_config*.py
+correct_v7_config*.py
+fix_v7_config*.py
+final_fix_v7*.py
+final_v7_config*.py
+insert_v7_config*.py
+update_config_v7*.py
+reoptimize_swing*.py
+
+# Pip package dirs (version directories from pip install -e .)
+=[0-9]*
+=[0-9]*.[0-9]*
+=[0-9]*.[0-9]*.[0-9]*
+
+# Test/temp files
+/tmp/
+*.tmp

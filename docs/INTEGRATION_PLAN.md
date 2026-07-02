@@ -5,134 +5,75 @@
 ```
 BacktestingMCP                        Trading-WebHook-Bot
 ─────────────────                     ────────────────────
-● altFINS scoring / signal discovery  ● Flask webhook server
-● Config evolution (21 configs)       ● Binance order execution
-● Target/stop resolution              ● Risk management (loss limits, max trades)
-● Funding rate tracking               ● Position sync (DB ↔ Exchange)
-● Telegram alerts ──── signal ───→   ● Funding fee tracking (cron)
-  with R:R & position sizing           ● Dashboard + Telegram cmds
-  and breakeven status                 ● DCA Spot strategy
+● altFINS scoring                     ● Flask webhook server
+● Config evolution (V1-V8)            ● Binance order execution
+● Signal discovery                    ● Risk management (loss limits, max trades)
+● Telegram alerts ───→ signal ───→    ● Position management
+  with R:R sizing                     ● Funding fee tracking (cron)
+  and breakeven WR                    ● Dashboard + Telegram cmds
+● Gem scanner (spot & futures) ────→  ● Optional: auto-execute gems
 ```
 
-The two systems are independent repos. The bridge is the **Telegram alert** from BacktestingMCP — the edge scanner sends structured alerts with position sizing recommendations that the webhook bot can parse and execute.
+## Current Bridge
 
-## Current Bridge (signal data in alerts)
+The edge scanner already sends signals to the user via Telegram. The webhook bot can be
+extended to read these signals (or better, read directly from the database) and execute
+trades.
 
-Each Telegram alert from BacktestingMCP contains:
+### Data Flow Options
 
-| Field | Example | Source |
-|-------|---------|--------|
-| Symbol + Direction | `🟢 BTC — LONG` | altFINS scoring |
-| Entry price | `$45000.00` | Current market price |
-| Stop loss | `$44250.00` | ATR × atr_stop_mult |
-| Target | `$46500.00` | Stop × rr_ratio |
-| R:R | `1:2.0` | Config's rr_ratio |
-| Position Risk | `1.0%` | Score tier × R:R adjustment |
-| Config version | `V7.0` | Active config |
-| Config breakeven status | 🟢 if WR > be_wr | `be_wr = 1 / (1 + rr)` |
-| Funding rate | `-0.18%` | V8.0 module |
+1. **Telegram Forwarding** (simplest): Forward the alert message to a bot that parses it.
+2. **Database Polling** (recommended): The bot queries `edge_signals` for new PENDING
+   signals with a specific config_version or source.
+3. **Webhook Push** (future): Modify `alerts.py` to POST to an endpoint when a signal is
+   generated.
 
-## Future Integration (Execution Layer Improvements)
+## Gem Scanner Integration
 
-These are improvements planned for Trading-WebHook-Bot to fully leverage the edge scanner data:
+The gem scanner (`src/edge_scanner/gem_scanner.py`) is now a standalone module that:
+- Scans CoinGecko for Binance-listed coins (Spot OR Futures)
+- Applies tokenomics filters: market cap, volume/mcap, ATH distance, supply dynamics,
+  coin age (< 2 years)
+- Outputs a ranked list of gems for 3-6 month holds
 
-### 1. Position Sizing from Signal
+It can be run manually or via cron (already set up for weekly runs).
 
-The webhook bot should parse the alert's position risk percentage and:
+## Planned Execution-Side Improvements (in Trading-WebHook-Bot)
 
-- ✅ Validate against max position size per user
-- ✅ Check capital availability
-- ✅ Calculate exact contract quantity using current price
-- ✅ Place limits order at signal entry
+When you're ready to enhance the execution bot, consider:
 
-**Formula (already defined in BacktestingMCP alerts):**
-```
-position_risk = base_tier_pct × min(rr_ratio, 4.0) / 2.0
-```
+### P0 (Critical)
+- [ ] **Capital Tracking**: Track available USDT and used margin.
+- [ ] **Position Sizing**: Use the R:R-adjusted recommendation from the alert.
+- [ ] **Min R:R Validation**: Only take signals where the config's R:R >= user threshold.
+- [ ] **Max Concurrent Positions**: Limit number of open trades.
 
-### 2. Minimum Risk-Reward Validation
+### P1 (Important)
+- [ ] **Breakeven-Aware Sizing**: Reduce size or skip if config's win rate < breakeven.
+- [ ] **Funding Fee Tracking**: Subtract estimated funding from target for futures.
+- [ ] **Correlation Filter**: Avoid highly correlated positions (e.g., BTC and ETH).
+- [ ] **Trailing Stop**: Implement ATR-based trailing stop.
 
-The bot should reject signals where R:R is below a configurable threshold:
+### P2 (Nice-to-have)
+- [ ] **Dynamic Resolution Horizon**: Exit based on ATR or time, not fixed horizon.
+- [ ] **Score-Based Position Sizing**: Scale size by signal score (e.g., 9.0 = 2x size of 7.0).
+- [ ] **Multi-Timeframe Confirmation**: Require signal alignment on higher TF.
+- [ ] **Volume Profile Activation**: Use volume/liquidity zones for entries/exits.
 
-- Check `rr_ratio` from the signal
-- Reject if `rr_ratio < MIN_RR` (configurable per user/strategy)
-- Log rejection reason to `trades.db`
+### P3 (Future)
+- [ ] **Auto-Trading from Gem Scanner**: Execute buys on high-score gems with DCA.
+- [ ] **ML-Based Filter**: Train model on past signal outcomes.
+- [ ] **Portfolio Rebalancing**: Periodically rebalance to target allocations.
 
-### 3. Breakeven-Aware Trading
+## Immediate Next Steps
 
-Skip signals from config versions that are below breakeven:
+1. **Test the gem scanner**: Run `python -m src.cli.main edge gems --pages 5 --start-page 3 --top 30`
+2. **Review the cron job**: `gem-scan` runs Mondays at 08:00 UTC.
+3. **When ready to trade**: Implement the P0/P1 items in Trading-WebHook-Bot.
+4. **Optional**: Add a webhook endpoint in the bot to receive real-time signals.
 
-- BacktestingMCP calculates `be_wr = 1 / (1 + rr)` for each config
-- The bot checks if the signal's config has `WR ≥ be_wr`
-- If below breakeven: either skip OR reduce position size (penalty factor)
+## Notes
 
-**Penalty example:**
-```
-wr_ratio = actual_wr / be_wr       # e.g. 37.5 / 33.3 = 1.13 (above, no penalty)
-if wr_ratio < 1.0:
-    position_risk *= wr_ratio       # Reduce proportionally
-```
-
-### 4. Capital & Concurrency Tracking
-
-The bot already tracks max concurrent trades (3 for Futures). Extend to:
-
-- ✅ Per-symbol max positions (avoid over-concentration)
-- ✅ Per-config max positions (don't overload one strategy)
-- ✅ Capital allocation per strategy (% of total capital)
-- ✅ Correlation check: skip signals correlated with existing open positions
-
-### 5. Funding Fee Management
-
-The bot already tracks funding fees via cron (`*/5 * * * *`). Extend to:
-
-- ✅ Pause trading when funding fees exceed a threshold (uses V8.0 data)
-- ✅ Factor funding cost into position sizing (funding eats into R:R)
-- ✅ Auto-close before funding for pre-funding dip trades (Strategy 2 from FUNDING_RATE_STRATEGY.md)
-
-**Formula:**
-```
-adjusted_rr = rr_ratio - (funding_cost_per_hour × expected_hold_hours / stop_distance)
-```
-If `adjusted_rr < MIN_RR`, skip the trade.
-
-### 6. Webhook Format Enhancement
-
-To pass all signal data, the webhook message sent from BacktestingMCP → Trading-WebHook-Bot needs additional fields beyond the current Telegram format:
-
-```json
-{
-  "key": "sec_key",
-  "type": "trading_bot",
-  "msg": "Username: Danyway\nAccountType: Standard\nExchange: Binance\nStrategy: ManualTrading\nAction: OpenLong\nSymbol: BTCUSDT\nEntry: 45000\nStopLoss: 44250\nTakeProfit: 46500\nRiskPercent: 1.0\nRR: 2.0\nConfigVersion: 7.0\nBreakevenStatus: profitable"
-}
-```
-
-### 7. User-Level Overrides
-
-Allow per-user configuration overrides in Trading-WebHook-Bot:
-
-| Setting | Default | Per-User Override |
-|---------|---------|-------------------|
-| `MIN_RR` | 1.5 | ✅ `UserConfig.rr_min` |
-| `MAX_RISK_PCT` | 2.0% | ✅ `UserConfig.max_risk_pct` |
-| `MAX_CONCURRENT` | 3 | ✅ `UserConfig.max_concurrent` |
-| `ALLOW_BELOW_BE` | false | ✅ `UserConfig.allow_below_breakeven` |
-| `FUNDING_PAUSE_THRESHOLD` | 0.6% | ✅ `UserConfig.funding_pause` |
-
-### 8. Auto-Trading Mode (Future)
-
-When the integration reaches production maturity, add an auto-trading cron in BacktestingMCP that directly calls the Trading-WebHook-Bot API endpoint with new high-confidence signals (score ≥ 9.0, profitable config, adequate capital).
-
-## Priority Order
-
-| Priority | Feature | Complexity | Impact |
-|----------|---------|------------|--------|
-| P0 | Min R:R validation | Low | Prevents bad trades |
-| P0 | Capital + concurrency | Low | Safety net |
-| P1 | R:R-adjusted sizing | Low | Optimal sizing |
-| P1 | Breakeven check | Medium | Filters losing strategies |
-| P2 | Funding fee adjustment | Medium | Realistic R:R |
-| P2 | Webhook format upgrade | Medium | Structured data flow |
-| P3 | User overrides | Medium | Flexibility |
-| P3 | Auto-trading cron | High | Full automation |
+- The gem scanner is **not** a trading signal — it's a research tool for long-term holds.
+- The edge scanner continues to run every 30 minutes for short-term swing signals.
+- Both systems can feed the same execution bot with different strategies.
