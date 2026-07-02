@@ -17,6 +17,7 @@ import pandas as pd
 from dotenv import load_dotenv
 
 from .composite import CandidateScore
+from .gem_scanner import GemCandidate
 
 load_dotenv()
 
@@ -239,3 +240,31 @@ def send_alerts(candidates: List[CandidateScore], dry_run: bool = False) -> int:
             logger.error("Failed to send alert for %s: %s", c.symbol, exc)
 
     return sent
+
+
+def send_gem_report(candidates: List[GemCandidate]) -> int:
+    """Send a gem scanner report to Telegram."""
+    bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not bot_token:
+        logger.warning("TELEGRAM_BOT_TOKEN not set — skipping gem alerts")
+        return 0
+
+    from .gem_scanner import format_gem_report
+    message = format_gem_report(candidates, top_n=30)
+
+    try:
+        resp = httpx.post(
+            f"{TELEGRAM_API_URL}/bot{bot_token}/sendMessage",
+            json={
+                "chat_id": TELEGRAM_CHANNEL_ID,
+                "text": message,
+                "parse_mode": "Markdown",
+            },
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        logger.info("Gem report sent to Telegram")
+        return 1
+    except Exception as exc:
+        logger.error("Failed to send gem report: %s", exc)
+        return 0
