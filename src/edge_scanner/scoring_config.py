@@ -732,6 +732,42 @@ CONFIG_V2_1 = ScoringConfig(
     display_types_extra=["MEDIUM_TERM_TREND"],
 )
 
+# ── CONFIG_V2_2 — Soft Multi-Timeframe (bonus, not gate) ──
+# Replaces V2.0: removes the binary `require_multi_timeframe_alignment` gate
+# that caused 90.1% flat rate. MT alignment is still rewarded via
+# medium_term_trend_weight but no longer required.
+CONFIG_V2_2 = ScoringConfig(
+    version="2.2",
+    description="Soft MT Alignment: MT trend bonus (no binary gate) + volatility filter + regime bias",
+    trend_weight=0.35,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.25,
+    scanner_hit_weight=0.15,
+    onchain_netflow_weight=0.05,
+    medium_term_trend_weight=0.3,
+    require_multi_timeframe_alignment=False,
+    # Quality filters from V7.x
+    min_atr_pct=0.2,
+    min_adx=18,
+    min_volume_relative=0.5,
+    # Volume divergence for early entry
+    volume_divergence_weight=2.0,
+    # Regime-aware direction bias
+    regime_dir_bear_short_bonus=2.0,
+    regime_dir_bear_long_penalty=1.5,
+    regime_dir_bull_long_bonus=2.0,
+    regime_dir_bull_short_penalty=1.5,
+    # Alert thresholds
+    alert_min_score=5.0,
+    alert_require_multi_source=True,
+    # Filters
+    min_market_cap_usd=0.0,
+    max_market_cap_usd=0.0,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    display_types_extra=["MEDIUM_TERM_TREND", "VOLUME_DIVERGENCE"],
+)
+
 # ADX momentum configs
 CONFIG_V3_0 = ScoringConfig(
     version="3.0",
@@ -775,6 +811,43 @@ CONFIG_V3_1 = ScoringConfig(
     exclude_coin_types=[],
     # Metadata
     display_types_extra=["ADX"],
+)
+
+# ── CONFIG_V3_2 — Soft ADX Trend (bonus, not gate) ──
+# Replaces V3.0: lowers min_adx from 25 -> 18 (soft filter, not hard gate).
+# ADX above threshold still adds score via adx_weight but no longer blocks.
+# Adds volume divergence confirmation + regime-aware direction bias.
+CONFIG_V3_2 = ScoringConfig(
+    version="3.2",
+    description="Soft ADX Trend: ADX bonus (no hard gate) + volume divergence + regime bias",
+    trend_weight=0.35,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.25,
+    scanner_hit_weight=0.15,
+    onchain_netflow_weight=0.05,
+    adx_weight=0.3,
+    min_adx=18,
+    # Non-trend confirmation: ADX alone isn't enough
+    require_non_trend_confirmation=True,
+    # Quality filters from V7.x
+    min_atr_pct=0.2,
+    min_volume_relative=0.5,
+    # Volume divergence for confirmation
+    volume_divergence_weight=2.0,
+    # Regime-aware direction bias
+    regime_dir_bear_short_bonus=2.0,
+    regime_dir_bear_long_penalty=1.5,
+    regime_dir_bull_long_bonus=2.0,
+    regime_dir_bull_short_penalty=1.5,
+    # Alert thresholds
+    alert_min_score=5.0,
+    alert_require_multi_source=True,
+    # Filters
+    min_market_cap_usd=0.0,
+    max_market_cap_usd=0.0,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    display_types_extra=["ADX", "VOLUME_DIVERGENCE"],
 )
 
 # Breakout intensity configs
@@ -1187,10 +1260,10 @@ ALL_CONFIGS: dict[str, ScoringConfig] = {
     c.version: c for c in [
         # Baseline variants
         CONFIG_V1_0, CONFIG_V1_1, CONFIG_V1_2, CONFIG_V1_3, CONFIG_V1_4,
-        # Multi-timeframe
-        CONFIG_V2_0, CONFIG_V2_1,
-        # ADX momentum
-        CONFIG_V3_0, CONFIG_V3_1,
+        # Multi-timeframe — V2.0 removed (90% flat), replaced by V2.2 (soft bonus)
+        CONFIG_V2_1, CONFIG_V2_2,
+        # ADX momentum — V3.0 removed (90% flat), replaced by V3.2 (soft bonus)
+        CONFIG_V3_1, CONFIG_V3_2,
         # Breakout intensity
         CONFIG_V4_0, CONFIG_V4_1,
         # Coin-type specific
