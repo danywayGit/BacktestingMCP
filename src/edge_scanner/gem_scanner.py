@@ -43,6 +43,8 @@ ATH_DROP_MIN = 30           # At least 30% down from ATH
 FDV_MCAP_MAX = 10.0         # Max 10x FDV/MCap (dilution cap)
 CIRCULATING_MIN = 0.10      # At least 10% circulating
 CIRCULATING_MAX = 0.90      # At most 90% circulating
+MAX_COIN_AGE_YEARS = 2.0     # Hard rejection for coins >2 years old (LAB was <1yr)
+LOAD_HEAVY_AGE_CHECK = 20    # Only do individual CoinGecko age lookups for top N candidates
 
 
 @dataclass
@@ -309,11 +311,16 @@ def scan_gems(pages: int = 5, start_page: int = 3) -> List[GemCandidate]:
     candidates.sort(key=lambda x: x.score, reverse=True)
     logger.info("Scanned %d Binance coins, found %d gem candidates", total_scanned, len(candidates))
 
-    # Enrich top 30 candidates with ATL dates for better age scoring
+    # Enrich top N candidates with ATL dates AND check exact age
     import time as _time2
-    for i, gem in enumerate(candidates[:30]):
-        if gem.price_change_1y is not None or gem.atl_date:
-            continue  # Already has age data
+    young_candidates: List[GemCandidate] = []
+    for i, gem in enumerate(candidates[:LOAD_HEAVY_AGE_CHECK]):
+        # Quick proxy filter: if 1y data exists with moderate loss, likely >2 years
+        if gem.price_change_1y is not None and gem.price_change_1y > -95:
+            # Has 1y data and didn't have a catastrophic drop — likely older than 2 years
+            # BUT we still fetch to confirm exact age
+            pass
+
         try:
             time.sleep(0.5)  # Rate limit
             resp = httpx.get(
@@ -327,13 +334,49 @@ def scan_gems(pages: int = 5, start_page: int = 3) -> List[GemCandidate]:
                 atl_dt = md.get("atl_date", {}).get("usd")
                 if atl_dt:
                     gem.atl_date = atl_dt
-                    gem = _score_gem(gem)  # Re-score with better age data
-                    candidates[i] = gem
-        except Exception:
-            pass
 
-    candidates.sort(key=lambda x: x.score, reverse=True)
-    return candidates
+                # Determine exact age from genesis_date or ATL date
+                genesis = coin_data.get("genesis_date", "")
+                from datetime import datetime as _dt, timezone as _tz
+                now = _dt.now(_tz.utc)
+                coin_age_days = 9999
+                if genesis:
+                    try:
+                        gd = _dt.strptime(genesis, '%Y-%m-%d').replace(tzinfo=_tz.utc)
+                        coin_age_days = (now - gd).days
+                    except (ValueError, TypeError):
+                        pass
+                if coin_age_days >= 9999 and atl_dt:
+                    try:
+                        ad = _dt.fromisoformat(atl_dt.replace('Z', '+00:00'))
+                        coin_age_days = (now - ad).days
+                    except (ValueError, TypeError):
+                        pass
+                
+                coin_age_years = coin_age_days / 365.0
+                
+                # Reject coins > 2 years old
+                if coin_age_years > MAX_COIN_AGE_YEARS:
+                    logger.info("Skipping %s: too old (%.1f years)", gem.symbol, coin_age_years)
+                    continue
+
+                gem = _score_gem(gem)  # Re-score with better age data
+                young_candidates.append(gem)
+        except Exception:
+            # If fetch fails, keep the candidate but flag it
+            if gem.price_change_1y is None or gem.price_change_1y < -95:
+                young_candidates.append(gem)
+
+    # If we couldn't check ages (rate limits), fall back to proxy filter
+    if not young_candidates:
+        for gem in candidates:
+            # Proxy: no 1y data OR extreme 1y drop = young coin
+            if gem.price_change_1y is None or (gem.price_change_1y and gem.price_change_1y < -95):
+                young_candidates.append(gem)
+
+    young_candidates.sort(key=lambda x: x.score, reverse=True)
+    logger.info("After age filter: %d young gem candidates", len(young_candidates))
+    return young_candidates
 
 
 def format_gem_report(candidates: List[GemCandidate], top_n: int = 20) -> str:
