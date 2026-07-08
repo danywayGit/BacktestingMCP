@@ -73,7 +73,6 @@ _TOKENIZED_STOCK_EXACT: frozenset[str] = frozenset({
     "VR", "M", "H", "B", "CC",
 })
 
-
 def is_stablecoin_or_stock(symbol: str) -> bool:
     """Return True if symbol should ALWAYS be excluded (stablecoin or tokenized stock)."""
     s = symbol.upper()
@@ -87,7 +86,6 @@ def is_stablecoin_or_stock(symbol: str) -> bool:
     if len(s) >= 4 and s.endswith("X") and s[:-1].isalpha() and s not in _CRYPTO_X_OK:
         return True
     return False
-
 
 # ---------------------------------------------------------------------------
 # Coin type classification
@@ -173,13 +171,11 @@ def get_coin_type(symbol: str) -> str:
     """Return coin type category, defaulting to 'OTHER'."""
     return COIN_TYPE_MAP.get(symbol.upper(), "OTHER")
 
-
 # ---------------------------------------------------------------------------
 # Helper parsers for altFINS data fields
 # ---------------------------------------------------------------------------
 
 _TREND_RE = re.compile(r"(Strong\s+)?(Up|Down)\s*\((\d+)/10\)", re.IGNORECASE)
-
 
 def parse_trend_score_extended(label: str) -> float:
     """Parse any altFINS trend label into a signed -10..+10 float."""
@@ -192,7 +188,6 @@ def parse_trend_score_extended(label: str) -> float:
     score = float(magnitude)
     return score if direction.lower() == "up" else -score
 
-
 def parse_float(value, default: float = 0.0) -> float:
     """Safe float parse for altFINS values that may contain commas or %."""
     try:
@@ -200,28 +195,23 @@ def parse_float(value, default: float = 0.0) -> float:
     except (TypeError, ValueError):
         return default
 
-
 def parse_adx(value) -> float:
     """ADX is always positive (0-100). Returns 0 if missing."""
     return max(0.0, parse_float(value, 0.0))
-
 
 def parse_obv_trend(value) -> float:
     """OBV_TREND comes as a percentage string like '104.45%' or '-12.3%'.
     Returns a signed float: positive = rising OBV (accumulation)."""
     return parse_float(value, 0.0)
 
-
 def parse_rsi(value) -> float:
     """RSI 0-100. Returns 50 (neutral) if missing."""
     v = parse_float(value, 50.0)
     return max(0.0, min(100.0, v))
 
-
 def parse_market_cap(value) -> float:
     """Parse market cap which may come as '1,250,963,823,334' or similar."""
     return parse_float(value, 0.0)
-
 
 def parse_price_change_pct(value) -> float:
     """Parse price change like '-0.06%' or '12.5%'."""
@@ -230,7 +220,6 @@ def parse_price_change_pct(value) -> float:
         return float(s)
     except (ValueError, TypeError):
         return 0.0
-
 
 # ---------------------------------------------------------------------------
 # ScoringConfig
@@ -584,7 +573,6 @@ class ScoringConfig:
             components["tr_vs_atr"] = ratio
 
         return extra, components
-
 
 # ---------------------------------------------------------------------------
 # Configuration definitions
@@ -1220,7 +1208,6 @@ CONFIG_V8_0 = ScoringConfig(
 # Active config — change via CLI: python -m src.cli.main edge activate-config --version v1.1
 # All signals logged will carry this version in the config_version column.
 
-
 # ── CONFIG_V7_5 — Auto-generated 2026-07-01 19:47 ──
 CONFIG_V7_5 = ScoringConfig(
     version="7.5",
@@ -1259,25 +1246,25 @@ CONFIG_V7_5 = ScoringConfig(
 
 
 
-# ── CONFIG_V7_0_1 — Auto-generated 2026-07-05 14:03 ──
-CONFIG_V7_0_1 = ScoringConfig(
-    version="7.0.1",
-    description="LLM-evolved: relaxed ADX(18)/ATR(0.2)/RSI(25-75) filters, activated SM/VD/LF weights, trend=0.5, wider stop(2.0), better RR(2.5), bear-short bonus 3.0",
+# ── CONFIG_V7_6 — Auto-generated 2026-07-08 19:08 ──
+CONFIG_V7_6 = ScoringConfig(
+    version="7.6",
+    description="LLM-evolved: relaxed ADX/ATR/RSI filters, enabled multi-factor weights, boosted trend weight to 0.5",
     min_abs_score=6.5,
     min_adx=18,
-    min_rsi=25,
-    max_rsi=75,
+    min_rsi=28,
+    max_rsi=72,
     min_atr_pct=0.2,
-    atr_stop_mult=2.0,
-    rr_ratio=2.5,
-    trend_weight=0.5,
-    volume_relative_weight=0.2,
-    signal_feed_weight=0.2,
+    atr_stop_mult=1.5,
+    rr_ratio=2.0,
+    trend_weight=0.35,
+    volume_relative_weight=0.25,
+    signal_feed_weight=0.3,
     onchain_netflow_weight=0.1,
-    volume_divergence_weight=4.0,
-    smart_money_index_weight=3.0,
-    low_float_squeeze_weight=2.0,
-    regime_dir_bear_short_bonus=3.0,
+    volume_divergence_weight=3.0,
+    smart_money_index_weight=2.0,
+    low_float_squeeze_weight=1.5,
+    regime_dir_bear_short_bonus=2.0,
     regime_dir_bear_long_penalty=2.0,
     regime_dir_bull_long_bonus=2.0,
     regime_dir_bull_short_penalty=2.0,
@@ -1304,6 +1291,8 @@ ALL_CONFIGS: dict[str, ScoringConfig] = {
         # Funding Rate Mean-Reversion
         CONFIG_V8_0,
     
-        CONFIG_V7_0_1,
+        
+
+        CONFIG_V7_6,
 ]
 }
