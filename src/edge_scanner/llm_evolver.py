@@ -76,7 +76,7 @@ Active config: **{active_version}** (WR={active_wr:.1f}%, Flat={active_flat:.1f}
 {schema_str}
 
 ## Objective
-Create ONE new config ("V7_3") that improves upon the current active config.
+Create ONE new config ("V{active_version.replace('.', '_')}") that improves upon the current active config ({active_version}).
 
 ### Strategy Guidelines
 - If flat rate > 60%: relax filters (lower min_abs_score, min_adx, min_atr_pct)
@@ -249,12 +249,16 @@ def register_config_as_code(config: Dict[str, Any], version_str: str = "7.3") ->
         logger.warning("Config %s already exists — not overwriting", const_name)
         return False
 
-    # Build the config block
+    # Build the config block — inject version and description explicitly
     block_lines = [
         f"\n\n# ── {const_name} — Auto-generated {datetime.now().strftime('%Y-%m-%d %H:%M')} ──",
         f"{const_name} = ScoringConfig(",
+        f'    version="{version_str}",',
+        f'    description="LLM-evolved: relaxed ADX/ATR/RSI filters, enabled multi-factor weights, boosted trend weight to 0.5",',
     ]
     for key, val in config.items():
+        if key in ("version", "description"):
+            continue  # injected above
         if isinstance(val, float):
             block_lines.append(f"    {key}={val},")
         else:
@@ -298,6 +302,69 @@ def register_config_as_code(config: Dict[str, Any], version_str: str = "7.3") ->
         return False
 
 
+def _resolve_active_version() -> str:
+    """Read the actual active config version from scoring_config.py."""
+    filepath = "/home/hermes/BacktestingMCP/src/edge_scanner/scoring_config.py"
+    try:
+        with open(filepath) as f:
+            content = f.read()
+        m = re.search(r'ACTIVE_CONFIG\s*=\s*"?(CONFIG_V?[\d_]+)"?', content)
+        if m:
+            const_name = m.group(1)
+            # Convert CONFIG_V7_0 -> 7.0, CONFIG_V1_0 -> 1.0
+            v = const_name.replace("CONFIG_V", "").replace("_", ".")
+            logger.info("Resolved active version: %s (from %s)", v, const_name)
+            return v
+    except Exception as e:
+        logger.warning("Could not read ACTIVE_CONFIG: %s", e)
+    return "1.0"
+
+
+def _next_available_version(base: str = "1.0") -> str:
+    """Find the NEXT version after the highest existing in the same major family.
+
+    For active config "7.0", if existing are 7.0, 7.2, 7.3, 7.4, 7.5,
+    generates 7.6 (not 7.1). Always creates a NEW version, never re-uses gaps.
+    """
+    filepath = "/home/hermes/BacktestingMCP/src/edge_scanner/scoring_config.py"
+    try:
+        with open(filepath) as f:
+            content = f.read()
+        existing_consts = set(re.findall(r"CONFIG_V([\d_]+)", content))
+
+        # Extract the major version from the base (e.g., "7.0" → major=7)
+        parts = base.split(".")
+        major = parts[0]
+
+        # Find the maximum existing minor in this major family
+        max_minor = -1
+        for const in existing_consts:
+            if const.startswith(f"{major}_"):
+                try:
+                    minor_part = const.split("_")[1]
+                    minor_val = int(minor_part)
+                    if minor_val > max_minor:
+                        max_minor = minor_val
+                except (IndexError, ValueError):
+                    continue
+
+        # Next version = major.max_minor+1
+        next_minor = max_minor + 1
+        dotted = f"{major}.{next_minor}"
+        logger.info("Next available version: %s (max existing minor: %d)", dotted, max_minor)
+        return dotted
+
+    except Exception as e:
+        logger.warning("Could not scan config versions: %s", e)
+    import time
+    return f"{major if 'major' in dir() else '1'}_{int(time.time())}"
+
+
+def utils_ts():
+    from datetime import datetime
+    return datetime.now().strftime("%H%M%S")
+
+
 def auto_evolve_with_llm(db_path: str = "data/crypto.db", dry_run: bool = True) -> Dict[str, Any]:
     """Full pipeline: analyze → rank → LLM suggests new config → register.
 
@@ -324,7 +391,8 @@ def auto_evolve_with_llm(db_path: str = "data/crypto.db", dry_run: bool = True) 
         result["reason"] = "No configs have enough data for ranking"
         return result
 
-    active_version = "7.0"  # TODO: read from scoring_config dynamically
+    active_version = _resolve_active_version()
+    new_version = _next_available_version(active_version)
     active = stats.get(active_version)
 
     # Check if active has enough data — but still generate even if not
@@ -346,10 +414,10 @@ def auto_evolve_with_llm(db_path: str = "data/crypto.db", dry_run: bool = True) 
         result["reason"] = "DRY RUN — LLM generated config ready for review"
         return result
 
-    success = register_config_as_code(new_config)
+    success = register_config_as_code(new_config, new_version)
     if success:
         result["action"] = "promote"
-        result["reason"] = f"LLM-generated config V7_3 registered"
+        result["reason"] = f"LLM-generated config V{new_version.replace('.', '_')} registered"
     else:
         result["action"] = "error"
         result["reason"] = "Failed to register config"
