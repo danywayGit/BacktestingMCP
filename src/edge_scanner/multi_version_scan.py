@@ -25,6 +25,7 @@ from typing import Dict, List, Optional, Set
 from config.settings import TimeFrame
 from ..data.database import db
 from ..integrations import altfins_client
+from ..integrations.binance_symbols import is_on_binance
 from ..integrations.altfins_client import AltfinsError, parse_trend_score
 from ..integrations import santiment_client
 from ..integrations.santiment_client import SantimentError
@@ -90,6 +91,8 @@ def _discover_candidates_multi(
                 if not symbol:
                     continue
                 if is_stablecoin_or_stock(symbol):
+                    blocked.append(symbol)
+                elif not is_on_binance(symbol):
                     blocked.append(symbol)
                 else:
                     candidates[symbol.upper()] = row
