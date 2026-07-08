@@ -471,7 +471,10 @@ class ScoringConfig:
             base.append("PRICE_CHANGE_1W")
         if self.tr_vs_atr_weight > 0:
             base += ["TR_VS_ATR", "ATR"]
-        base += self.display_types_extra
+        # display_types_extra skipped here — use only known altFINS display types
+        base += [dt for dt in self.display_types_extra
+                 if dt not in ("VOLUME_DIVERGENCE", "SMART_MONEY_INDEX", "LOW_FLOAT_SQUEEZE",
+                              "CAPITAL_GAINS", "FUNDING_RATE")]
         return list(dict.fromkeys(base))  # deduplicate, preserve order
 
     def passes_filters(self, symbol: str, screener_row: dict) -> tuple[bool, str]:
@@ -1254,6 +1257,32 @@ CONFIG_V7_5 = ScoringConfig(
     display_types_extra=[],
 )
 
+
+
+# ── CONFIG_V7_0_1 — Auto-generated 2026-07-05 14:03 ──
+CONFIG_V7_0_1 = ScoringConfig(
+    version="7.0.1",
+    description="LLM-evolved: relaxed ADX(18)/ATR(0.2)/RSI(25-75) filters, activated SM/VD/LF weights, trend=0.5, wider stop(2.0), better RR(2.5), bear-short bonus 3.0",
+    min_abs_score=6.5,
+    min_adx=18,
+    min_rsi=25,
+    max_rsi=75,
+    min_atr_pct=0.2,
+    atr_stop_mult=2.0,
+    rr_ratio=2.5,
+    trend_weight=0.5,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.2,
+    onchain_netflow_weight=0.1,
+    volume_divergence_weight=4.0,
+    smart_money_index_weight=3.0,
+    low_float_squeeze_weight=2.0,
+    regime_dir_bear_short_bonus=3.0,
+    regime_dir_bear_long_penalty=2.0,
+    regime_dir_bull_long_bonus=2.0,
+    regime_dir_bull_short_penalty=2.0,
+)
+
 ACTIVE_CONFIG = CONFIG_V7_0
 
 ALL_CONFIGS: dict[str, ScoringConfig] = {
@@ -1274,5 +1303,7 @@ ALL_CONFIGS: dict[str, ScoringConfig] = {
         CONFIG_V7_0, CONFIG_V7_2, CONFIG_V7_3, CONFIG_V7_4, CONFIG_V7_5,
         # Funding Rate Mean-Reversion
         CONFIG_V8_0,
-    ]
+    
+        CONFIG_V7_0_1,
+]
 }
