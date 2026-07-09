@@ -30,8 +30,7 @@ from ..integrations.altfins_client import AltfinsError, parse_trend_score
 from ..integrations import santiment_client
 from ..integrations.santiment_client import SantimentError
 from .scoring_config import (
-    ScoringConfig, ACTIVE_CONFIG, ALL_CONFIGS,
-    is_stablecoin_or_stock, get_coin_type,
+    ScoringConfig, ACTIVE_CONFIG, ALL_CONFIGS, get_enabled_configs, get_active_config,
 )
 from .composite import (
     _altfins_to_pair, _safe_float, _signal_feed_index,
@@ -126,7 +125,7 @@ def run_parallel_scan(
     Returns:
         MultiVersionScanResult with per-version signal lists and counts.
     """
-    active_configs = configs or list(ALL_CONFIGS.values())
+    active_configs = configs or list(get_enabled_configs().values())
     result = MultiVersionScanResult(
         scan_time=datetime.now(timezone.utc).isoformat(),
         timeframe=timeframe.value,

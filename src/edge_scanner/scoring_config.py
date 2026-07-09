@@ -438,6 +438,25 @@ class ScoringConfig:
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     notes: str = ""
 
+    status: str = "enabled"
+    """Config lifecycle status:
+       'active'   — Currently the ACTIVE_CONFIG (generates Telegram alerts)
+       'enabled'  — Runs in scan, logs to DB, no Telegram alerts
+       'disabled' — Not scanned, kept for historical records only
+    """
+
+    @property
+    def is_active(self) -> bool:
+        return self.status == "active"
+
+    @property
+    def is_enabled(self) -> bool:
+        return self.status in ("active", "enabled")
+
+    @property
+    def is_disabled(self) -> bool:
+        return self.status == "disabled"
+
     def to_dict(self) -> dict:
         return asdict(self)
 
@@ -681,7 +700,8 @@ CONFIG_V1_4 = ScoringConfig(
 # Multi-timeframe alignment configs
 CONFIG_V2_0 = ScoringConfig(
     version="2.0",
-    description="Multi-timeframe: Requires ST and MT trend alignment",
+    description="Multi-timeframe: Requires ST and MT trend alignment [DISABLED — replaced by V2.2]",
+    status="disabled",
     trend_weight=0.4,
     volume_relative_weight=0.2,
     signal_feed_weight=0.3,
@@ -762,7 +782,8 @@ CONFIG_V2_2 = ScoringConfig(
 # ADX momentum configs
 CONFIG_V3_0 = ScoringConfig(
     version="3.0",
-    description="ADX filter: Requires ADX >= 25 for trending market",
+    description="ADX filter: Requires ADX >= 25 for trending market [DISABLED — replaced by V3.2]",
+    status="disabled",
     trend_weight=0.4,
     volume_relative_weight=0.2,
     signal_feed_weight=0.3,
@@ -985,6 +1006,7 @@ CONFIG_V6_1 = ScoringConfig(
 CONFIG_V7_0 = ScoringConfig(
     version="7.0",
     description="Filtered_Quality_Gate: Increased min_abs_score, required moderate trend (>=5), volume filter (>=0.5x), ADX>=20, RSI 30-70 to avoid extremes",
+    status="active",
     trend_weight=0.4,
     volume_relative_weight=0.2,
     signal_feed_weight=0.3,
@@ -1276,23 +1298,37 @@ ALL_CONFIGS: dict[str, ScoringConfig] = {
     c.version: c for c in [
         # Baseline variants
         CONFIG_V1_0, CONFIG_V1_1, CONFIG_V1_2, CONFIG_V1_3, CONFIG_V1_4,
-        # Multi-timeframe — V2.0 removed (90% flat), replaced by V2.2 (soft bonus)
-        CONFIG_V2_1, CONFIG_V2_2,
-        # ADX momentum — V3.0 removed (90% flat), replaced by V3.2 (soft bonus)
-        CONFIG_V3_1, CONFIG_V3_2,
+        # Multi-timeframe (all kept for records)
+        CONFIG_V2_0, CONFIG_V2_1, CONFIG_V2_2,
+        # ADX momentum (all kept for records)
+        CONFIG_V3_0, CONFIG_V3_1, CONFIG_V3_2,
         # Breakout intensity
         CONFIG_V4_0, CONFIG_V4_1,
         # Coin-type specific
         CONFIG_V5_0, CONFIG_V5_1, CONFIG_V5_2,
         # CEO suggested patterns
         CONFIG_V6_0, CONFIG_V6_1,
-        # Quality Gate
-        CONFIG_V7_0, CONFIG_V7_2, CONFIG_V7_3, CONFIG_V7_4, CONFIG_V7_5,
+        # Quality Gate (LLM-evolved series)
+        CONFIG_V7_0, CONFIG_V7_2, CONFIG_V7_3, CONFIG_V7_4, CONFIG_V7_5, CONFIG_V7_6,
         # Funding Rate Mean-Reversion
         CONFIG_V8_0,
-    
-        
-
-        CONFIG_V7_6,
-]
+    ]
 }
+
+
+def get_enabled_configs() -> dict[str, ScoringConfig]:
+    """Return only configs that should actively run in scans (excludes disabled)."""
+    return {v: c for v, c in ALL_CONFIGS.items() if c.is_enabled}
+
+
+def get_disabled_configs() -> dict[str, ScoringConfig]:
+    """Return only disabled configs (kept for historical records)."""
+    return {v: c for v, c in ALL_CONFIGS.items() if c.is_disabled}
+
+
+def get_active_config() -> ScoringConfig:
+    """Return the currently active config (generates Telegram alerts)."""
+    for c in ALL_CONFIGS.values():
+        if c.is_active:
+            return c
+    return CONFIG_V7_0  # fallback
