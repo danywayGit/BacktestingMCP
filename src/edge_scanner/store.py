@@ -210,7 +210,11 @@ def _fetch_window_data(pair: str, timeframe: TimeFrame, start: datetime, end: da
                             "Binance klines returned %d for %s: %s",
                             resp.status_code, api_symbol, resp.text[:200],
                         )
-                        continue
+                        # Try Binance Spot API as fallback (coins may be Spot-only)
+                        if attempt == 0:
+                            url = 'https://api.binance.com/api/v3/klines'
+                            continue
+                        break
                     klines = resp.json()
                     if klines and len(klines) > 0:
                         data = pd.DataFrame(klines).iloc[:, :6]
