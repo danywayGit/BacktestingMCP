@@ -31,6 +31,7 @@ from ..integrations import santiment_client
 from ..integrations.santiment_client import SantimentError
 from .scoring_config import (
     ScoringConfig, ACTIVE_CONFIG, ALL_CONFIGS, get_enabled_configs, get_active_config,
+    is_stablecoin_or_stock,
 )
 from .composite import (
     _altfins_to_pair, _safe_float, _signal_feed_index,

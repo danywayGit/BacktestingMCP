@@ -1292,6 +1292,32 @@ CONFIG_V7_6 = ScoringConfig(
     regime_dir_bull_short_penalty=2.0,
 )
 
+
+
+# ── CONFIG_V7_7 — Auto-generated 2026-07-12 14:00 ──
+CONFIG_V7_7 = ScoringConfig(
+    version="7.7",
+    description="LLM-evolved: relaxed ADX/ATR/RSI filters, enabled multi-factor weights, boosted trend weight to 0.5",
+    min_abs_score=6.5,
+    min_adx=18,
+    min_rsi=25,
+    max_rsi=75,
+    min_atr_pct=0.25,
+    atr_stop_mult=1.5,
+    rr_ratio=2.0,
+    trend_weight=0.35,
+    volume_relative_weight=0.25,
+    signal_feed_weight=0.3,
+    onchain_netflow_weight=0.1,
+    volume_divergence_weight=3.0,
+    smart_money_index_weight=2.0,
+    low_float_squeeze_weight=1.5,
+    regime_dir_bear_short_bonus=2.0,
+    regime_dir_bear_long_penalty=2.0,
+    regime_dir_bull_long_bonus=2.0,
+    regime_dir_bull_short_penalty=2.0,
+)
+
 ACTIVE_CONFIG = CONFIG_V7_0
 
 ALL_CONFIGS: dict[str, ScoringConfig] = {
@@ -1309,7 +1335,7 @@ ALL_CONFIGS: dict[str, ScoringConfig] = {
         # CEO suggested patterns
         CONFIG_V6_0, CONFIG_V6_1,
         # Quality Gate (LLM-evolved series)
-        CONFIG_V7_0, CONFIG_V7_2, CONFIG_V7_3, CONFIG_V7_4, CONFIG_V7_5, CONFIG_V7_6,
+        CONFIG_V7_0, CONFIG_V7_2, CONFIG_V7_3, CONFIG_V7_4, CONFIG_V7_5, CONFIG_V7_6, CONFIG_V7_7,
         # Funding Rate Mean-Reversion
         CONFIG_V8_0,
     ]
