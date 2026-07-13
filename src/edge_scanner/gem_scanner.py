@@ -14,11 +14,52 @@ Scores coins on a multi-factor model:
 import httpx
 import time
 import logging
+import random
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict
 from datetime import datetime, timezone, timedelta
 
 logger = logging.getLogger(__name__)
+
+# ── Rate limiting ──────────────────────────────────────────────────────────
+# CoinGecko free API: ~10-30 calls/min. When 429 hits, wait 65s minimum.
+COINGECKO_RATE_LIMIT_DELAY = 3.5     # Seconds between page requests
+COINGECKO_RATE_LIMIT_RETRY = 65.0    # Seconds to wait when 429 hits
+COINGECKO_INDIVIDUAL_DELAY = 1.0     # Seconds between individual coin lookups
+COINGECKO_MAX_RETRIES = 3            # Max retries on 429
+
+
+def _coingecko_get(url: str, params: dict = None, timeout: float = 15.0) -> Optional[httpx.Response]:
+    """CoinGecko GET with automatic rate limit handling and retry."""
+    for attempt in range(COINGECKO_MAX_RETRIES):
+        try:
+            resp = httpx.get(url, params=params, timeout=timeout)
+            if resp.status_code == 429:
+                retry_after = resp.headers.get("Retry-After")
+                wait = float(retry_after) + 5 if retry_after else COINGECKO_RATE_LIMIT_RETRY
+                # Add jitter: ±20% random delay
+                jitter = random.uniform(0.8, 1.2)
+                wait *= jitter
+                logger.warning(
+                    "CoinGecko 429 on %s — waiting %.0fs (attempt %d/%d)",
+                    url.split("/")[-1], wait, attempt + 1, COINGECKO_MAX_RETRIES
+                )
+                time.sleep(wait)
+                continue
+            if resp.status_code == 200:
+                return resp
+            logger.warning("CoinGecko HTTP %d on %s", resp.status_code, url.split("/")[-1])
+            return None
+        except httpx.TimeoutException:
+            logger.warning("CoinGecko timeout on %s (attempt %d/%d)", url.split("/")[-1], attempt + 1, COINGECKO_MAX_RETRIES)
+            if attempt < COINGECKO_MAX_RETRIES - 1:
+                time.sleep(5 * (attempt + 1))
+                continue
+            return None
+        except Exception as e:
+            logger.error("CoinGecko error on %s: %s", url.split("/")[-1], e)
+            return None
+    return None
 
 # ── Scoring weights — calibrated against 100x+ gem backtest ──────────────
 # Backtested against LAB (184x), BONK (57x), PEPE (49x), INJ (100x), ONDO (100x)
@@ -259,7 +300,7 @@ def scan_gems(pages: int = 5, start_page: int = 3) -> List[GemCandidate]:
     for page in range(start_page, start_page + pages):
         logger.info("Scanning CoinGecko page %d...", page)
         try:
-            resp = httpx.get(
+            resp = _coingecko_get(
                 "https://api.coingecko.com/api/v3/coins/markets",
                 params={
                     "vs_currency": "usd",
@@ -271,9 +312,9 @@ def scan_gems(pages: int = 5, start_page: int = 3) -> List[GemCandidate]:
                 },
                 timeout=15.0,
             )
-            if resp.status_code != 200:
-                logger.warning("CoinGecko page %d: HTTP %d", page, resp.status_code)
-                time.sleep(5)
+            if resp is None:
+                logger.warning("CoinGecko page %d: no data (rate limited or error)", page)
+                time.sleep(COINGECKO_RATE_LIMIT_DELAY)
                 continue
 
             coins = resp.json()
@@ -343,11 +384,11 @@ def scan_gems(pages: int = 5, start_page: int = 3) -> List[GemCandidate]:
                 candidates.append(gem)
 
             # Rate limit: CoinGecko free = 10-30 calls/min
-            time.sleep(3.5)
+            time.sleep(COINGECKO_RATE_LIMIT_DELAY)
 
         except Exception as e:
             logger.error("Error scanning page %d: %s", page, e)
-            time.sleep(5)
+            time.sleep(COINGECKO_RATE_LIMIT_DELAY)
             continue
 
     candidates.sort(key=lambda x: x.score, reverse=True)
@@ -359,18 +400,16 @@ def scan_gems(pages: int = 5, start_page: int = 3) -> List[GemCandidate]:
     for i, gem in enumerate(candidates[:LOAD_HEAVY_AGE_CHECK]):
         # Quick proxy filter: if 1y data exists with moderate loss, likely >2 years
         if gem.price_change_1y is not None and gem.price_change_1y > -95:
-            # Has 1y data and didn't have a catastrophic drop — likely older than 2 years
-            # BUT we still fetch to confirm exact age
             pass
 
         try:
-            time.sleep(0.5)  # Rate limit
-            resp = httpx.get(
+            time.sleep(COINGECKO_INDIVIDUAL_DELAY)  # Rate limit between individual lookups
+            resp = _coingecko_get(
                 f"https://api.coingecko.com/api/v3/coins/{gem.coin_gecko_id}",
                 params={"localization": "false", "tickers": "false", "community_data": "false", "sparkline": "false"},
                 timeout=10.0,
             )
-            if resp.status_code == 200:
+            if resp is not None and resp.status_code == 200:
                 coin_data = resp.json()
                 md = coin_data.get("market_data", {})
                 atl_dt = md.get("atl_date", {}).get("usd")
