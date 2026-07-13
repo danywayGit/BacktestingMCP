@@ -25,12 +25,14 @@ logger = logging.getLogger(__name__)
 # Key finding: ALL gems had MCap $8-23M at ATL, zero social presence, Binance listed
 
 WEIGHTS = {
-    "market_cap": 0.30,         # 100x gems ALL started at $8-50M MCap — single strongest predictor
-    "vol_mcap_ratio": 0.15,     # Median 10.4% at scan — shows organic interest
-    "distance_from_ath": 0.15,  # 80-99% down = room to grow (all gems were crushed before pumping)
-    "supply_dilution": 0.10,    # FDV/MCap < 5x — low dilution risk (LAB had 3.2x)
-    "circulating_ratio": 0.10,  # 20-80% circulating — fair distribution
-    "binance_futures": 0.10,    # Binance listed (Spot or Futures) — exchange commitment
+    "market_cap": 0.25,         # 100x gems ALL started at $8-50M MCap — single strongest predictor
+    "vol_mcap_ratio": 0.12,     # Median 10.4% at scan — shows organic interest
+    "distance_from_ath": 0.12,  # 80-99% down = room to grow (all gems were crushed before pumping)
+    "atl_proximity": 0.10,      # NEW: Near ATL = max upside. All gems were at/near ATL when listed
+    "supply_dilution": 0.08,    # FDV/MCap < 5x — low dilution risk (LAB had 3.2x)
+    "circulating_ratio": 0.08,  # 20-80% circulating — fair distribution
+    "supply_flip_days": 0.07,   # NEW: Days to flip circulating supply (lower = more liquid)
+    "binance_futures": 0.08,    # Binance listed (Spot or Futures) — exchange commitment
     "price_momentum": 0.05,     # Slight negative = entry opportunity, not already pumping
     "coin_age": 0.05,           # Under 2 years — young coins have most explosive potential
 }
@@ -196,6 +198,46 @@ def _score_gem(c: GemCandidate) -> GemCandidate:
         age_score = 0.2
     score += age_score * WEIGHTS["coin_age"]
     breakdown["coin_age"] = round(age_score * WEIGHTS["coin_age"], 3)
+
+    # 9. ATL proximity — bonus for being near all-time low (max upside)
+    # A coin near its ATL after being listed on Binance is the perfect setup
+    # Estimate: if ath_change_pct is very negative and price_change_1y is also
+    # very negative, the coin is likely near its ATL
+    atl_proxy = 0.0
+    if c.ath_change_pct and c.ath_change_pct < -90:
+        # If ATH drop is >90% AND price dropped in last 30d, it's near ATL
+        p30 = c.price_change_30d or 0
+        if p30 < -5:
+            atl_proxy = 1.0  # Near ATL + still dropping = max upside
+        elif p30 < 5:
+            atl_proxy = 0.7  # Near ATL + stable = accumulation zone
+        else:
+            atl_proxy = 0.3  # Near ATL but already bouncing
+    elif c.ath_change_pct and c.ath_change_pct < -70:
+        atl_proxy = 0.4
+    score += atl_proxy * WEIGHTS["atl_proximity"]
+    breakdown["atl_proximity"] = round(atl_proxy * WEIGHTS["atl_proximity"], 3)
+
+    # 10. Supply flip days — how many days to flip circulating supply at current volume
+    # Formula: circ_supply / (daily_volume / price) = days to buy all supply
+    # Lower = more liquid, easier to pump. Higher = illiquid, harder to move.
+    if c.volume_24h > 0 and c.price > 0 and c.circulating_supply > 0:
+        daily_vol_in_units = c.volume_24h / c.price  # How many coins trade per day
+        flip_days = c.circulating_supply / daily_vol_in_units if daily_vol_in_units > 0 else 999
+        if flip_days <= 10:
+            flip_score = 1.0  # Extremely liquid — can move fast
+        elif flip_days <= 30:
+            flip_score = 0.8  # Very liquid
+        elif flip_days <= 90:
+            flip_score = 0.5  # Moderately liquid
+        elif flip_days <= 365:
+            flip_score = 0.3  # Somewhat illiquid
+        else:
+            flip_score = 0.0  # Illiquid — hard to move
+        score += flip_score * WEIGHTS["supply_flip_days"]
+        breakdown["supply_flip_days"] = round(flip_score * WEIGHTS["supply_flip_days"], 3)
+    else:
+        breakdown["supply_flip_days"] = 0.0
 
     c.score = round(score, 4)
     c.breakdown = breakdown
