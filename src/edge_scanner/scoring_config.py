@@ -1189,7 +1189,7 @@ CONFIG_V8_0 = ScoringConfig(
     funding_rate_weight=5.0,
     funding_momentum_weight=5.0,  # Increased from 3.0 per paper: momentum explains 50%+ of gap
     oi_change_weight=2.0,
-    min_abs_funding_rate=0.006,
+    min_abs_funding_rate=0.0005,  # 0.05% — catches current market max (INJ -0.055%). Original 0.6% (0.006) was 10x too high for current vol
     min_funding_momentum=0.0,
     max_oi_change=0.02,
     # Funding interval & pre-funding dip (added Jun 2026)
