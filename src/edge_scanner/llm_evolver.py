@@ -79,9 +79,13 @@ Active config: **{active_version}** (WR={active_wr:.1f}%, Flat={active_flat:.1f}
 Create ONE new config ("V{active_version.replace('.', '_')}") that improves upon the current active config ({active_version}).
 
 ### Strategy Guidelines
-- If flat rate > 60%: relax filters (lower min_abs_score, min_adx, min_atr_pct)
-- If WR < 30%: tighten filters (raise min_abs_score, min_adx, narrow RSI range)
-- If low trade count: relax filters to let more signals through
+- **WIN RATE is the #1 priority** — higher WR > higher signal count
+- If WR < 40%: tighten filters (raise min_abs_score, min_adx, narrow RSI range)
+- If WR < 33.3%: config is LOSING MONEY at 2:1 R:R — must tighten significantly
+- If WR > 55% AND flat rate < 50%: the config is working well — keep it mostly as-is
+- Do NOT relax filters to increase signal count — more signals = lower quality
+- Keep weights balanced (trend + volume + signal_feed + onchain = 1.0)
+- Base your changes on the configs with the HIGHEST win rates, not the most signals
 - Weights must sum to 1.0 (trend + volume + signal_feed + onchain)
 - If a particular weight parameter is 0.0, consider activating it if it could help
 - Keep ALL parameters within their schema ranges
@@ -254,7 +258,7 @@ def register_config_as_code(config: Dict[str, Any], version_str: str = "7.3") ->
         f"\n\n# ── {const_name} — Auto-generated {datetime.now().strftime('%Y-%m-%d %H:%M')} ──",
         f"{const_name} = ScoringConfig(",
         f'    version="{version_str}",',
-        f'    description="LLM-evolved: relaxed ADX/ATR/RSI filters, enabled multi-factor weights, boosted trend weight to 0.5",',
+        f'    description="LLM-evolved: win-rate optimized config, tightened filters for higher quality",',
     ]
     for key, val in config.items():
         if key in ("version", "description"):

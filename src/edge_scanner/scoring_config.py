@@ -1233,7 +1233,8 @@ CONFIG_V8_0 = ScoringConfig(
 # ── CONFIG_V7_5 — Auto-generated 2026-07-01 19:47 ──
 CONFIG_V7_5 = ScoringConfig(
     version="7.5",
-    description="LLM-generated: relax V7.0 filters for more signals. Lower min_abs_score (6.5), wider RSI, lower min_atr_pct, increased vol-div weight.",
+    description="LLM-generated: relax V7.0 filters for more signals [DISABLED — 23.8% WR, losing money]",
+    status="disabled",
     min_abs_score=6.5,
     min_adx=18,
     min_rsi=25,
@@ -1271,7 +1272,8 @@ CONFIG_V7_5 = ScoringConfig(
 # ── CONFIG_V7_6 — Auto-generated 2026-07-08 19:08 ──
 CONFIG_V7_6 = ScoringConfig(
     version="7.6",
-    description="LLM-evolved: relaxed ADX/ATR/RSI filters, enabled multi-factor weights, boosted trend weight to 0.5",
+    description="LLM-evolved: relaxed ADX/ATR/RSI filters [DISABLED — 22.2% WR, losing money]",
+    status="disabled",
     min_abs_score=6.5,
     min_adx=18,
     min_rsi=28,
@@ -1297,7 +1299,8 @@ CONFIG_V7_6 = ScoringConfig(
 # ── CONFIG_V7_7 — Auto-generated 2026-07-12 14:00 ──
 CONFIG_V7_7 = ScoringConfig(
     version="7.7",
-    description="LLM-evolved: relaxed ADX/ATR/RSI filters, enabled multi-factor weights, boosted trend weight to 0.5",
+    description="LLM-evolved: relaxed ADX/ATR/RSI filters [DISABLED — 20.0% WR, losing money]",
+    status="disabled",
     min_abs_score=6.5,
     min_adx=18,
     min_rsi=25,
