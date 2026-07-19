@@ -1147,12 +1147,20 @@ def edge_daily_summary():
     flats = (df["outcome"] == "FLAT").sum()
     win_rate = (wins / total * 100) if total > 0 else 0
     avg_ret = df["forward_return_pct"].mean() if total > 0 else 0
+    avg_win = df[df["outcome"] == "WIN"]["forward_return_pct"].mean() if wins > 0 else 0
+    avg_loss = df[df["outcome"] == "LOSS"]["forward_return_pct"].mean() if losses > 0 else 0
+    bars_win = df[df["outcome"] == "WIN"]["time_to_resolve_hours"].mean() if wins > 0 else 0
+    bars_loss = df[df["outcome"] == "LOSS"]["time_to_resolve_hours"].mean() if losses > 0 else 0
 
     # Per-config stats (only configs with >= 2 signals)
     config_stats = df.groupby("config_version").agg(
         n=("outcome", "size"),
         wr=("is_win", "mean"),
-        ret=("forward_return_pct", "mean")
+        ret=("forward_return_pct", "mean"),
+        avg_win=("forward_return_pct", lambda x: x[df.loc[x.index, "outcome"] == "WIN"].mean()),
+        avg_loss=("forward_return_pct", lambda x: x[df.loc[x.index, "outcome"] == "LOSS"].mean()),
+        bars_win=("time_to_resolve_hours", lambda x: x[df.loc[x.index, "outcome"] == "WIN"].mean()),
+        bars_loss=("time_to_resolve_hours", lambda x: x[df.loc[x.index, "outcome"] == "LOSS"].mean()),
     ).reset_index()
     config_stats["wr"] = (config_stats["wr"] * 100).round(1)
     config_stats["ret"] = config_stats["ret"].round(3)
@@ -1174,6 +1182,7 @@ def edge_daily_summary():
         f"Resolved in last 24h: *{total}* signals",
         f"🟢 WIN: {wins} | 🔴 LOSS: {losses} | ⚪ FLAT: {flats}",
         f"Win-rate: *{win_rate:.1f}%* | Avg return: *{avg_ret:.2f}%*",
+        f"🟢 Avg win: *{avg_win:+.2f}%* ({bars_win:.0f}h) | 🔴 Avg loss: *{avg_loss:+.2f}%* ({bars_loss:.0f}h)",
         "",
     ]
 
@@ -1187,7 +1196,11 @@ def edge_daily_summary():
         lines.append("*By config (n≥2):*")
         for _, row in config_stats.iterrows():
             active = " ✅" if row["config_version"] == "v1.0" else ""
-            lines.append(f"  {row['config_version']}{active}: {row['n']} sigs, {row['wr']:.1f}% WR, {row['ret']:.2f}% avg")
+            aw = f"🟢{row['avg_win']:+.2f}%" if pd.notna(row.get('avg_win')) else ""
+            al = f"🔴{row['avg_loss']:+.2f}%" if pd.notna(row.get('avg_loss')) else ""
+            bw = f"{row['bars_win']:.0f}h" if pd.notna(row.get('bars_win')) else ""
+            bl = f"{row['bars_loss']:.0f}h" if pd.notna(row.get('bars_loss')) else ""
+            lines.append(f"  {row['config_version']}{active}: {row['n']} sigs, {row['wr']:.1f}% WR, {row['ret']:.2f}% avg | {aw}/{al} | {bw}/{bl}")
 
     lines.append("")
     lines.append("🤖 *Edge Scanner — auto-generated at 09:00 UTC*")

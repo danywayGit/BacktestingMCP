@@ -398,13 +398,25 @@ def performance_report(group_by: str = "symbol", min_n: int = 5, since_days: int
         df["group"] = df["symbol"]
 
     df["is_win"] = (df["outcome"] == "WIN").astype(int)
+    df["ret"] = df["forward_return_pct"]
+
+    # Separate WIN and LOSS returns and resolution times
+    win_ret = df[df["outcome"] == "WIN"].groupby("group")["ret"].mean()
+    loss_ret = df[df["outcome"] == "LOSS"].groupby("group")["ret"].mean()
+    win_bars = df[df["outcome"] == "WIN"].groupby("group")["time_to_resolve_hours"].mean()
+    loss_bars = df[df["outcome"] == "LOSS"].groupby("group")["time_to_resolve_hours"].mean()
+
     summary = (
         df.groupby("group")
-        .agg(n=("outcome", "size"), win_rate=("is_win", "mean"), avg_return_pct=("forward_return_pct", "mean"))
+        .agg(n=("outcome", "size"), win_rate=("is_win", "mean"), avg_return_pct=("ret", "mean"))
         .reset_index()
     )
     summary["win_rate"] = (summary["win_rate"] * 100).round(1)
     summary["avg_return_pct"] = summary["avg_return_pct"].round(3)
+    summary["avg_win"] = summary["group"].map(win_ret).round(3)
+    summary["avg_loss"] = summary["group"].map(loss_ret).round(3)
+    summary["bars_win"] = summary["group"].map(win_bars).round(1)
+    summary["bars_loss"] = summary["group"].map(loss_bars).round(1)
     summary = summary[summary["n"] >= min_n].sort_values("win_rate", ascending=False)
 
     # Add breakeven WR column when grouping by config
