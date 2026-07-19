@@ -1181,8 +1181,7 @@ def edge_daily_summary():
         f"📊 *Daily Edge Scanner — {today}*",
         f"Resolved in last 24h: *{total}* signals",
         f"🟢 WIN: {wins} | 🔴 LOSS: {losses} | ⚪ FLAT: {flats}",
-        f"Win-rate: *{win_rate:.1f}%* | Avg return: *{avg_ret:.2f}%*",
-        f"🟢 Avg win: *{avg_win:+.2f}%* ({bars_win:.0f}h) | 🔴 Avg loss: *{avg_loss:+.2f}%* ({bars_loss:.0f}h)",
+        f"Win-rate: *{win_rate:.1f}%* | 🟢 Avg win: *{avg_win:+.2f}%* ({bars_win:.0f}h) | 🔴 Avg loss: *{avg_loss:+.2f}%* ({bars_loss:.0f}h)",
         "",
     ]
 
@@ -1200,7 +1199,7 @@ def edge_daily_summary():
             al = f"🔴{row['avg_loss']:+.2f}%" if pd.notna(row.get('avg_loss')) else ""
             bw = f"{row['bars_win']:.0f}h" if pd.notna(row.get('bars_win')) else ""
             bl = f"{row['bars_loss']:.0f}h" if pd.notna(row.get('bars_loss')) else ""
-            lines.append(f"  {row['config_version']}{active}: {row['n']} sigs, {row['wr']:.1f}% WR, {row['ret']:.2f}% avg | {aw}/{al} | {bw}/{bl}")
+            lines.append(f"  {row['config_version']}{active}: {row['n']} sigs, {row['wr']:.1f}% WR | 🟢{aw}/🔴{al} | {bw}/{bl}")
 
     lines.append("")
     lines.append("🤖 *Edge Scanner — auto-generated at 09:00 UTC*")
