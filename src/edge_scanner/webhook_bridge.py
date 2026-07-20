@@ -34,10 +34,11 @@ DB_PATH = "/home/hermes/BacktestingMCP/data/crypto.db"
 
 # Config priority: (version, min_score, label)
 CONFIG_PRIORITY = [
-    ("7.0", 8.0, "V7.0 Quality Gate"),
+    ("7.0", 7.5, "V7.0 Quality Gate"),  # Max ever: 7.7 — lowered for viability
     ("6.2", 7.5, "V6.2 Pullback"),
     ("4.1", 7.5, "V4.1 Breakout"),
     ("9.0", 7.0, "V9.0 Vol Imbalance"),
+    ("1.0", 8.5, "V1.0 Baseline"),
 ]
 
 MAX_SIGNALS_PER_BATCH = 3       # Max positions the bot can handle
