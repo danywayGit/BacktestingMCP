@@ -313,6 +313,14 @@ class ScoringConfig:
     """Weight for low-float volume squeeze detection. High scores for
     AI/AGENT/MEME coins with sudden volume spikes."""
 
+    volume_imbalance_weight: float = 0.0
+    """Weight for volume imbalance (buy vs sell pressure). 0.0 = disabled.
+
+    Based on the Interpretable Hypothesis-Driven Trading paper (Paper 2).
+    Computes buying vs selling pressure from OHLCV data.
+    Positive = bullish (confirms LONG), negative = bearish (confirms SHORT).
+    """
+
     # ── Funding Rate Mean-Reversion (leading indicator) ─────────────────────
     funding_rate_weight: float = 0.0
     """Weight for extreme funding rate signal. Funding rate < -0.006 (LONG)
@@ -1227,6 +1235,55 @@ CONFIG_V8_0 = ScoringConfig(
     display_types_extra=[],
 )
 
+# ── CONFIG_V9_0 — Volume Imbalance (Paper 2: Interpretable Hypothesis-Driven Trading) ──
+# Volume Imbalance is the PRIMARY signal: buying vs selling pressure proxy.
+# Configs with imbalance > 0.3 (buying) get LONG bonus, < -0.3 (selling) get SHORT bonus.
+# Lighter trend/gate filters — imbalance IS the confirmation.
+CONFIG_V9_0 = ScoringConfig(
+    version="9.0",
+    description="Volume Imbalance: Uses buy vs sell pressure as primary signal. Requires vol imbalance > 0.3 (LONG) or < -0.3 (SHORT) + ATR > 0.3% for volatility.",
+    # Core weights — moderate, imbalance is primary
+    trend_weight=0.3,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.2,
+    scanner_hit_weight=0.1,
+    onchain_netflow_weight=0.1,
+    # Extended scoring signals
+    volume_divergence_weight=0.0,
+    smart_money_index_weight=0.0,
+    low_float_squeeze_weight=0.0,
+    # Volume Imbalance — PRIMARY signal source (Paper 2)
+    volume_imbalance_weight=5.0,
+    # Risk management
+    atr_stop_mult=2.0,
+    rr_ratio=2.0,
+    # Quality filters — moderate
+    min_abs_score=5.0,
+    min_trend_abs_score=3,
+    require_non_trend_confirmation=False,
+    min_volume_relative=0.0,
+    min_adx=0,
+    # RSI range — no filter (imbalance works in all regimes)
+    min_rsi=0,
+    max_rsi=0,
+    # Volatility filter — paper says micro-structure signals need volatility
+    min_atr_pct=0.3,
+    # Regime-aware direction bias
+    regime_dir_bear_short_bonus=2.0,
+    regime_dir_bear_long_penalty=2.0,
+    regime_dir_bull_long_bonus=2.0,
+    regime_dir_bull_short_penalty=2.0,
+    # Alert thresholds
+    alert_min_score=7.0,
+    alert_require_multi_source=False,
+    # Filters
+    min_market_cap_usd=0.0,
+    max_market_cap_usd=0.0,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    display_types_extra=[],
+)
+
 # Active config — change via CLI: python -m src.cli.main edge activate-config --version v1.1
 # All signals logged will carry this version in the config_version column.
 
@@ -1321,6 +1378,32 @@ CONFIG_V7_7 = ScoringConfig(
     regime_dir_bull_short_penalty=2.0,
 )
 
+
+
+# ── CONFIG_V7_8 — Auto-generated 2026-07-19 14:00 ──
+CONFIG_V7_8 = ScoringConfig(
+    version="7.8",
+    description="LLM-evolved: win-rate optimized config, tightened filters for higher quality",
+    min_abs_score=6.5,
+    min_adx=22,
+    min_rsi=30,
+    max_rsi=70,
+    min_atr_pct=0.3,
+    atr_stop_mult=1.5,
+    rr_ratio=2.0,
+    trend_weight=0.45,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.25,
+    onchain_netflow_weight=0.1,
+    volume_divergence_weight=3.0,
+    smart_money_index_weight=2.0,
+    low_float_squeeze_weight=1.5,
+    regime_dir_bear_short_bonus=2.0,
+    regime_dir_bear_long_penalty=2.0,
+    regime_dir_bull_long_bonus=2.0,
+    regime_dir_bull_short_penalty=2.0,
+)
+
 ACTIVE_CONFIG = CONFIG_V7_0
 
 ALL_CONFIGS: dict[str, ScoringConfig] = {
@@ -1339,8 +1422,11 @@ ALL_CONFIGS: dict[str, ScoringConfig] = {
         CONFIG_V6_0, CONFIG_V6_1,
         # Quality Gate (LLM-evolved series)
         CONFIG_V7_0, CONFIG_V7_2, CONFIG_V7_3, CONFIG_V7_4, CONFIG_V7_5, CONFIG_V7_6, CONFIG_V7_7,
+        CONFIG_V7_8,
         # Funding Rate Mean-Reversion
         CONFIG_V8_0,
+        # Volume Imbalance (Paper 2)
+        CONFIG_V9_0,
     ]
 }
 
