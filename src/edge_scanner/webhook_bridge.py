@@ -189,7 +189,7 @@ def format_webhook_msg(signal: Dict) -> str:
         f"Strategy: {STRATEGY}",
         f"Action: {action}",
         f"Side: {side}",
-        f"Symbol: {signal['symbol']}",
+        f"Symbol: {signal['symbol']}USDT",
         f"Entry: {signal['entry_price']}",
         f"StopLoss: {signal['stop_price']}",
         f"TakeProfit: {signal['target_price']}",
