@@ -129,6 +129,7 @@ class PatternScanResult:
     total_signals: int = 0
     by_pattern: Dict[str, List[PatternSignal]] = field(default_factory=dict)
     by_direction: Dict[str, int] = field(default_factory=lambda: {"BULLISH": 0, "BEARISH": 0})
+    error: str = ""
 
 
 def run_pattern_scan(
@@ -160,6 +161,7 @@ def run_pattern_scan(
         )
     except AltfinsError as exc:
         logger.warning("Pattern scan unavailable: %s", exc)
+        result.error = f"altFINS MCP error: {exc}"
         return result
 
     if not entries:
@@ -222,11 +224,17 @@ def format_pattern_alert(result: PatternScanResult, max_per_pattern: int = 3) ->
     """Format a pattern scan result into a Telegram-friendly message."""
     lines = [
         "📐 *Pattern Scanner* — Live Chart Patterns",
-        f"*{result.total_signals}* signals across *{len(result.by_pattern)}* patterns",
-        f"🟢 Bullish: {result.by_direction['BULLISH']}  |  🔴 Bearish: {result.by_direction['BEARISH']}",
-        "",
     ]
 
+    if result.error:
+        lines.append(f"⚠️ *Error:* {result.error}")
+        lines.append("")
+        lines.append("🤖 *Pattern Scanner — auto-generated*")
+        return "\n".join(lines)
+
+    lines.append(f"*{result.total_signals}* signals across *{len(result.by_pattern)}* patterns")
+    lines.append(f"🟢 Bullish: {result.by_direction['BULLISH']}  |  🔴 Bearish: {result.by_direction['BEARISH']}")
+    lines.append("")
     for pattern_key, signals in sorted(result.by_pattern.items(), key=lambda x: -len(x[1])):
         name = signals[0].pattern_name if signals else pattern_key
         bullish = sum(1 for s in signals if s.direction == "BULLISH")
