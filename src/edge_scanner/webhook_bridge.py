@@ -1,22 +1,26 @@
 """
 Edge Scanner → Trading-WebHook-Bot bridge.
 
-Polls the edge_signals database for high-confidence PENDING signals
-and sends them to the webhook for execution on Binance TestNet.
+Multi-config priority system with symbol dedup:
 
-Filters:
-- Only from ACTIVE_CONFIG (V7.0)
-- Score >= 8.0
-- Not already sent (webhook_sent_at IS NULL)
-- Has valid entry/stop/target prices
+Priority order:
+  1. V7.0  (active, 50.0% WR) — quality gate
+  2. V6.2  (63.6% WR) — pullback strategy
+  3. V4.1  (57.8% WR) — breakout strategy
+
+Rules:
+  - One signal per symbol per batch (config priority decides which wins)
+  - Max 3 signals per batch (respects bot's 3-5 position limit)
+  - 24h cooldown per symbol (no repeat signals for the same symbol)
+  - Higher score threshold for V7.0 (8.0) vs others (7.5)
 """
 
 import httpx
 import json
 import logging
 import sqlite3
-from datetime import datetime, timezone
-from typing import Optional, Dict, List
+from datetime import datetime, timezone, timedelta
+from typing import Optional, Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +30,18 @@ WEBHOOK_KEY = "6XO7toihtxsSW7s9OgetPwVwjMCNhb4O"
 ACCOUNT_TYPE = "TestNet"  # Change to "Standard" for live trading
 EXCHANGE = "Binance"
 STRATEGY = "ManualTrading"
-MIN_SCORE = 8.0
 DB_PATH = "/home/hermes/BacktestingMCP/data/crypto.db"
+
+# Config priority: (version, min_score, label)
+CONFIG_PRIORITY = [
+    ("7.0", 8.0, "V7.0 Quality Gate"),
+    ("6.2", 7.5, "V6.2 Pullback"),
+    ("4.1", 7.5, "V4.1 Breakout"),
+]
+
+MAX_SIGNALS_PER_BATCH = 3       # Max positions the bot can handle
+COOLDOWN_HOURS = 24              # Don't repeat a symbol within 24h
+
 
 # ── DB helpers ──────────────────────────────────────────────────────────────
 
@@ -45,24 +59,13 @@ def ensure_webhook_column():
         db.commit()
         logger.info("Added webhook_sent_at column to edge_signals")
     except sqlite3.OperationalError:
-        pass  # Column already exists
+        pass
     finally:
         db.close()
 
 
-def get_pending_webhook_signals() -> List[Dict]:
-    """Fetch signals ready to send to webhook.
-
-    Criteria:
-    - From the active config version (V7.0)
-    - Still PENDING (outcome IS NULL)
-    - Score >= MIN_SCORE
-    - Valid entry, stop, target prices
-    - Not already sent to webhook
-    """
-    from src.edge_scanner.scoring_config import ACTIVE_CONFIG
-    active_ver = ACTIVE_CONFIG.version
-
+def get_pending_signals_for_config(version: str, min_score: float) -> List[Dict]:
+    """Fetch pending signals for a specific config version."""
     db = get_db()
     rows = db.execute("""
         SELECT id, symbol, direction, entry_price, stop_price, target_price,
@@ -76,11 +79,22 @@ def get_pending_webhook_signals() -> List[Dict]:
           AND target_price > 0
           AND webhook_sent_at IS NULL
         ORDER BY composite_score DESC
-        LIMIT 5
-    """, (active_ver, MIN_SCORE)).fetchall()
+        LIMIT 10
+    """, (version, min_score)).fetchall()
     db.close()
-
     return [dict(r) for r in rows]
+
+
+def get_recently_sent_symbols(hours: int = COOLDOWN_HOURS) -> set:
+    """Get symbols that were sent to webhook in the last N hours (cooldown)."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    db = get_db()
+    rows = db.execute("""
+        SELECT DISTINCT symbol FROM edge_signals
+        WHERE webhook_sent_at IS NOT NULL AND webhook_sent_at >= ?
+    """, (cutoff,)).fetchall()
+    db.close()
+    return {r["symbol"] for r in rows}
 
 
 def mark_signal_sent(signal_id: int):
@@ -93,6 +107,64 @@ def mark_signal_sent(signal_id: int):
     db.commit()
     db.close()
 
+
+# ── Priority selection ──────────────────────────────────────────────────────
+
+def select_signals() -> List[Dict]:
+    """Select the best signals across all configs using priority + dedup.
+
+    Returns at most MAX_SIGNALS_PER_BATCH signals, with no duplicate symbols.
+    """
+    cooldown_symbols = get_recently_sent_symbols()
+    selected = []       # Final selected signals
+    selected_symbols = set()  # Symbols already picked in this batch
+    sent_count = 0
+
+    for version, min_score, label in CONFIG_PRIORITY:
+        if sent_count >= MAX_SIGNALS_PER_BATCH:
+            break
+
+        signals = get_pending_signals_for_config(version, min_score)
+        if not signals:
+            logger.info("  %s: no qualifying signals", label)
+            continue
+
+        for sig in signals:
+            if sent_count >= MAX_SIGNALS_PER_BATCH:
+                break
+
+            sym = sig["symbol"]
+            # Skip if symbol already picked by a higher-priority config
+            if sym in selected_symbols:
+                logger.info(
+                    "  %s: skipping %s (already picked by higher priority config)",
+                    label, sym,
+                )
+                continue
+            # Skip if symbol is in cooldown
+            if sym in cooldown_symbols:
+                logger.info(
+                    "  %s: skipping %s (cooldown — sent within %dh)",
+                    label, sym, COOLDOWN_HOURS,
+                )
+                continue
+
+            sig["_priority_label"] = label
+            selected.append(sig)
+            selected_symbols.add(sym)
+            sent_count += 1
+            logger.info(
+                "  %s: selected %s %s (score=%.1f) [%d/%d]",
+                label, sig["direction"], sym, sig["composite_score"],
+                sent_count, MAX_SIGNALS_PER_BATCH,
+            )
+
+    if not selected:
+        logger.info("No signals selected after priority + dedup")
+    return selected
+
+
+# ── Webhook sender ──────────────────────────────────────────────────────────
 
 def format_webhook_msg(signal: Dict) -> str:
     """Format an edge signal into the webhook's newline-separated message format."""
@@ -129,55 +201,57 @@ def send_signal_to_webhook(signal: Dict) -> bool:
         resp = httpx.post(WEBHOOK_URL, json=payload, timeout=10)
         if resp.status_code == 200:
             logger.info(
-                "Sent %s %s @ %.2f (score=%.1f) → %s",
+                "  ✅ Sent %s %s @ %.2f (score=%.1f, %s)",
                 signal["direction"], signal["symbol"],
                 signal["entry_price"], signal["composite_score"],
-                resp.text[:50],
+                signal.get("_priority_label", ""),
             )
             mark_signal_sent(signal["id"])
             return True
         else:
             logger.warning(
-                "Webhook returned %d for %s: %s",
+                "  ❌ Webhook returned %d for %s: %s",
                 resp.status_code, signal["symbol"], resp.text[:100],
             )
             return False
     except Exception as e:
-        logger.error("Failed to send %s to webhook: %s", signal["symbol"], e)
+        logger.error("  ❌ Failed to send %s: %s", signal["symbol"], e)
         return False
 
+
+# ── Main ────────────────────────────────────────────────────────────────────
 
 def run_bridge(dry_run: bool = False) -> int:
     """Main bridge function. Returns number of signals sent."""
     ensure_webhook_column()
-    signals = get_pending_webhook_signals()
 
-    if not signals:
-        logger.info("No qualifying signals to send")
+    logger.info("=== Webhook Bridge ===")
+    logger.info("Config priority: %s", ", ".join(f"{l} (≥{s:.1f})" for v, s, l in CONFIG_PRIORITY))
+    logger.info("Max per batch: %d | Cooldown: %dh", MAX_SIGNALS_PER_BATCH, COOLDOWN_HOURS)
+
+    selected = select_signals()
+    if not selected:
+        logger.info("Nothing to send")
         return 0
 
-    logger.info("Found %d signals to send", len(signals))
+    if dry_run:
+        logger.info("=== DRY-RUN — would send %d signals ===", len(selected))
+        for sig in selected:
+            logger.info(
+                "  %s %s @ %.2f (score=%.1f, %s)",
+                sig["direction"], sig["symbol"],
+                sig["entry_price"], sig["composite_score"],
+                sig.get("_priority_label", ""),
+            )
+        return 0
 
     sent_count = 0
-    for sig in signals:
-        msg_str = format_webhook_msg(sig)
-        sym = sig["symbol"]
-        direction = sig["direction"]
-        score = sig["composite_score"]
-
-        if dry_run:
-            logger.info(
-                "[DRY-RUN] Would send %s %s @ %.2f (score=%.1f)",
-                direction, sym, sig["entry_price"], score,
-            )
-            continue
-
-        success = send_signal_to_webhook(sig)
-        if success:
+    for sig in selected:
+        ok = send_signal_to_webhook(sig)
+        if ok:
             sent_count += 1
 
-    if sent_count:
-        logger.info("Sent %d/%d signals to webhook", sent_count, len(signals))
+    logger.info("Sent %d/%d signals to webhook", sent_count, len(selected))
     return sent_count
 
 
