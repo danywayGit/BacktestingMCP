@@ -37,6 +37,7 @@ CONFIG_PRIORITY = [
     ("7.0", 8.0, "V7.0 Quality Gate"),
     ("6.2", 7.5, "V6.2 Pullback"),
     ("4.1", 7.5, "V4.1 Breakout"),
+    ("9.0", 7.0, "V9.0 Vol Imbalance"),
 ]
 
 MAX_SIGNALS_PER_BATCH = 3       # Max positions the bot can handle

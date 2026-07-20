@@ -384,7 +384,7 @@ def score_symbol(
             div_adj = 0.0
             if cfg.volume_divergence_weight > 0 or cfg.smart_money_index_weight > 0 or cfg.low_float_squeeze_weight > 0:
                 try:
-                    from .volume_divergence import compute_divergence_score, compute_smart_money_index, is_low_float_squeeze
+                    from .volume_divergence import compute_divergence_score, compute_smart_money_index, is_low_float_squeeze, compute_volume_imbalance
 
                     if cfg.volume_divergence_weight > 0:
                         d_adj, d_details = compute_divergence_score(data)
@@ -401,6 +401,21 @@ def score_symbol(
                         if is_sqz:
                             div_adj += sqz_score * cfg.low_float_squeeze_weight
                             components["low_float_squeeze"] = sqz_score
+
+                    # Volume Imbalance — buying vs selling pressure proxy
+                    # From the Interpretable Hypothesis-Driven Trading paper
+                    if cfg.volume_imbalance_weight > 0:
+                        imb = compute_volume_imbalance(data)
+                        if direction == "LONG" and imb > 0.3:
+                            bonus = imb * cfg.volume_imbalance_weight
+                            div_adj += bonus
+                            components["volume_imbalance"] = round(bonus, 3)
+                        elif direction == "SHORT" and imb < -0.3:
+                            bonus = abs(imb) * cfg.volume_imbalance_weight
+                            div_adj += bonus
+                            components["volume_imbalance"] = round(bonus, 3)
+                        else:
+                            components["volume_imbalance"] = 0.0
 
                     if div_adj != 0:
                         score += div_adj

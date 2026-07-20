@@ -234,3 +234,36 @@ def is_low_float_squeeze(data: pd.DataFrame, coin_type: str = None) -> Tuple[boo
         score = min(vol_ratio * float_mult, 5.0)
         return True, round(score, 1)
     return False, 0.0
+
+
+def compute_volume_imbalance(data, periods=20):
+    """Compute volume imbalance — buying vs selling pressure proxy.
+
+    Uses the relationship between close/open and volume as a proxy for
+    order-flow imbalance. Based on the Volume Imbalance metric from
+    the Interpretable Hypothesis-Driven Trading paper (Paper 2).
+
+    Logic:
+      - Bullish candle (close > open): volume adds to buy pressure
+      - Bearish candle (close < open): volume adds to sell pressure
+      - Imbalance = (buy - sell) / (buy + sell)
+      - Range: -1.0 (extreme selling) to +1.0 (extreme buying)
+
+    Returns a score in [-1.0, 1.0] where:
+      > 0.3 = strong buying pressure (confirms LONG)
+      < -0.3 = strong selling pressure (confirms SHORT)
+      ~ 0.0 = balanced, no directional signal
+    """
+    if data is None or len(data) < periods:
+        return 0.0
+
+    df = data.tail(periods)
+    buy_vol = df[df['Close'] > df['Open']]['Volume'].sum()
+    sell_vol = df[df['Close'] < df['Open']]['Volume'].sum()
+    total = buy_vol + sell_vol
+
+    if total == 0:
+        return 0.0
+
+    imbalance = (buy_vol - sell_vol) / total
+    return round(imbalance, 4)
