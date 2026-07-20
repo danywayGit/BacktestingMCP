@@ -19,7 +19,7 @@ import httpx
 import json
 import logging
 import sqlite3
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from typing import Optional, Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,6 @@ CONFIG_PRIORITY = [
 ]
 
 MAX_SIGNALS_PER_BATCH = 3       # Max positions the bot can handle
-COOLDOWN_HOURS = 24              # Don't repeat a symbol within 24h
 
 
 # ── DB helpers ──────────────────────────────────────────────────────────────
@@ -85,16 +84,26 @@ def get_pending_signals_for_config(version: str, min_score: float) -> List[Dict]
     return [dict(r) for r in rows]
 
 
-def get_recently_sent_symbols(hours: int = COOLDOWN_HOURS) -> set:
-    """Get symbols that were sent to webhook in the last N hours (cooldown)."""
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+def get_open_position_symbols() -> set:
+    """Get symbols with ACTIVE open positions.
+
+    A position is 'open' if a signal was sent to the webhook (webhook_sent_at)
+    but the signal hasn't resolved yet (outcome IS NULL).
+
+    This mirrors the bot's actual open positions. Once a signal resolves
+    (WIN/LOSS/FLAT), that symbol's slot is free for any config to use again.
+    """
     db = get_db()
     rows = db.execute("""
         SELECT DISTINCT symbol FROM edge_signals
-        WHERE webhook_sent_at IS NOT NULL AND webhook_sent_at >= ?
-    """, (cutoff,)).fetchall()
+        WHERE webhook_sent_at IS NOT NULL
+          AND outcome IS NULL
+    """).fetchall()
     db.close()
-    return {r["symbol"] for r in rows}
+    open_symbols = {r["symbol"] for r in rows}
+    if open_symbols:
+        logger.info("Open positions: %s", ", ".join(sorted(open_symbols)))
+    return open_symbols
 
 
 def mark_signal_sent(signal_id: int):
@@ -115,7 +124,7 @@ def select_signals() -> List[Dict]:
 
     Returns at most MAX_SIGNALS_PER_BATCH signals, with no duplicate symbols.
     """
-    cooldown_symbols = get_recently_sent_symbols()
+    cooldown_symbols = get_open_position_symbols()
     selected = []       # Final selected signals
     selected_symbols = set()  # Symbols already picked in this batch
     sent_count = 0
@@ -144,8 +153,8 @@ def select_signals() -> List[Dict]:
             # Skip if symbol is in cooldown
             if sym in cooldown_symbols:
                 logger.info(
-                    "  %s: skipping %s (cooldown — sent within %dh)",
-                    label, sym, COOLDOWN_HOURS,
+                    "  %s: skipping %s (open position — waiting for resolution)",
+                    label, sym,
                 )
                 continue
 
@@ -227,7 +236,7 @@ def run_bridge(dry_run: bool = False) -> int:
 
     logger.info("=== Webhook Bridge ===")
     logger.info("Config priority: %s", ", ".join(f"{l} (≥{s:.1f})" for v, s, l in CONFIG_PRIORITY))
-    logger.info("Max per batch: %d | Cooldown: %dh", MAX_SIGNALS_PER_BATCH, COOLDOWN_HOURS)
+    logger.info("Max per batch: %d | Open-position dedup", MAX_SIGNALS_PER_BATCH)
 
     selected = select_signals()
     if not selected:
