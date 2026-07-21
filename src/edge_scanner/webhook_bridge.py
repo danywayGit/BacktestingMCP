@@ -121,6 +121,44 @@ def mark_signal_sent(signal_id: int):
 
 # ── Priority selection ──────────────────────────────────────────────────────
 
+def _validate_signal(sig: Dict) -> Tuple[bool, str]:
+    """Validate a signal has valid entry, stop, and target prices.
+
+    Hard rules (never send if violated):
+    - Entry price > 0
+    - Stop price > 0
+    - Target price > 0
+    - For LONG: stop < entry < target
+    - For SHORT: stop > entry > target
+    """
+    entry = sig.get("entry_price", 0)
+    stop = sig.get("stop_price", 0)
+    target = sig.get("target_price", 0)
+    direction = sig.get("direction", "").upper()
+
+    if entry <= 0:
+        return False, "entry price is 0 or negative"
+    if stop <= 0:
+        return False, "stop loss is 0 or negative"
+    if target <= 0:
+        return False, "take profit is 0 or negative"
+
+    if direction == "LONG":
+        if stop >= entry:
+            return False, f"stop ({stop:.8f}) >= entry ({entry:.8f}) — stop must be below entry"
+        if target <= entry:
+            return False, f"target ({target:.8f}) <= entry ({entry:.8f}) — target must be above entry"
+    elif direction == "SHORT":
+        if stop <= entry:
+            return False, f"stop ({stop:.8f}) <= entry ({entry:.8f}) — stop must be above entry"
+        if target >= entry:
+            return False, f"target ({target:.8f}) >= entry ({entry:.8f}) — target must be below entry"
+    else:
+        return False, f"unknown direction: {direction}"
+
+    return True, "ok"
+
+
 def select_signals() -> List[Dict]:
     """Select the best signals across all configs using priority + dedup.
 
@@ -157,6 +195,15 @@ def select_signals() -> List[Dict]:
                 logger.info(
                     "  %s: skipping %s (open position — waiting for resolution)",
                     label, sym,
+                )
+                continue
+
+            # HARD VALIDATION: entry, stop, target must be valid
+            valid, reason = _validate_signal(sig)
+            if not valid:
+                logger.info(
+                    "  %s: REJECTED %s %s — %s",
+                    label, sig["direction"], sym, reason,
                 )
                 continue
 
