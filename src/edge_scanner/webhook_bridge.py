@@ -29,7 +29,7 @@ WEBHOOK_URL = "http://109.123.229.200/webhook"
 WEBHOOK_KEY = "6XO7toihtxsSW7s9OgetPwVwjMCNhb4O"
 ACCOUNT_TYPE = "TestNet"  # Change to "Standard" for live trading
 EXCHANGE = "Binance"
-STRATEGY = "ManualTrading"
+STRATEGY = "EdgeScanner"
 DB_PATH = "/home/hermes/BacktestingMCP/data/crypto.db"
 
 # Config priority: (version, min_score, label)
@@ -42,6 +42,7 @@ CONFIG_PRIORITY = [
 ]
 
 MAX_SIGNALS_PER_BATCH = 3       # Max positions the bot can handle
+MAX_SLIPPAGE_PCT = 0.5           # Max price difference from entry before skipping signal
 
 
 # ── DB helpers ──────────────────────────────────────────────────────────────
@@ -159,6 +160,34 @@ def _validate_signal(sig: Dict) -> Tuple[bool, str]:
     return True, "ok"
 
 
+def _check_slippage(sig: Dict) -> Tuple[bool, str]:
+    """Check that the current market price hasn't moved too far from the signal's entry."""
+    entry = sig.get("entry_price", 0)
+    symbol = sig.get("symbol", "")
+    if entry <= 0 or not symbol:
+        return True, "no entry or symbol — skip"
+    try:
+        import httpx
+        resp = httpx.get(
+            f"https://fapi.binance.com/fapi/v1/premiumIndex",
+            params={"symbol": f"{symbol}USDT"}, timeout=5,
+        )
+        if resp.status_code != 200:
+            return True, "price fetch failed"
+        mark_price = float(resp.json().get("markPrice", 0))
+        if mark_price <= 0:
+            return True, "invalid mark price"
+        slippage_pct = abs(mark_price - entry) / entry * 100
+        if slippage_pct > MAX_SLIPPAGE_PCT:
+            return False, (
+                f"market ${mark_price:.4f} is {slippage_pct:.2f}% away from entry "
+                f"${entry:.4f} (max {MAX_SLIPPAGE_PCT}%)"
+            )
+        return True, f"ok (${mark_price:.4f}, {slippage_pct:.2f}%)"
+    except Exception as e:
+        return True, f"price check failed ({e})"
+
+
 def select_signals() -> List[Dict]:
     """Select the best signals across all configs using priority + dedup.
 
@@ -204,6 +233,15 @@ def select_signals() -> List[Dict]:
                 logger.info(
                     "  %s: REJECTED %s %s — %s",
                     label, sig["direction"], sym, reason,
+                )
+                continue
+
+            # SLIPPAGE CHECK: market price must be near entry price
+            slip_ok, slip_reason = _check_slippage(sig)
+            if not slip_ok:
+                logger.info(
+                    "  %s: SKIPPED %s %s — %s",
+                    label, sig["direction"], sym, slip_reason,
                 )
                 continue
 
