@@ -814,6 +814,7 @@ CONFIG_V3_0 = ScoringConfig(
 CONFIG_V3_1 = ScoringConfig(
     version="3.1",
     description="Strong ADX filter: Requires ADX >= 40 for strong trend",
+    status="active",
     trend_weight=0.4,
     volume_relative_weight=0.2,
     signal_feed_weight=0.3,
@@ -1013,8 +1014,8 @@ CONFIG_V6_1 = ScoringConfig(
 # Quality Gate configs - NEW in v7.0
 CONFIG_V7_0 = ScoringConfig(
     version="7.0",
-    description="Filtered_Quality_Gate: Increased min_abs_score, required moderate trend (>=5), volume filter (>=0.5x), ADX>=20, RSI 30-70 to avoid extremes",
-    status="active",
+    description="Filtered_Quality_Gate [DISABLED — only 17 signals, 50% WR, replaced by better configs]",
+    status="disabled",
     trend_weight=0.4,
     volume_relative_weight=0.2,
     signal_feed_weight=0.3,
@@ -1404,7 +1405,7 @@ CONFIG_V7_8 = ScoringConfig(
     regime_dir_bull_short_penalty=2.0,
 )
 
-ACTIVE_CONFIG = CONFIG_V7_0
+ACTIVE_CONFIG = CONFIG_V3_1
 
 ALL_CONFIGS: dict[str, ScoringConfig] = {
     c.version: c for c in [
