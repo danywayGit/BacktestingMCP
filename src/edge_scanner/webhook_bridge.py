@@ -34,7 +34,8 @@ DB_PATH = "/home/hermes/BacktestingMCP/data/crypto.db"
 
 # Config priority: (version, min_score, label)
 CONFIG_PRIORITY = [
-    ("3.1", 7.5, "V3.1 ADX Trend"),  # Active config — 59.6% WR
+    ("6.2", 7.5, "V6.2 Pullback"),    # 63.6% WR — best performer
+    ("3.1", 7.5, "V3.1 ADX Trend"),  # 59.6% WR
     ("4.1", 7.5, "V4.1 Breakout"),    # 58.0% WR
     ("9.0", 7.0, "V9.0 Vol Imbalance"),  # New strategy
     ("1.0", 8.5, "V1.0 Baseline"),    # 52.1% WR, workhorse
