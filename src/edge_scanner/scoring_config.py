@@ -1011,6 +1011,30 @@ CONFIG_V6_1 = ScoringConfig(
     display_types_extra=[],
 )
 
+# ── CONFIG_V6_2 — Pullback Strategy (63.6% WR) ──
+# Catches pullbacks in trending markets. Uses moderate trend + volume confirmation.
+# Best performing config by WR. Originally defined but removed from file — restored.
+CONFIG_V6_2 = ScoringConfig(
+    version="6.2",
+    description="Pullback strategy: Catches pullbacks in trending markets with volume confirmation. 63.6% WR.",
+    trend_weight=0.35,
+    volume_relative_weight=0.25,
+    signal_feed_weight=0.25,
+    scanner_hit_weight=0.1,
+    onchain_netflow_weight=0.1,
+    min_volume_relative=0.5,
+    # Alert thresholds
+    alert_min_score=7.0,
+    alert_require_multi_source=False,
+    # Filters
+    min_market_cap_usd=0.0,
+    max_market_cap_usd=0.0,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    # Metadata
+    display_types_extra=[],
+)
+
 # Quality Gate configs - NEW in v7.0
 CONFIG_V7_0 = ScoringConfig(
     version="7.0",
@@ -1420,7 +1444,7 @@ ALL_CONFIGS: dict[str, ScoringConfig] = {
         # Coin-type specific
         CONFIG_V5_0, CONFIG_V5_1, CONFIG_V5_2,
         # CEO suggested patterns
-        CONFIG_V6_0, CONFIG_V6_1,
+        CONFIG_V6_0, CONFIG_V6_1, CONFIG_V6_2,
         # Quality Gate (LLM-evolved series)
         CONFIG_V7_0, CONFIG_V7_2, CONFIG_V7_3, CONFIG_V7_4, CONFIG_V7_5, CONFIG_V7_6, CONFIG_V7_7,
         CONFIG_V7_8,
