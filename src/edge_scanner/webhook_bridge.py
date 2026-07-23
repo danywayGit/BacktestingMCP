@@ -254,15 +254,6 @@ def select_signals() -> List[Dict]:
                 )
                 continue
 
-            # STOP DISTANCE CHECK: skip if stop is too wide (>5%)
-            stop_pct = abs(sig["entry_price"] - sig["stop_price"]) / sig["entry_price"] * 100
-            if stop_pct > 5.0:
-                logger.info(
-                    "  %s: SKIPPED %s %s — stop too wide (%.1f%% > 5%%)",
-                    label, sig["direction"], sym, stop_pct,
-                )
-                continue
-
             sig["_priority_label"] = label
             selected.append(sig)
             selected_symbols.add(sym)
