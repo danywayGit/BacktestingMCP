@@ -193,6 +193,7 @@ def select_signals() -> List[Dict]:
 
     Returns at most MAX_SIGNALS_PER_BATCH signals, with no duplicate symbols.
     """
+    from src.integrations.binance_symbols import is_on_binance_futures
     cooldown_symbols = get_open_position_symbols()
     selected = []       # Final selected signals
     selected_symbols = set()  # Symbols already picked in this batch
@@ -242,6 +243,14 @@ def select_signals() -> List[Dict]:
                 logger.info(
                     "  %s: SKIPPED %s %s — %s",
                     label, sig["direction"], sym, slip_reason,
+                )
+                continue
+
+            # BINANCE FUTURES CHECK: symbol must exist on Futures
+            if not is_on_binance_futures(sym):
+                logger.info(
+                    "  %s: SKIPPED %s %s — not on Binance Futures (Spot only)",
+                    label, sig["direction"], sym,
                 )
                 continue
 
