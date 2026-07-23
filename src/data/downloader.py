@@ -174,14 +174,43 @@ class DataDownloader:
                 
                 logger.debug(f"Downloaded {len(candles)} candles, last timestamp: {datetime.fromtimestamp(last_timestamp/1000)}")
                 
+            except ccxt.RateLimitExceeded as e:
+                # Parse Retry-After header if present, otherwise default to 60s
+                retry_after = 60
+                try:
+                    # CCXT attaches the raw HTTP headers to some exceptions
+                    headers = getattr(e, "headers", None) or {}
+                    if "Retry-After" in headers:
+                        retry_after = int(headers["Retry-After"])
+                    elif "retry-after" in headers:
+                        retry_after = int(headers["retry-after"])
+                except Exception:
+                    pass
+                wait_sec = retry_after + 60
+                logger.warning(
+                    f"Rate limit hit (429). Retry-After={retry_after}s. "
+                    f"Sleeping {wait_sec}s before retrying..."
+                )
+                time.sleep(wait_sec)
+                continue
+            except ccxt.NetworkError as e:
+                logger.error(f"Network error downloading data: {e}. Sleeping 10s...")
+                time.sleep(10)
+                continue
             except Exception as e:
-                logger.error(f"Error downloading data: {e}")
-                # Fatal errors (bad symbol, auth failure) should not retry
+                # Check if the raw error message mentions 429 / rate limit
                 err_str = str(e).lower()
-                if any(k in err_str for k in ("does not have market symbol", "bad symbol", "invalid symbol", "not found")):
+                if "429" in err_str or "too many request" in err_str or "-1003" in err_str:
+                    logger.warning(
+                        f"Rate limit detected in exception: {e}. Sleeping 120s..."
+                    )
+                    time.sleep(120)
+                elif any(k in err_str for k in ("does not have market symbol", "bad symbol", "invalid symbol", "not found")):
                     logger.error(f"Symbol {symbol} not available on this exchange — skipping.")
                     break
-                time.sleep(5)  # Wait before retry on transient errors
+                else:
+                    logger.error(f"Error downloading data: {e}")
+                    time.sleep(5)
                 continue
         
         if not all_candles:
