@@ -1035,6 +1035,39 @@ CONFIG_V6_2 = ScoringConfig(
     display_types_extra=[],
 )
 
+# ── CONFIG_V6_3 — Pullback v2 (reduced flats, maintained WR) ──
+# Based on V6.2 analysis: 64% flat rate from low-score, low-vol signals.
+# Improvements:
+#   - min_abs_score=4.0 rejects signals that are 100% flat (all V6.2 flats were below 5)
+#   - min_atr_pct=0.2 avoids low-volatility traps (flats show near-zero return)
+#   - min_volume_relative=1.0 increased from 0.5 (flats had lower volume)
+#   - volume_divergence_weight=2.0 adds confirmation from buying pressure
+#   - min_adx=15 filters out non-trending markets (pullbacks need trends)
+CONFIG_V6_3 = ScoringConfig(
+    version="6.3",
+    description="Pullback v2: Reduced flats from 64% with higher vol/ADX filters + volume divergence confirmation.",
+    trend_weight=0.35,
+    volume_relative_weight=0.25,
+    signal_feed_weight=0.20,
+    scanner_hit_weight=0.10,
+    onchain_netflow_weight=0.05,
+    volume_divergence_weight=2.0,
+    min_volume_relative=1.0,
+    min_abs_score=4.0,
+    min_adx=15,
+    min_atr_pct=0.2,
+    # Alert thresholds
+    alert_min_score=7.0,
+    alert_require_multi_source=False,
+    # Filters
+    min_market_cap_usd=0.0,
+    max_market_cap_usd=0.0,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    # Metadata
+    display_types_extra=[],
+)
+
 # Quality Gate configs - NEW in v7.0
 CONFIG_V7_0 = ScoringConfig(
     version="7.0",
@@ -1444,7 +1477,7 @@ ALL_CONFIGS: dict[str, ScoringConfig] = {
         # Coin-type specific
         CONFIG_V5_0, CONFIG_V5_1, CONFIG_V5_2,
         # CEO suggested patterns
-        CONFIG_V6_0, CONFIG_V6_1, CONFIG_V6_2,
+        CONFIG_V6_0, CONFIG_V6_1, CONFIG_V6_2, CONFIG_V6_3,
         # Quality Gate (LLM-evolved series)
         CONFIG_V7_0, CONFIG_V7_2, CONFIG_V7_3, CONFIG_V7_4, CONFIG_V7_5, CONFIG_V7_6, CONFIG_V7_7,
         CONFIG_V7_8,
