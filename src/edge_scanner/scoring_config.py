@@ -1462,6 +1462,32 @@ CONFIG_V7_8 = ScoringConfig(
     regime_dir_bull_short_penalty=2.0,
 )
 
+
+
+# ── CONFIG_V3_3 — Auto-generated 2026-07-26 14:00 ──
+CONFIG_V3_3 = ScoringConfig(
+    version="3.3",
+    description="LLM-evolved: win-rate optimized config, tightened filters for higher quality",
+    min_abs_score=7.5,
+    min_adx=23,
+    min_rsi=32,
+    max_rsi=68,
+    min_atr_pct=0.35,
+    atr_stop_mult=1.8,
+    rr_ratio=2.0,
+    trend_weight=0.4,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.3,
+    onchain_netflow_weight=0.1,
+    volume_divergence_weight=3.5,
+    smart_money_index_weight=2.5,
+    low_float_squeeze_weight=1.5,
+    regime_dir_bear_short_bonus=2.5,
+    regime_dir_bear_long_penalty=2.5,
+    regime_dir_bull_long_bonus=2.5,
+    regime_dir_bull_short_penalty=2.5,
+)
+
 ACTIVE_CONFIG = CONFIG_V3_1
 
 ALL_CONFIGS: dict[str, ScoringConfig] = {
@@ -1471,7 +1497,7 @@ ALL_CONFIGS: dict[str, ScoringConfig] = {
         # Multi-timeframe (all kept for records)
         CONFIG_V2_0, CONFIG_V2_1, CONFIG_V2_2,
         # ADX momentum (all kept for records)
-        CONFIG_V3_0, CONFIG_V3_1, CONFIG_V3_2,
+        CONFIG_V3_0, CONFIG_V3_1, CONFIG_V3_2, CONFIG_V3_3,
         # Breakout intensity
         CONFIG_V4_0, CONFIG_V4_1,
         # Coin-type specific
