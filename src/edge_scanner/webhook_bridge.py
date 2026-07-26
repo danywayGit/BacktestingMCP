@@ -196,6 +196,9 @@ def select_signals() -> List[Dict]:
     Returns at most MAX_SIGNALS_PER_BATCH signals, with no duplicate symbols.
     """
     from src.integrations.binance_symbols import is_on_binance_futures
+
+    # When using TestNet, validate against TestNet symbols instead of production
+    testnet_check = ACCOUNT_TYPE == "TestNet"
     cooldown_symbols = get_open_position_symbols()
     selected = []       # Final selected signals
     selected_symbols = set()  # Symbols already picked in this batch
@@ -255,6 +258,22 @@ def select_signals() -> List[Dict]:
                     label, sig["direction"], sym,
                 )
                 continue
+            if testnet_check:
+                try:
+                    resp = httpx.get(
+                        "https://testnet.binancefuture.com/fapi/v1/exchangeInfo",
+                        timeout=5,
+                    )
+                    if resp.status_code == 200:
+                        testnet_syms = {s["symbol"][:-4] for s in resp.json()["symbols"]}
+                        if sym not in testnet_syms:
+                            logger.info(
+                                "  %s: SKIPPED %s %s — not on TestNet",
+                                label, sig["direction"], sym,
+                            )
+                            continue
+                except Exception:
+                    pass  # skip TestNet check if it fails
 
             sig["_priority_label"] = label
             selected.append(sig)
