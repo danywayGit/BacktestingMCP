@@ -994,7 +994,8 @@ def edge_scan(timeframe, lookback_days, per_side, horizon_hours, log, multi, ver
 
     # Multi mode — all versions in parallel (default)
     else:
-        configs_to_run = list(ALL_CONFIGS.values())
+        from src.edge_scanner.scoring_config import get_enabled_configs as _get_enabled_cfgs
+        configs_to_run = list(_get_enabled_cfgs().values())
 
     if not multi and len(configs_to_run) == 1:
         # Legacy single-version output (detailed, all candidates shown)
