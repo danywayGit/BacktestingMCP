@@ -252,7 +252,7 @@ def _find_first_hit_hours(data, entry_time: datetime, level: float, direction: s
     if data is None or data.empty:
         return 0.0
     for idx, row in data.iterrows():
-        bar_time = idx if isinstance(idx, datetime) else entry_time
+        bar_time = idx.to_pydatetime() if hasattr(idx, 'to_pydatetime') else (idx if isinstance(idx, datetime) else entry_time)
         if hit_type == "target":
             if direction == "LONG" and row["High"] >= level:
                 return (bar_time - entry_time).total_seconds() / 3600
