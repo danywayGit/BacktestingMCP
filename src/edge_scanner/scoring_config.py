@@ -705,6 +705,16 @@ CONFIG_V1_4 = ScoringConfig(
     display_types_extra=[],
 )
 
+# ── CONFIG_V1_5 — Conservative R:R (1.2) ──
+# Lower risk-reward ratio based on analysis: average peak is ~49% of target.
+CONFIG_V1_5 = ScoringConfig(
+    version="1.5",
+    description="Conservative R:R (1.2): Lower R:R for higher TP hit rate.",
+    rr_ratio=1.2,
+    alert_min_score=4.0,
+    display_types_extra=[],
+)
+
 # Multi-timeframe alignment configs
 CONFIG_V2_0 = ScoringConfig(
     version="2.0",
@@ -1493,7 +1503,7 @@ ACTIVE_CONFIG = CONFIG_V3_1
 ALL_CONFIGS: dict[str, ScoringConfig] = {
     c.version: c for c in [
         # Baseline variants
-        CONFIG_V1_0, CONFIG_V1_1, CONFIG_V1_2, CONFIG_V1_3, CONFIG_V1_4,
+        CONFIG_V1_0, CONFIG_V1_1, CONFIG_V1_2, CONFIG_V1_3, CONFIG_V1_4, CONFIG_V1_5,
         # Multi-timeframe (all kept for records)
         CONFIG_V2_0, CONFIG_V2_1, CONFIG_V2_2,
         # ADX momentum (all kept for records)
