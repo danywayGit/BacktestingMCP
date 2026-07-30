@@ -243,16 +243,13 @@ def _fetch_window_data(pair: str, timeframe: TimeFrame, start: datetime, end: da
 
 
 def _find_first_hit_hours(data, entry_time: datetime, level: float, direction: str, hit_type: str) -> float:
-    """Find the first bar where target or stop was breached.
-
-    Returns the hours from entry_time to the first hit bar.
-    hit_type: 'target' (check High for LONG, Low for SHORT)
-              'stop'  (check Low for LONG, High for SHORT)
-    """
+    """Find the first bar where target or stop was breached."""
     if data is None or data.empty:
         return 0.0
     for idx, row in data.iterrows():
         bar_time = idx.to_pydatetime() if hasattr(idx, 'to_pydatetime') else (idx if isinstance(idx, datetime) else entry_time)
+        if bar_time.tzinfo is None and entry_time.tzinfo is not None:
+            bar_time = bar_time.replace(tzinfo=entry_time.tzinfo)
         if hit_type == "target":
             if direction == "LONG" and row["High"] >= level:
                 return (bar_time - entry_time).total_seconds() / 3600
