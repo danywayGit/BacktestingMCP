@@ -34,13 +34,14 @@ DB_PATH = "/home/hermes/BacktestingMCP/data/crypto.db"
 
 # Config priority: (version, min_score, label)
 CONFIG_PRIORITY = [
+    ("5.1", 7.5, "V5.1 AI-focused"),      # 48.9% WR (60.5% non-flat) — best performer
     ("6.2", 7.5, "V6.2 Pullback"),    # 63.6% WR — best performer
     ("6.3", 7.5, "V6.3 Pullback v2"),  # Improved flats reduction
     ("3.1", 7.5, "V3.1 ADX Trend"),  # 59.6% WR
     ("4.1", 7.5, "V4.1 Breakout"),    # 58.0% WR
     ("9.0", 7.0, "V9.0 Vol Imbalance"),  # New strategy
-    ("1.0", 9.0, "V1.0 Baseline"),    # 52.1% WR, workhorse (raised to 9.0 to send only best)
     ("1.5", 7.5, "V1.5 Conservative R:R"),  # 1.2 R:R for higher TP hit
+    ("1.0", 9.0, "V1.0 Baseline"),    # 52.1% WR, workhorse (only best signals)
 ]
 
 MAX_SIGNALS_PER_BATCH = 3       # Max positions the bot can handle
