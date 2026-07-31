@@ -39,7 +39,7 @@ CONFIG_PRIORITY = [
     ("3.1", 7.5, "V3.1 ADX Trend"),  # 59.6% WR
     ("4.1", 7.5, "V4.1 Breakout"),    # 58.0% WR
     ("9.0", 7.0, "V9.0 Vol Imbalance"),  # New strategy
-    ("1.0", 8.0, "V1.0 Baseline"),    # 52.1% WR, workhorse
+    ("1.0", 9.0, "V1.0 Baseline"),    # 52.1% WR, workhorse (raised to 9.0 to send only best)
     ("1.5", 7.5, "V1.5 Conservative R:R"),  # 1.2 R:R for higher TP hit
 ]
 
