@@ -321,6 +321,14 @@ class ScoringConfig:
     Positive = bullish (confirms LONG), negative = bearish (confirms SHORT).
     """
 
+    # ── Chart Pattern Scoring (from altFINS TA scraper) ──────────────────
+    chart_pattern_weight: float = 0.0
+    """Weight for chart pattern detection from altFINS technical-analysis page.
+    Bullish patterns: Bullish Flag, Falling Wedge, Resistance Breakout, etc.
+    Bearish patterns: Channel Down, Descending Triangle, etc.
+    Breakout stage patterns get higher score than Emerging.
+    Pattern direction + breakout stage = confidence boost for signal direction."""
+
     # ── Funding Rate Mean-Reversion (leading indicator) ─────────────────────
     funding_rate_weight: float = 0.0
     """Weight for extreme funding rate signal. Funding rate < -0.006 (LONG)
@@ -712,6 +720,32 @@ CONFIG_V1_5 = ScoringConfig(
     description="Conservative R:R (1.2): Lower R:R for higher TP hit rate.",
     rr_ratio=1.2,
     alert_min_score=4.0,
+    display_types_extra=[],
+)
+
+# ── CONFIG_V10_0 — Chart Pattern Strategy ──
+# Uses altFINS technical-analysis page to detect chart patterns.
+# Scores coins based on pattern type, outlook, and stage.
+# Breakout > Emerging. Bullish/Bearish direction + pattern confirmation.
+CONFIG_V10_0 = ScoringConfig(
+    version="10.0",
+    description="Chart Pattern Hunter: Scores coins with confirmed altFINS chart patterns (Bullish Flag, Falling Wedge, etc.). Breakout stage > Emerging.",
+    # Low trend/volume weights — patterns are the primary signal
+    trend_weight=0.2,
+    volume_relative_weight=0.5,
+    signal_feed_weight=1.0,
+    scanner_hit_weight=0.5,
+    # Pattern scoring (requires scraper data)
+    chart_pattern_weight=5.0,
+    # ATR filter — patterns need volatility
+    min_atr_pct=0.15,
+    # R:R
+    rr_ratio=1.5,
+    # Filters
+    min_abs_score=4.0,
+    alert_min_score=4.0,
+    alert_require_multi_source=False,
+    coin_type_filter=["ANY"],
     display_types_extra=[],
 )
 
@@ -1503,7 +1537,7 @@ ACTIVE_CONFIG = CONFIG_V3_1
 ALL_CONFIGS: dict[str, ScoringConfig] = {
     c.version: c for c in [
         # Baseline variants
-        CONFIG_V1_0, CONFIG_V1_1, CONFIG_V1_2, CONFIG_V1_3, CONFIG_V1_4, CONFIG_V1_5,
+        CONFIG_V1_0, CONFIG_V1_1, CONFIG_V1_2, CONFIG_V1_3, CONFIG_V1_4, CONFIG_V1_5, CONFIG_V10_0,
         # Multi-timeframe (all kept for records)
         CONFIG_V2_0, CONFIG_V2_1, CONFIG_V2_2,
         # ADX momentum (all kept for records)
