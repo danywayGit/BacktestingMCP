@@ -1112,6 +1112,30 @@ CONFIG_V6_3 = ScoringConfig(
     display_types_extra=[],
 )
 
+# ── CONFIG_V6_4 — Flat Killer: Tight stop + close target ──
+# Analysis showed 0% flat rate for signals resolving <15h.
+CONFIG_V6_4 = ScoringConfig(
+    version="6.4",
+    description="Flat Killer: Tight stop (1.5×ATR) + close target (R:R 1.2) + high vol filter.",
+    trend_weight=0.35,
+    volume_relative_weight=0.25,
+    signal_feed_weight=0.20,
+    scanner_hit_weight=0.10,
+    onchain_netflow_weight=0.05,
+    volume_divergence_weight=2.0,
+    atr_stop_mult=1.5,
+    rr_ratio=1.2,
+    min_volume_relative=1.2,
+    min_atr_pct=0.3,
+    min_adx=20,
+    min_abs_score=4.0,
+    alert_min_score=7.0,
+    alert_require_multi_source=False,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    display_types_extra=[],
+)
+
 # Quality Gate configs - NEW in v7.0
 CONFIG_V7_0 = ScoringConfig(
     version="7.0",
@@ -1547,7 +1571,7 @@ ALL_CONFIGS: dict[str, ScoringConfig] = {
         # Coin-type specific
         CONFIG_V5_0, CONFIG_V5_1, CONFIG_V5_2,
         # CEO suggested patterns
-        CONFIG_V6_0, CONFIG_V6_1, CONFIG_V6_2, CONFIG_V6_3,
+        CONFIG_V6_0, CONFIG_V6_1, CONFIG_V6_2, CONFIG_V6_3, CONFIG_V6_4,
         # Quality Gate (LLM-evolved series)
         CONFIG_V7_0, CONFIG_V7_2, CONFIG_V7_3, CONFIG_V7_4, CONFIG_V7_5, CONFIG_V7_6, CONFIG_V7_7,
         CONFIG_V7_8,
