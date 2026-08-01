@@ -427,6 +427,37 @@ def score_symbol(
     components["backtestingmcp_scanner_hits"] = triggered_scans
     components["coin_type"] = coin_type
 
+    # ── Chart Pattern Scoring (from altFINS TA scraper) ──────────────────
+    chart_pattern_score = 0.0
+    if cfg.chart_pattern_weight > 0:
+        try:
+            # Import the cached pattern data
+            from .altfins_pattern_cache import get_pattern_for_symbol
+            pattern = get_pattern_for_symbol(symbol)
+            if pattern:
+                outlook = pattern.get("outlook", "")
+                stage = pattern.get("stage", "")
+                pattern_type = pattern.get("pattern", "")
+                
+                # Score based on outlook direction and stage
+                if outlook.upper() == "BULLISH":
+                    base = cfg.chart_pattern_weight * (2.0 if stage.upper() == "BREAKOUT" else 1.0)
+                    chart_pattern_score = base
+                elif outlook.upper() == "BEARISH":
+                    base = -cfg.chart_pattern_weight * (2.0 if stage.upper() == "BREAKOUT" else 1.0)
+                    chart_pattern_score = base
+                
+                if chart_pattern_score != 0:
+                    score += chart_pattern_score
+                    components["chart_pattern"] = {
+                        "outlook": outlook,
+                        "pattern": pattern_type,
+                        "stage": stage,
+                        "score_bonus": round(chart_pattern_score, 1),
+                    }
+        except Exception as exc:
+            logger.debug("Chart pattern scoring failed for %s: %s", symbol, exc)
+
     direction: Optional[str] = None
 
     # Apply config filters at scoring stage
