@@ -43,7 +43,7 @@ CONFIG_PRIORITY = [
     ("4.1", 7.5, "V4.1 Breakout"),    # 58.0% WR
     ("9.0", 7.0, "V9.0 Vol Imbalance"),  # New strategy
     ("1.5", 7.5, "V1.5 Conservative R:R"),  # 1.2 R:R for higher TP hit
-    ("1.0", 9.0, "V1.0 Baseline"),    # 52.1% WR, workhorse (only best signals)
+    ("1.0", 10.0, "V1.0 Baseline"),   # 52.1% WR, workhorse (only top signals, rr=2.0 too wide)
 ]
 
 MAX_SIGNALS_PER_BATCH = 3       # Max positions the bot can handle
