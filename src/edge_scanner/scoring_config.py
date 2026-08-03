@@ -1155,13 +1155,13 @@ CONFIG_V11_0 = ScoringConfig(
     scanner_hit_weight=0.2,
     onchain_netflow_weight=0.1,
     volume_divergence_weight=2.0,
-    chart_pattern_weight=3.0,
+    chart_pattern_weight=5.0,
     # Risk management
     atr_stop_mult=3.0,
     rr_ratio=1.2,
     # Filters — only high-conviction signals
-    min_abs_score=8.0,
-    short_min_abs_score=8.0,
+    min_abs_score=7.0,
+    short_min_abs_score=7.0,
     min_atr_pct=0.2,
     min_volume_relative=1.0,
     min_adx=15,
