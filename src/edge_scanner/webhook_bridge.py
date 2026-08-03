@@ -47,6 +47,8 @@ CONFIG_PRIORITY = [
 ]
 
 MAX_SIGNALS_PER_BATCH = 3       # Max positions the bot can handle
+MAX_SCORE_CAP = 11.0            # Cap composite score — 12+ signals mean-revert (22% WR vs 59% for 10-12)
+EXCLUDED_SYMBOLS = {"BTW", "EUL", "EIGEN", "MORPHO", "DGB"}  # 0% WR symbols — never profitable
 MAX_SLIPPAGE_PCT = 0.5           # Max price difference from entry before skipping signal
 
 
@@ -254,6 +256,15 @@ def select_signals() -> List[Dict]:
                     label, sig["direction"], sym, slip_reason,
                 )
                 continue
+
+            # Exclude symbols that have never been profitable
+            if sym in EXCLUDED_SYMBOLS:
+                logger.info("  %s: SKIPPED %s %s — excluded symbol (0%% WR)", label, sym, sig["direction"])
+                continue
+
+            # Cap score — extreme scores (12+) mean-revert
+            capped_score = min(sig["composite_score"], MAX_SCORE_CAP)
+            sig["composite_score"] = capped_score
 
             # BINANCE FUTURES CHECK: symbol must exist on Futures
             if not is_on_binance_futures(sym):
