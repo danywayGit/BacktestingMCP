@@ -1137,6 +1137,46 @@ CONFIG_V6_4 = ScoringConfig(
     display_types_extra=[],
 )
 
+# ── CONFIG_V11_0 — Optimized Pro: best of all analysis ──
+# Built from the deep analysis findings:
+# 1. Score sweet spot 10-12 has 59.4% WR (vs 22% for 12+)
+# 2. Chart patterns add confirmation (chart_pattern_weight)
+# 3. Tight but reasonable stops (atr_stop_mult=3.0)
+# 4. High min_abs_score=8.0 filters to only the best signals
+# 5. Volume divergence + ADX filter out flat-inducing signals
+# 6. R:R 1.2 for higher TP hit rate (V1.5 proved this works)
+CONFIG_V11_0 = ScoringConfig(
+    version="11.0",
+    description="Optimized Pro: Built from deep analysis. 59.4% WR sweet spot (10-12 score), pattern confirmation, high-volume filters.",
+    # Weights — moderate, patterns add confirmation
+    trend_weight=0.3,
+    volume_relative_weight=0.3,
+    signal_feed_weight=0.3,
+    scanner_hit_weight=0.2,
+    onchain_netflow_weight=0.1,
+    volume_divergence_weight=2.0,
+    chart_pattern_weight=3.0,
+    # Risk management
+    atr_stop_mult=3.0,
+    rr_ratio=1.2,
+    # Filters — only high-conviction signals
+    min_abs_score=8.0,
+    short_min_abs_score=8.0,
+    min_atr_pct=0.2,
+    min_volume_relative=1.0,
+    min_adx=15,
+    require_non_trend_confirmation=True,
+    # Alert thresholds
+    alert_min_score=8.0,
+    alert_require_multi_source=True,
+    # Filters
+    min_market_cap_usd=0.0,
+    max_market_cap_usd=0.0,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    display_types_extra=[],
+)
+
 # Quality Gate configs - NEW in v7.0
 CONFIG_V7_0 = ScoringConfig(
     version="7.0",
@@ -1588,7 +1628,7 @@ ACTIVE_CONFIG = CONFIG_V3_1
 ALL_CONFIGS: dict[str, ScoringConfig] = {
     c.version: c for c in [
         # Baseline variants
-        CONFIG_V1_0, CONFIG_V1_1, CONFIG_V1_2, CONFIG_V1_3, CONFIG_V1_4, CONFIG_V1_5, CONFIG_V10_0,
+        CONFIG_V1_0, CONFIG_V1_1, CONFIG_V1_2, CONFIG_V1_3, CONFIG_V1_4, CONFIG_V1_5, CONFIG_V10_0, CONFIG_V11_0,
         # Multi-timeframe (all kept for records)
         CONFIG_V2_0, CONFIG_V2_1, CONFIG_V2_2,
         # ADX momentum (all kept for records)
