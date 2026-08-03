@@ -200,7 +200,7 @@ def _check_slippage(sig: Dict) -> Tuple[bool, str]:
 
 def _check_market_regime(direction: str, market: str = "BTC") -> Tuple[bool, str]:
     """Check if the market trend supports the trade direction.
-    Uses EMA20 on 1h data to determine trend.
+    Uses EMA20 on 4h data — smoother than 1h, catches macro trend.
     Returns (True, '') if OK, (False, reason) if blocked.
     """
     from datetime import datetime, timezone, timedelta
@@ -212,8 +212,8 @@ def _check_market_regime(direction: str, market: str = "BTC") -> Tuple[bool, str
     try:
         engine = BacktestingEngine()
         end = datetime.now(timezone.utc)
-        start = end - timedelta(days=5)
-        df = engine.get_data(pair, TimeFrame.H1, start, end)
+        start = end - timedelta(days=10)
+        df = engine.get_data(pair, TimeFrame.H4, start, end)
         if df.empty or len(df) < 20:
             return True, f"no data for {pair}"
 
