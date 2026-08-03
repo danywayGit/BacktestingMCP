@@ -443,6 +443,12 @@ class ScoringConfig:
     exclude_coin_types: List[str] = field(default_factory=list)
     """Coin types to always exclude (applied on top of coin_type_filter)."""
 
+    market_regime_filter: str = "OFF"
+    """Market regime filter: 'OFF' (no filter), 'BTC' (check BTC trend), 'ETH' (check ETH trend).
+    When set, LONG signals are blocked if the market is in a downtrend (price < EMA20),
+    and SHORT signals are blocked if the market is in an uptrend (price > EMA20).
+    Uses BTCUSDT or ETHUSDT 1h EMA20 as the trend indicator."""
+
     require_multi_timeframe_alignment: bool = False
     """If True, require SHORT_TERM and MEDIUM_TERM trend to agree in direction.
     Eliminates counter-trend entries but reduces signal count significantly."""
@@ -1166,6 +1172,7 @@ CONFIG_V11_0 = ScoringConfig(
     min_volume_relative=1.0,
     min_adx=15,
     require_non_trend_confirmation=True,
+    market_regime_filter="BTC",
     # Alert thresholds
     alert_min_score=8.0,
     alert_require_multi_source=True,
@@ -1202,6 +1209,7 @@ CONFIG_V12_0 = ScoringConfig(
     min_volume_relative=0.5,
     min_adx=0,
     require_non_trend_confirmation=True,
+    market_regime_filter="BTC",
     # Alert thresholds
     alert_min_score=9.0,
     alert_require_multi_source=True,
