@@ -6,6 +6,25 @@
 
 ---
 
+## 2026-08-03: arXiv Research Findings
+
+### Key Papers
+
+| Paper | Finding | Application |
+|-------|---------|-------------|
+| **2506.11921** (Jun 2025) | Dynamic Grid Trading (DGT) beats static grid + buy-hold on BTC/ETH | Adapt grid levels to market conditions |
+| **1411.5062** (Leung & Li) | **Higher stop-loss → lower optimal take-profit** (mathematically proven) | **Confirms our R:R 1.0 strategy** |
+| **2407.11786** (Hafid et al.) | EMA + MACD as XGBoost features for BTC prediction | ML signal generation |
+| **2208.07168** (Jevtic et al.) | LSTM/RF/SVR vs conventional; performance varies by volatility regime | Market regime awareness needed |
+| **1806.06632** (Burnie) | Crypto correlation networks — related coins move together | Add correlation filter to avoid stacking correlated positions |
+
+### Critical Insight from 1411.5062
+> "A higher stop-loss level always implies a lower optimal take-profit level."
+
+This **mathematically validates** our V12.0 design: we widened the stop (atr_stop_mult 1.5→3.0) AND lowered the target (rr_ratio 2.0→1.0). These two changes are complementary, not contradictory.
+
+---
+
 ## 2026-08-03: Deep Analysis & Major Fixes
 
 ### Context

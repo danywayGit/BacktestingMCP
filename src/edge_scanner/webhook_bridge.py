@@ -198,6 +198,40 @@ def _check_slippage(sig: Dict) -> Tuple[bool, str]:
         return True, f"price check failed ({e})"
 
 
+def _check_market_regime(direction: str, market: str = "BTC") -> Tuple[bool, str]:
+    """Check if the market trend supports the trade direction.
+    Uses EMA20 on 1h data to determine trend.
+    Returns (True, '') if OK, (False, reason) if blocked.
+    """
+    from datetime import datetime, timezone, timedelta
+    from src.core.backtesting_engine import BacktestingEngine
+    from src.data.timeframe_converter import TimeFrame
+    import pandas as pd
+
+    pair = f"{market}USDT"
+    try:
+        engine = BacktestingEngine()
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=5)
+        df = engine.get_data(pair, TimeFrame.H1, start, end)
+        if df.empty or len(df) < 20:
+            return True, f"no data for {pair}"
+
+        close = df['Close'].values
+        last = float(close[-1])
+        ema20 = float(pd.Series(close).ewm(span=20).mean().iloc[-1])
+        trend = "UP" if last > ema20 else "DOWN"
+
+        if direction == "LONG" and trend == "DOWN":
+            return False, f"{market} in downtrend (price {last:.0f} < EMA20 {ema20:.0f}) — LONG blocked"
+        elif direction == "SHORT" and trend == "UP":
+            return False, f"{market} in uptrend (price {last:.0f} > EMA20 {ema20:.0f}) — SHORT blocked"
+        return True, ""
+    except Exception as e:
+        logger.warning("Market regime check failed: %s", e)
+        return True, f"check failed: {e}"
+
+
 def select_signals() -> List[Dict]:
     """Select the best signals across all configs using priority + dedup.
 
@@ -258,6 +292,16 @@ def select_signals() -> List[Dict]:
                     label, sig["direction"], sym, slip_reason,
                 )
                 continue
+
+            # MARKET REGIME CHECK: don't trade against BTC trend
+            if cfg.market_regime_filter != "OFF":
+                regime_ok, regime_reason = _check_market_regime(sig["direction"], cfg.market_regime_filter)
+                if not regime_ok:
+                    logger.info(
+                        "  %s: REGIME BLOCKED %s %s — %s",
+                        label, sig["direction"], sym, regime_reason,
+                    )
+                    continue
 
             # Exclude symbols that have never been profitable
             if sym in EXCLUDED_SYMBOLS:
