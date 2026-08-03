@@ -373,9 +373,10 @@ class ScoringConfig:
     Adds score bonus proportional to the interval change magnitude."""
 
     # ── Risk management (target/stop computation) ──────────────────────────
-    atr_stop_mult: float = 1.5
+    atr_stop_mult: float = 3.0
     """ATR multiplier for stop loss placement. stop = entry ± (ATR × mult).
-    SWING strategies optimized to 1.5-2.0. Higher = wider stop, more room."""
+    Raised to 3.0 from 1.5: stops were too tight (0.7% on ETH = noise stops).
+    3.0×ATR gives ~1.4% on ETH, reducing noise stops while keeping R:R."""
 
     rr_ratio: float = 2.0
     """Risk-to-reward ratio. target = entry ± (stop_distance × RR).
@@ -1123,7 +1124,7 @@ CONFIG_V6_4 = ScoringConfig(
     scanner_hit_weight=0.10,
     onchain_netflow_weight=0.05,
     volume_divergence_weight=2.0,
-    atr_stop_mult=1.5,
+    atr_stop_mult=3.0,
     rr_ratio=1.2,
     min_volume_relative=1.2,
     min_atr_pct=0.3,
@@ -1187,7 +1188,7 @@ CONFIG_V7_2 = ScoringConfig(
     smart_money_index_weight=2.0,
     low_float_squeeze_weight=1.5,
     # Risk management (target/stop computation)
-    atr_stop_mult=1.5,
+    atr_stop_mult=3.0,
     rr_ratio=2.0,
     # Quality filters - NEW in v7.0
     min_abs_score=5.0,
@@ -1231,7 +1232,7 @@ CONFIG_V7_3 = ScoringConfig(
     smart_money_index_weight=0.0,
     low_float_squeeze_weight=0.0,
     # Risk management (target/stop computation) - WIDER STOP/TARGET
-    atr_stop_mult=2.0,
+    atr_stop_mult=3.0,
     rr_ratio=2.5,
     # Quality filters - NEW in v7.0
     min_abs_score=5.0,
@@ -1275,7 +1276,7 @@ CONFIG_V7_4 = ScoringConfig(
     smart_money_index_weight=0.0,
     low_float_squeeze_weight=0.0,
     # Risk management (target/stop computation) - WIDE STOP, TIGHT TARGET
-    atr_stop_mult=2.0,
+    atr_stop_mult=3.0,
     rr_ratio=1.5,
     # Quality filters - NEW in v7.0
     min_abs_score=5.0,
@@ -1331,7 +1332,7 @@ CONFIG_V8_0 = ScoringConfig(
     pre_funding_dip_weight=3.0,
     interval_switch_weight=5.0,
     # Risk management — tighter, faster for funding-driven moves
-    atr_stop_mult=1.0,
+    atr_stop_mult=3.0,
     rr_ratio=1.5,
     # Quality filters — lighter, funding rate is the confirmation
     min_abs_score=5.0,
@@ -1381,7 +1382,7 @@ CONFIG_V9_0 = ScoringConfig(
     # Volume Imbalance — PRIMARY signal source (Paper 2)
     volume_imbalance_weight=5.0,
     # Risk management
-    atr_stop_mult=2.0,
+    atr_stop_mult=3.0,
     rr_ratio=2.0,
     # Quality filters — moderate
     min_abs_score=5.0,
@@ -1423,7 +1424,7 @@ CONFIG_V7_5 = ScoringConfig(
     min_rsi=25,
     max_rsi=75,
     min_atr_pct=0.2,
-    atr_stop_mult=1.5,
+    atr_stop_mult=3.0,
     rr_ratio=2.0,
     trend_weight=0.4,
     volume_relative_weight=0.2,
@@ -1462,7 +1463,7 @@ CONFIG_V7_6 = ScoringConfig(
     min_rsi=28,
     max_rsi=72,
     min_atr_pct=0.2,
-    atr_stop_mult=1.5,
+    atr_stop_mult=3.0,
     rr_ratio=2.0,
     trend_weight=0.35,
     volume_relative_weight=0.25,
@@ -1489,7 +1490,7 @@ CONFIG_V7_7 = ScoringConfig(
     min_rsi=25,
     max_rsi=75,
     min_atr_pct=0.25,
-    atr_stop_mult=1.5,
+    atr_stop_mult=3.0,
     rr_ratio=2.0,
     trend_weight=0.35,
     volume_relative_weight=0.25,
@@ -1515,7 +1516,7 @@ CONFIG_V7_8 = ScoringConfig(
     min_rsi=30,
     max_rsi=70,
     min_atr_pct=0.3,
-    atr_stop_mult=1.5,
+    atr_stop_mult=3.0,
     rr_ratio=2.0,
     trend_weight=0.45,
     volume_relative_weight=0.2,
@@ -1541,7 +1542,7 @@ CONFIG_V3_3 = ScoringConfig(
     min_rsi=32,
     max_rsi=68,
     min_atr_pct=0.35,
-    atr_stop_mult=1.8,
+    atr_stop_mult=3.0,
     rr_ratio=2.0,
     trend_weight=0.4,
     volume_relative_weight=0.2,
@@ -1554,6 +1555,32 @@ CONFIG_V3_3 = ScoringConfig(
     regime_dir_bear_long_penalty=2.5,
     regime_dir_bull_long_bonus=2.5,
     regime_dir_bull_short_penalty=2.5,
+)
+
+
+
+# ── CONFIG_V3_4 — Auto-generated 2026-08-02 14:00 ──
+CONFIG_V3_4 = ScoringConfig(
+    version="3.4",
+    description="LLM-evolved: win-rate optimized config, tightened filters for higher quality",
+    min_abs_score=8.0,
+    min_adx=25,
+    min_rsi=35,
+    max_rsi=65,
+    min_atr_pct=0.5,
+    atr_stop_mult=3.0,
+    rr_ratio=2.0,
+    trend_weight=0.4,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.3,
+    onchain_netflow_weight=0.1,
+    volume_divergence_weight=4.0,
+    smart_money_index_weight=3.0,
+    low_float_squeeze_weight=2.5,
+    regime_dir_bear_short_bonus=3.0,
+    regime_dir_bear_long_penalty=2.0,
+    regime_dir_bull_long_bonus=3.0,
+    regime_dir_bull_short_penalty=2.0,
 )
 
 ACTIVE_CONFIG = CONFIG_V3_1
