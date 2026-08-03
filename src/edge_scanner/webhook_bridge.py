@@ -34,7 +34,8 @@ DB_PATH = "/home/hermes/BacktestingMCP/data/crypto.db"
 
 # Config priority: (version, min_score, label)
 CONFIG_PRIORITY = [
-    ("11.0", 7.0, "V11.0 Optimized Pro"),  # NEW — built from analysis, 59% WR sweet spot
+    ("12.0", 9.0, "V12.0 Optimized Pro V2"),  # NEW — parameter-optimized, 46.7% WR
+    ("11.0", 7.0, "V11.0 Optimized Pro"),  # Built from analysis, 59% WR sweet spot
     ("5.1", 7.5, "V5.1 AI-focused"),      # 48.9% WR (60.5% non-flat) — best performer
     ("10.0", 7.5, "V10.0 Chart Patterns"),  # Chart pattern hunter — new
     ("6.2", 7.5, "V6.2 Pullback"),    # 63.6% WR — best performer

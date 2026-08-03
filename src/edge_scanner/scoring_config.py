@@ -1177,6 +1177,42 @@ CONFIG_V11_0 = ScoringConfig(
     display_types_extra=[],
 )
 
+# ── CONFIG_V12_0 — Optimized Pro V2: parameter-optimized ──
+# Built from 1296-parameter grid search against historical data.
+# Best parameters: min_abs_score=9.0, rr_ratio=1.0, atr_stop_mult=3.0
+# Yielded: 46.7% WR, +0.95% expectancy, 55.6% flat rate (135 signals)
+CONFIG_V12_0 = ScoringConfig(
+    version="12.0",
+    description="Optimized Pro V2: Parameter-optimized via 1296-combo grid search. min_abs_score=9.0, rr_ratio=1.0, pattern confirmation.",
+    # Weights
+    trend_weight=0.3,
+    volume_relative_weight=0.3,
+    signal_feed_weight=0.3,
+    scanner_hit_weight=0.2,
+    onchain_netflow_weight=0.1,
+    volume_divergence_weight=2.0,
+    chart_pattern_weight=5.0,
+    # Risk management — optimizer-proven
+    atr_stop_mult=3.0,
+    rr_ratio=1.0,
+    # Filters — only highest-conviction signals
+    min_abs_score=9.0,
+    short_min_abs_score=9.0,
+    min_atr_pct=0.15,
+    min_volume_relative=0.5,
+    min_adx=0,
+    require_non_trend_confirmation=True,
+    # Alert thresholds
+    alert_min_score=9.0,
+    alert_require_multi_source=True,
+    # Filters
+    min_market_cap_usd=0.0,
+    max_market_cap_usd=0.0,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    display_types_extra=[],
+)
+
 # Quality Gate configs - NEW in v7.0
 CONFIG_V7_0 = ScoringConfig(
     version="7.0",
@@ -1628,7 +1664,7 @@ ACTIVE_CONFIG = CONFIG_V3_1
 ALL_CONFIGS: dict[str, ScoringConfig] = {
     c.version: c for c in [
         # Baseline variants
-        CONFIG_V1_0, CONFIG_V1_1, CONFIG_V1_2, CONFIG_V1_3, CONFIG_V1_4, CONFIG_V1_5, CONFIG_V10_0, CONFIG_V11_0,
+        CONFIG_V1_0, CONFIG_V1_1, CONFIG_V1_2, CONFIG_V1_3, CONFIG_V1_4, CONFIG_V1_5, CONFIG_V10_0, CONFIG_V11_0, CONFIG_V12_0,
         # Multi-timeframe (all kept for records)
         CONFIG_V2_0, CONFIG_V2_1, CONFIG_V2_2,
         # ADX momentum (all kept for records)
