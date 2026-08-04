@@ -415,8 +415,9 @@ def scan_gems(pages: int = 5, start_page: int = 3) -> List[GemCandidate]:
                 atl_dt = md.get("atl_date", {}).get("usd")
                 if atl_dt:
                     gem.atl_date = atl_dt
+                ath_dt = md.get("ath_date", {}).get("usd")
 
-                # Determine exact age from genesis_date or ATL date
+                # Determine exact age from genesis_date, ATL date, or ATH date
                 genesis = coin_data.get("genesis_date", "")
                 from datetime import datetime as _dt, timezone as _tz
                 now = _dt.now(_tz.utc)
@@ -430,6 +431,12 @@ def scan_gems(pages: int = 5, start_page: int = 3) -> List[GemCandidate]:
                 if coin_age_days >= 9999 and atl_dt:
                     try:
                         ad = _dt.fromisoformat(atl_dt.replace('Z', '+00:00'))
+                        coin_age_days = (now - ad).days
+                    except (ValueError, TypeError):
+                        pass
+                if coin_age_days >= 9999 and ath_dt:
+                    try:
+                        ad = _dt.fromisoformat(ath_dt.replace('Z', '+00:00'))
                         coin_age_days = (now - ad).days
                     except (ValueError, TypeError):
                         pass
