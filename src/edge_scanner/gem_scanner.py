@@ -87,7 +87,6 @@ FDV_MCAP_MAX = 10.0         # Max 10x FDV/MCap (dilution cap)
 CIRCULATING_MIN = 0.10      # At least 10% circulating
 CIRCULATING_MAX = 0.90      # At most 90% circulating
 MAX_COIN_AGE_YEARS = 2.0     # Hard rejection for coins >2 years old (LAB was <1yr)
-MAX_ATH_DRAWDOWN_PCT = 95.0  # Also reject coins down >95% from ATH (likely old, dead coins)
 LOAD_HEAVY_AGE_CHECK = 20    # Only do individual CoinGecko age lookups for top N candidates
 
 
@@ -442,10 +441,6 @@ def scan_gems(pages: int = 5, start_page: int = 3) -> List[GemCandidate]:
                     logger.info("Skipping %s: too old (%.1f years)", gem.symbol, coin_age_years)
                     continue
 
-                # Reject coins >95% below ATH (proxy for age when genesis_date is missing)
-                if abs(gem.ath_change_pct) > MAX_ATH_DRAWDOWN_PCT:
-                    logger.info("Skipping %s: too far from ATH (%.1f%%)", gem.symbol, gem.ath_change_pct)
-                    continue
 
                 gem = _score_gem(gem)  # Re-score with better age data
                 young_candidates.append(gem)
