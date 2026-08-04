@@ -132,6 +132,25 @@ def is_on_binance_futures(symbol: str) -> bool:
     return symbol.upper() in get_binance_futures_symbols()
 
 
+def is_futures_symbol_tradable(symbol: str) -> bool:
+    """Check if a symbol is actively TRADING (not PENDING_TRADING) on Binance Futures.
+    Some symbols exist in exchange info but are not yet tradable.
+    """
+    try:
+        import httpx
+        sym = symbol.upper() + "USDT" if not symbol.upper().endswith("USDT") else symbol.upper()
+        resp = httpx.get("https://fapi.binance.com/fapi/v1/exchangeInfo", timeout=5)
+        if resp.status_code != 200:
+            return True
+        info = resp.json()
+        for s in info.get('symbols', []):
+            if s['symbol'] == sym:
+                return s.get('status', '') == 'TRADING'
+        return False
+    except Exception:
+        return True  # Fallback: allow if check fails
+
+
 def is_on_binance_spot(symbol: str) -> bool:
     """Check if a symbol is tradeable on Binance Spot USDT."""
     return symbol.upper() in get_binance_spot_symbols()

@@ -238,7 +238,7 @@ def select_signals() -> List[Dict]:
 
     Returns at most MAX_SIGNALS_PER_BATCH signals, with no duplicate symbols.
     """
-    from src.integrations.binance_symbols import is_on_binance_futures
+    from src.integrations.binance_symbols import is_on_binance_futures, is_futures_symbol_tradable
 
     # When using TestNet, validate against TestNet symbols instead of production
     testnet_check = ACCOUNT_TYPE == "TestNet"
@@ -315,10 +315,16 @@ def select_signals() -> List[Dict]:
             capped_score = min(sig["composite_score"], MAX_SCORE_CAP)
             sig["composite_score"] = capped_score
 
-            # BINANCE FUTURES CHECK: symbol must exist on Futures
+            # BINANCE FUTURES CHECK: symbol must exist and be actively TRADING
             if not is_on_binance_futures(sym):
                 logger.info(
                     "  %s: SKIPPED %s %s — not on Binance Futures (Spot only)",
+                    label, sig["direction"], sym,
+                )
+                continue
+            if not is_futures_symbol_tradable(sym):
+                logger.info(
+                    "  %s: SKIPPED %s %s — not actively TRADING on Futures (PENDING_TRADING)",
                     label, sig["direction"], sym,
                 )
                 continue
