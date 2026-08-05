@@ -1253,6 +1253,42 @@ CONFIG_V13_0 = ScoringConfig(
     display_types_extra=[],
 )
 
+# ── CONFIG_V14_0 — Pattern Discovery: data-driven from BTC/ETH 5%+ moves ──
+# Built from the Pattern Discovery Engine analysis of 199 BTC/ETH 5%+ moves.
+# Key findings:
+#   - UP moves start at RSI ~49 (neutral), DOWN moves from RSI ~16-38 (oversold)
+#   - UP moves from below EMA50 (-2.3%), BB lower half (0.14-0.48)
+#   - Volume ratio 0.8-1.2x for big moves
+#   - ATR 0.6-1.0% for ETH, 0.7% for BTC
+# Only applies to BTCUSDT and ETHUSDT (major pair strategy).
+CONFIG_V14_0 = ScoringConfig(
+    version="14.0",
+    description="Pattern Discovery: Data-driven from 199 BTC/ETH 5%+ moves. RSI-neutral entries, EMA50 proximity, BB lower-half confirmation.",
+    # Weights — moderate, RSI and medium-term trend are key
+    trend_weight=0.3,
+    medium_term_trend_weight=2.0,  # EMA50 proximity matters
+    volume_relative_weight=0.3,
+    signal_feed_weight=0.0,  # Not needed for BTC/ETH
+    scanner_hit_weight=0.0,
+    rsi_momentum_weight=3.0,  # RSI is the #1 predictor
+    # Risk management
+    atr_stop_mult=3.0,
+    rr_ratio=1.2,
+    # Filters — data-driven from pattern analysis
+    min_abs_score=5.0,
+    min_atr_pct=0.5,  # Need volatility (ETH median 0.77%, BTC 0.72%)
+    min_volume_relative=0.5,  # Volume must be present
+    require_non_trend_confirmation=False,
+    market_regime_filter="BTC",
+    # Alert thresholds
+    alert_min_score=5.0,
+    alert_require_multi_source=False,
+    # Only BTC and ETH
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    display_types_extra=[],
+)
+
 # Quality Gate configs - NEW in v7.0
 CONFIG_V7_0 = ScoringConfig(
     version="7.0",
@@ -1704,7 +1740,7 @@ ACTIVE_CONFIG = CONFIG_V3_1
 ALL_CONFIGS: dict[str, ScoringConfig] = {
     c.version: c for c in [
         # Baseline variants
-        CONFIG_V1_0, CONFIG_V1_1, CONFIG_V1_2, CONFIG_V1_3, CONFIG_V1_4, CONFIG_V1_5, CONFIG_V10_0, CONFIG_V11_0, CONFIG_V12_0, CONFIG_V13_0,
+        CONFIG_V1_0, CONFIG_V1_1, CONFIG_V1_2, CONFIG_V1_3, CONFIG_V1_4, CONFIG_V1_5, CONFIG_V10_0, CONFIG_V11_0, CONFIG_V12_0, CONFIG_V13_0, CONFIG_V14_0,
         # Multi-timeframe (all kept for records)
         CONFIG_V2_0, CONFIG_V2_1, CONFIG_V2_2,
         # ADX momentum (all kept for records)
