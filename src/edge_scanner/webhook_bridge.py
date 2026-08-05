@@ -34,7 +34,8 @@ DB_PATH = "/home/hermes/BacktestingMCP/data/crypto.db"
 
 # Config priority: (version, min_score, label)
 CONFIG_PRIORITY = [
-    ("13.0", 8.0, "V13.0 Auto-Evolved"),  # NEW — LLM-suggested, high ADX + SMI
+    ("14.0", 5.0, "V14.0 Pattern Discovery"),  # Data-driven from BTC/ETH 5%+ moves
+    ("13.0", 8.0, "V13.0 Auto-Evolved"),  # LLM-suggested, high ADX + SMI
     ("12.0", 9.0, "V12.0 Optimized Pro V2"),  # Parameter-optimized, 46.7% WR
     ("11.0", 7.0, "V11.0 Optimized Pro"),  # Built from analysis, 59% WR sweet spot
     ("5.1", 7.5, "V5.1 AI-focused"),      # 48.9% WR (60.5% non-flat) — best performer
