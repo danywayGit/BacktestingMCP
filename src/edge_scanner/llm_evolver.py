@@ -221,6 +221,10 @@ def generate_new_config(stats: Dict[str, Any], active_version: str,
         logger.error("LLM call failed: %s", e)
         return None
 
+    if content is None:
+        logger.error("LLM returned empty content (model refused or finish_reason not 'stop')")
+        return None
+
     config = parse_llm_response(content)
     if config:
         logger.info("LLM generated new config: %s", json.dumps(config, indent=2))

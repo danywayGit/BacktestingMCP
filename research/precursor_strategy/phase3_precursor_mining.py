@@ -145,7 +145,7 @@ if __name__ == "__main__":
     print(f"  Loaded {len(rows)} feature rows from {FEATURES_FILE}")
 
     all_results = {}
-    for K in [20, 40, 60]:
+    for K in [60, 120, 240]:
         for sym_prefix in ["BTC", "ETH"]:
             key = f"{sym_prefix}_K{K}"
             results = analyze_features(rows, sym_prefix, None, K)
@@ -156,7 +156,7 @@ if __name__ == "__main__":
     # Save report
     report = {
         "phase": "Phase 3 — Precursor Mining",
-        "parameters": {"W": "30h (1h candles)", "K_values": [20, 40, 60]},
+        "parameters": {"W": "30h (120 × 15m candles)", "K_values": [60, 120, 240]},
         "results": {}
     }
     for key, results in all_results.items():
