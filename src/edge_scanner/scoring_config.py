@@ -1293,7 +1293,8 @@ CONFIG_V13_0 = ScoringConfig(
 # Window: 30h (120 × 15m) | Lookback: 60h (240 × 15m)
 CONFIG_V14_0 = ScoringConfig(
     version="14.0",
-    description="Precursor Pattern: Validated OOS. Volume spike + ATR expansion + range compression before 5%+ moves.",
+    description="⚠️ [RE-EVALUATION PENDING] Precursor Pattern: Validated OOS. Volume spike + ATR expansion + range compression before 5%+ moves. Auto-updated weekly by research pipeline.",
+    status="enabled",
     # Weights from validated precursors
     trend_weight=0.2,
     volume_relative_weight=3.0,  # Volume ratio >1.1x is key predictor
