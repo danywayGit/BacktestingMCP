@@ -329,6 +329,34 @@ class ScoringConfig:
     Breakout stage patterns get higher score than Emerging.
     Pattern direction + breakout stage = confidence boost for signal direction."""
 
+    # ── Volatility Squeeze (BB contraction → expansion) ────────────────────
+    bb_squeeze_min: float = 0.0
+    """Minimum Bollinger Band width percentile to consider a squeeze.
+    Lower values = tighter squeeze. 0 = disabled.
+    Squeeze detected when BB width is below this percentile vs trailing history,
+    then triggers when BB width expands above the squeeze threshold."""
+
+    # ── Mean Reversion (RSI extremes) ──────────────────────────────────────
+    mean_reversion_weight: float = 0.0
+    """Weight for mean reversion signal. Enters when RSI is extreme:
+    RSI < 30 = oversold → LONG signal (expect bounce)
+    RSI > 70 = overbought → SHORT signal (expect pullback)
+    Opposite of momentum trading."""
+
+    # ── Liquidation Proximity ──────────────────────────────────────────────
+    liquidation_proximity_weight: float = 0.0
+    """Weight for proximity to recent liquidation levels (price extremes).
+    When price is near recent swing lows (support) for LONGs or recent swing
+    highs (resistance) for SHORTs, adds score bonus."""
+
+    # ── Time-of-Day Filter ─────────────────────────────────────────────────
+    allowed_start_hour: int = 0
+    """Earliest hour (UTC) to allow signal entry. 0 = no filter.
+    Used with allowed_end_hour to create a trading window."""
+    allowed_end_hour: int = 24
+    """Latest hour (UTC) to allow signal entry. 24 = no filter.
+    Trading window: [allowed_start_hour, allowed_end_hour)."""
+
     # ── Funding Rate Mean-Reversion (leading indicator) ─────────────────────
     funding_rate_weight: float = 0.0
     """Weight for extreme funding rate signal. Funding rate < -0.006 (LONG)
@@ -1289,6 +1317,118 @@ CONFIG_V14_0 = ScoringConfig(
     display_types_extra=[],
 )
 
+# ── CONFIG_V15_0 — Multi-Timeframe Alignment ──
+# Requires 1h, 4h, and 1d trends to all agree in direction.
+# Catches only the strongest, most confirmed trends.
+# Fewer signals but higher win rate.
+CONFIG_V15_0 = ScoringConfig(
+    version="15.0",
+    description="Multi-TF Alignment: Requires 1h+4h+1d trend alignment. Fewer signals, stronger confirmation.",
+    trend_weight=0.3,
+    volume_relative_weight=0.3,
+    signal_feed_weight=0.3,
+    scanner_hit_weight=0.2,
+    onchain_netflow_weight=0.1,
+    require_multi_timeframe_alignment=True,
+    rr_ratio=1.5,
+    atr_stop_mult=3.0,
+    min_abs_score=6.0,
+    min_volume_relative=0.5,
+    display_types_extra=[],
+)
+
+# ── CONFIG_V16_0 — Volatility Squeeze ──
+# Enters when Bollinger Bands contract (squeeze) then expand.
+# Based on precursor research: BB width expansion precedes 5%+ moves.
+CONFIG_V16_0 = ScoringConfig(
+    version="16.0",
+    description="Volatility Squeeze: BB contraction → expansion. Catches explosive breakouts.",
+    trend_weight=0.2,
+    volume_relative_weight=0.3,
+    signal_feed_weight=0.2,
+    scanner_hit_weight=0.1,
+    volume_divergence_weight=2.0,
+    bb_squeeze_min=20.0,
+    rr_ratio=1.5,
+    atr_stop_mult=3.0,
+    min_abs_score=6.0,
+    min_atr_pct=0.2,
+    display_types_extra=[],
+)
+
+# ── CONFIG_V17_0 — Liquidation Proximity ──
+# Enters when price is near recent swing extremes (support/resistance).
+# Plays the bounce from liquidation clusters.
+CONFIG_V17_0 = ScoringConfig(
+    version="17.0",
+    description="Liquidation Proximity: Enters near recent swing extremes, plays the bounce.",
+    trend_weight=0.2,
+    volume_relative_weight=0.3,
+    signal_feed_weight=0.2,
+    scanner_hit_weight=0.1,
+    onchain_netflow_weight=0.2,
+    liquidation_proximity_weight=3.0,
+    rr_ratio=1.2,
+    atr_stop_mult=3.0,
+    min_abs_score=6.0,
+    min_atr_pct=0.15,
+    display_types_extra=[],
+)
+
+# ── CONFIG_V18_0 — Mean Reversion ──
+# Enters when RSI is extreme: RSI < 30 (oversold → LONG) or RSI > 70 (overbought → SHORT).
+# Opposite of momentum trading. Expects price to revert to the mean.
+CONFIG_V18_0 = ScoringConfig(
+    version="18.0",
+    description="Mean Reversion: RSI extremes. Oversold→LONG, Overbought→SHORT. Counters momentum.",
+    trend_weight=0.1,
+    volume_relative_weight=0.3,
+    signal_feed_weight=0.1,
+    scanner_hit_weight=0.0,
+    mean_reversion_weight=5.0,
+    rr_ratio=1.0,
+    atr_stop_mult=3.0,
+    min_abs_score=6.0,
+    min_atr_pct=0.15,
+    display_types_extra=[],
+)
+
+# ── CONFIG_V19_0 — BTC/ETH Ratio Arb ──
+# Special: trades the BTC/ETH ratio, not individual symbols.
+# Enters when the ratio deviates from its rolling mean by >1 std.
+# LONG = ratio mean-reverts up (BTC outperforms) or event-driven.
+CONFIG_V19_0 = ScoringConfig(
+    version="19.0",
+    description="BTC/ETH Ratio Arb: Trades the ratio when it deviates from rolling mean. Pairs strategy.",
+    trend_weight=0.0,
+    volume_relative_weight=0.0,
+    signal_feed_weight=0.0,
+    scanner_hit_weight=0.0,
+    rr_ratio=1.5,
+    atr_stop_mult=3.0,
+    min_abs_score=5.0,
+    display_types_extra=[],
+)
+
+# ── CONFIG_V20_0 — Time-of-Day Strategy ──
+# Only enters trades during specific UTC hours when big moves historically occur.
+# Precursor research showed clustering around certain hours.
+CONFIG_V20_0 = ScoringConfig(
+    version="20.0",
+    description="Time-of-Day: Only enters during historically active hours. Filters by time.",
+    trend_weight=0.3,
+    volume_relative_weight=0.3,
+    signal_feed_weight=0.3,
+    scanner_hit_weight=0.2,
+    onchain_netflow_weight=0.1,
+    allowed_start_hour=0,
+    allowed_end_hour=6,
+    rr_ratio=1.5,
+    atr_stop_mult=3.0,
+    min_abs_score=5.0,
+    display_types_extra=[],
+)
+
 # Quality Gate configs - NEW in v7.0
 CONFIG_V7_0 = ScoringConfig(
     version="7.0",
@@ -1740,7 +1880,7 @@ ACTIVE_CONFIG = CONFIG_V3_1
 ALL_CONFIGS: dict[str, ScoringConfig] = {
     c.version: c for c in [
         # Baseline variants
-        CONFIG_V1_0, CONFIG_V1_1, CONFIG_V1_2, CONFIG_V1_3, CONFIG_V1_4, CONFIG_V1_5, CONFIG_V10_0, CONFIG_V11_0, CONFIG_V12_0, CONFIG_V13_0, CONFIG_V14_0,
+        CONFIG_V1_0, CONFIG_V1_1, CONFIG_V1_2, CONFIG_V1_3, CONFIG_V1_4, CONFIG_V1_5, CONFIG_V10_0, CONFIG_V11_0, CONFIG_V12_0, CONFIG_V13_0, CONFIG_V14_0, CONFIG_V15_0, CONFIG_V16_0, CONFIG_V17_0, CONFIG_V18_0, CONFIG_V19_0, CONFIG_V20_0,
         # Multi-timeframe (all kept for records)
         CONFIG_V2_0, CONFIG_V2_1, CONFIG_V2_2,
         # ADX momentum (all kept for records)

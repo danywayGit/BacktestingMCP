@@ -34,7 +34,13 @@ DB_PATH = "/home/hermes/BacktestingMCP/data/crypto.db"
 
 # Config priority: (version, min_score, label)
 CONFIG_PRIORITY = [
-    ("14.0", 5.0, "V14.0 Pattern Discovery"),  # Data-driven from BTC/ETH 5%+ moves
+    ("20.0", 5.0, "V20.0 Time-of-Day"),     # Filters by active hours
+    ("19.0", 5.0, "V19.0 Ratio Arb"),       # BTC/ETH ratio pairs trade
+    ("18.0", 6.0, "V18.0 Mean Reversion"),  # RSI extremes
+    ("17.0", 6.0, "V17.0 Liquidation"),     # Near swing extremes
+    ("16.0", 6.0, "V16.0 Vol Squeeze"),     # BB squeeze breakout
+    ("15.0", 6.0, "V15.0 Multi-TF"),        # All timeframes aligned
+    ("14.0", 5.0, "V14.0 Pattern Discovery"),  # Data-driven from BTC/ETH
     ("13.0", 8.0, "V13.0 Auto-Evolved"),  # LLM-suggested, high ADX + SMI
     ("12.0", 9.0, "V12.0 Optimized Pro V2"),  # Parameter-optimized, 46.7% WR
     ("11.0", 7.0, "V11.0 Optimized Pro"),  # Built from analysis, 59% WR sweet spot
@@ -304,6 +310,18 @@ def select_signals() -> List[Dict]:
                     logger.info(
                         "  %s: REGIME BLOCKED %s %s — %s",
                         label, sig["direction"], sym, regime_reason,
+                    )
+                    continue
+
+            # TIME-OF-DAY FILTER: only trade during specified hours
+            if _cfg and (_cfg.allowed_start_hour > 0 or _cfg.allowed_end_hour < 24):
+                from datetime import datetime, timezone
+                current_hour = datetime.now(timezone.utc).hour
+                if not (_cfg.allowed_start_hour <= current_hour < _cfg.allowed_end_hour):
+                    logger.info(
+                        "  %s: TIME BLOCKED %s %s — hour %d not in [%d, %d)",
+                        label, sig["direction"], sym, current_hour,
+                        _cfg.allowed_start_hour, _cfg.allowed_end_hour,
                     )
                     continue
 
