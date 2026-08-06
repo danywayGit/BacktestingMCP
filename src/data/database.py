@@ -489,7 +489,7 @@ class CryptoDatabase:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT id, symbol, pair, timeframe, direction, composite_score,
-                       entry_price, entry_time, horizon_hours
+                       entry_price, entry_time, horizon_hours, target_price, stop_price
                 FROM edge_signals
                 WHERE status = 'PENDING'
             """)
