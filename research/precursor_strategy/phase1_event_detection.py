@@ -21,14 +21,14 @@ REPO_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from src.core.backtesting_engine import BacktestingEngine
-from src.data.timeframe_converter import TimeFrame
+from config.settings import TimeFrame
 
 # ── Configurable parameters ──────────────────────────────────────────────
 SYMBOLS = ["BTCUSDT", "ETHUSDT"]
-TIMEFRAME = TimeFrame.H1                 # 1h candles
-W_CANDLES = 24                           # Rolling window: 24h (24 × 1h) — catch larger moves
-MOVE_THRESHOLD_PCT = 5.0                 # 5% move threshold
-LOOKBACK_DAYS = 365                      # 1 year of data
+TIMEFRAME = TimeFrame.M15  # 15m candles — more granular
+W_CANDLES = 16                       # 16 × 15m = 4h window for 5% move detection
+MOVE_THRESHOLD_PCT = 5.0             # 5% move threshold
+LOOKBACK_DAYS = 365                  # 1 year of data
 OUTPUT_DIR = Path(__file__).parent
 
 
