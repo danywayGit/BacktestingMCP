@@ -14,46 +14,37 @@
         {
           "feature": "bb_width_pct",
           "event_median": 1.68,
-          "control_median": 1.12,
-          "effect_size": 0.782,
+          "control_median": 1.07,
+          "effect_size": 0.776,
           "event_n": 72,
-          "control_n": 145,
-          "direction": "higher"
-        },
-        {
-          "feature": "volume_ratio",
-          "event_median": 1.25,
-          "control_median": 0.66,
-          "effect_size": 0.773,
-          "event_n": 72,
-          "control_n": 145,
-          "direction": "higher"
-        },
-        {
-          "feature": "volume_zscore",
-          "event_median": 0.36,
-          "control_median": -0.43,
-          "effect_size": 0.768,
-          "event_n": 72,
-          "control_n": 145,
+          "control_n": 144,
           "direction": "higher"
         },
         {
           "feature": "atr_pct",
           "event_median": 0.38,
-          "control_median": 0.29,
-          "effect_size": 0.707,
+          "control_median": 0.28,
+          "effect_size": 0.706,
           "event_n": 72,
-          "control_n": 145,
+          "control_n": 144,
           "direction": "higher"
         },
         {
           "feature": "ll_ratio",
           "event_median": 0.5,
           "control_median": 0.45,
-          "effect_size": 0.617,
+          "effect_size": 0.626,
           "event_n": 72,
-          "control_n": 145,
+          "control_n": 144,
+          "direction": "higher"
+        },
+        {
+          "feature": "volume_zscore",
+          "event_median": 0.36,
+          "control_median": -0.38,
+          "effect_size": 0.623,
+          "event_n": 72,
+          "control_n": 144,
           "direction": "higher"
         }
       ],
@@ -61,55 +52,55 @@
         {
           "feature": "bb_width_pct",
           "event_median": 1.68,
-          "control_median": 1.12,
-          "effect_size": 0.782,
+          "control_median": 1.07,
+          "effect_size": 0.776,
           "event_n": 72,
-          "control_n": 145,
-          "direction": "higher"
-        },
-        {
-          "feature": "volume_ratio",
-          "event_median": 1.25,
-          "control_median": 0.66,
-          "effect_size": 0.773,
-          "event_n": 72,
-          "control_n": 145,
-          "direction": "higher"
-        },
-        {
-          "feature": "volume_zscore",
-          "event_median": 0.36,
-          "control_median": -0.43,
-          "effect_size": 0.768,
-          "event_n": 72,
-          "control_n": 145,
+          "control_n": 144,
           "direction": "higher"
         },
         {
           "feature": "atr_pct",
           "event_median": 0.38,
-          "control_median": 0.29,
-          "effect_size": 0.707,
+          "control_median": 0.28,
+          "effect_size": 0.706,
           "event_n": 72,
-          "control_n": 145,
+          "control_n": 144,
           "direction": "higher"
         },
         {
           "feature": "ll_ratio",
           "event_median": 0.5,
           "control_median": 0.45,
-          "effect_size": 0.617,
+          "effect_size": 0.626,
           "event_n": 72,
-          "control_n": 145,
+          "control_n": 144,
+          "direction": "higher"
+        },
+        {
+          "feature": "volume_zscore",
+          "event_median": 0.36,
+          "control_median": -0.38,
+          "effect_size": 0.623,
+          "event_n": 72,
+          "control_n": 144,
+          "direction": "higher"
+        },
+        {
+          "feature": "volume_ratio",
+          "event_median": 1.25,
+          "control_median": 0.7,
+          "effect_size": 0.477,
+          "event_n": 72,
+          "control_n": 144,
           "direction": "higher"
         },
         {
           "feature": "hh_ratio",
           "event_median": 0.43,
-          "control_median": 0.45,
-          "effect_size": -0.322,
+          "control_median": 0.46,
+          "effect_size": -0.374,
           "event_n": 72,
-          "control_n": 145,
+          "control_n": 144,
           "direction": "lower"
         },
         {
@@ -118,52 +109,52 @@
           "control_median": 11.0,
           "effect_size": 0.267,
           "event_n": 72,
-          "control_n": 145,
+          "control_n": 144,
           "direction": "higher"
         },
         {
           "feature": "rsi_level",
           "event_median": 46.35,
-          "control_median": 49.8,
-          "effect_size": -0.232,
+          "control_median": 50.5,
+          "effect_size": -0.242,
           "event_n": 72,
-          "control_n": 145,
+          "control_n": 144,
           "direction": "lower"
         },
         {
           "feature": "day_of_week",
           "event_median": 2.5,
           "control_median": 3.0,
-          "effect_size": -0.223,
+          "effect_size": -0.22,
           "event_n": 72,
-          "control_n": 145,
+          "control_n": 144,
           "direction": "lower"
-        },
-        {
-          "feature": "macd_hist_slope",
-          "event_median": 1.58,
-          "control_median": -0.15,
-          "effect_size": 0.12,
-          "event_n": 72,
-          "control_n": 145,
-          "direction": "higher"
         },
         {
           "feature": "direction_streak_len",
           "event_median": 1.0,
-          "control_median": 1.0,
-          "effect_size": -0.071,
+          "control_median": 0.0,
+          "effect_size": 0.203,
           "event_n": 72,
-          "control_n": 145,
-          "direction": "lower"
+          "control_n": 144,
+          "direction": "higher"
+        },
+        {
+          "feature": "macd_hist_slope",
+          "event_median": 1.58,
+          "control_median": -0.09,
+          "effect_size": 0.132,
+          "event_n": 72,
+          "control_n": 144,
+          "direction": "higher"
         },
         {
           "feature": "rsi_slope",
           "event_median": -2.45,
-          "control_median": 1.7,
-          "effect_size": -0.054,
+          "control_median": 1.45,
+          "effect_size": -0.085,
           "event_n": 72,
-          "control_n": 145,
+          "control_n": 144,
           "direction": "lower"
         },
         {
@@ -172,7 +163,7 @@
           "control_median": 50.0,
           "effect_size": 0,
           "event_n": 72,
-          "control_n": 145,
+          "control_n": 144,
           "direction": "lower"
         }
       ]
@@ -182,37 +173,19 @@
         {
           "feature": "atr_pct",
           "event_median": 0.5,
-          "control_median": 0.29,
+          "control_median": 0.28,
           "effect_size": 0.845,
           "event_n": 161,
-          "control_n": 145,
+          "control_n": 144,
           "direction": "higher"
         },
         {
           "feature": "bb_width_pct",
           "event_median": 1.98,
-          "control_median": 1.12,
-          "effect_size": 0.814,
+          "control_median": 1.07,
+          "effect_size": 0.811,
           "event_n": 161,
-          "control_n": 145,
-          "direction": "higher"
-        },
-        {
-          "feature": "volume_zscore",
-          "event_median": 0.0,
-          "control_median": -0.43,
-          "effect_size": 0.531,
-          "event_n": 161,
-          "control_n": 145,
-          "direction": "higher"
-        },
-        {
-          "feature": "volume_ratio",
-          "event_median": 1.0,
-          "control_median": 0.66,
-          "effect_size": 0.525,
-          "event_n": 161,
-          "control_n": 145,
+          "control_n": 144,
           "direction": "higher"
         }
       ],
@@ -220,82 +193,91 @@
         {
           "feature": "atr_pct",
           "event_median": 0.5,
-          "control_median": 0.29,
+          "control_median": 0.28,
           "effect_size": 0.845,
           "event_n": 161,
-          "control_n": 145,
+          "control_n": 144,
           "direction": "higher"
         },
         {
           "feature": "bb_width_pct",
           "event_median": 1.98,
-          "control_median": 1.12,
-          "effect_size": 0.814,
+          "control_median": 1.07,
+          "effect_size": 0.811,
           "event_n": 161,
-          "control_n": 145,
+          "control_n": 144,
           "direction": "higher"
         },
         {
           "feature": "volume_zscore",
           "event_median": 0.0,
-          "control_median": -0.43,
-          "effect_size": 0.531,
+          "control_median": -0.38,
+          "effect_size": 0.449,
           "event_n": 161,
-          "control_n": 145,
+          "control_n": 144,
           "direction": "higher"
+        },
+        {
+          "feature": "hh_ratio",
+          "event_median": 0.43,
+          "control_median": 0.46,
+          "effect_size": -0.377,
+          "event_n": 161,
+          "control_n": 144,
+          "direction": "lower"
         },
         {
           "feature": "volume_ratio",
           "event_median": 1.0,
-          "control_median": 0.66,
-          "effect_size": 0.525,
+          "control_median": 0.7,
+          "effect_size": 0.367,
           "event_n": 161,
-          "control_n": 145,
+          "control_n": 144,
           "direction": "higher"
         },
         {
           "feature": "rsi_level",
           "event_median": 43.1,
-          "control_median": 49.8,
-          "effect_size": -0.336,
+          "control_median": 50.5,
+          "effect_size": -0.346,
           "event_n": 161,
-          "control_n": 145,
-          "direction": "lower"
-        },
-        {
-          "feature": "hh_ratio",
-          "event_median": 0.43,
-          "control_median": 0.45,
-          "effect_size": -0.33,
-          "event_n": 161,
-          "control_n": 145,
+          "control_n": 144,
           "direction": "lower"
         },
         {
           "feature": "rsi_slope",
           "event_median": -6.7,
-          "control_median": 1.7,
-          "effect_size": -0.241,
+          "control_median": 1.45,
+          "effect_size": -0.277,
           "event_n": 161,
-          "control_n": 145,
+          "control_n": 144,
           "direction": "lower"
         },
         {
           "feature": "ll_ratio",
           "event_median": 0.47,
           "control_median": 0.45,
-          "effect_size": 0.19,
+          "effect_size": 0.208,
           "event_n": 161,
-          "control_n": 145,
+          "control_n": 144,
           "direction": "higher"
         },
         {
           "feature": "macd_hist_slope",
           "event_median": 0.06,
-          "control_median": -0.15,
-          "effect_size": 0.189,
+          "control_median": -0.09,
+          "effect_size": 0.194,
           "event_n": 161,
-          "control_n": 145,
+          "control_n": 144,
+          "direction": "higher"
+        },
+        {
+          "feature": "direction_streak_len",
+          "event_median": 1.0,
+          "control_median": 0.0,
+          "effect_size": 0.192,
+          "event_n": 161,
+          "control_n": 144,
           "direction": "higher"
         },
         {
@@ -304,25 +286,16 @@
           "control_median": 11.0,
           "effect_size": 0.111,
           "event_n": 161,
-          "control_n": 145,
+          "control_n": 144,
           "direction": "higher"
         },
         {
           "feature": "day_of_week",
           "event_median": 2.0,
           "control_median": 3.0,
-          "effect_size": -0.111,
+          "effect_size": -0.108,
           "event_n": 161,
-          "control_n": 145,
-          "direction": "lower"
-        },
-        {
-          "feature": "direction_streak_len",
-          "event_median": 1.0,
-          "control_median": 1.0,
-          "effect_size": -0.082,
-          "event_n": 161,
-          "control_n": 145,
+          "control_n": 144,
           "direction": "lower"
         },
         {
@@ -331,7 +304,7 @@
           "control_median": 50.0,
           "effect_size": 0,
           "event_n": 161,
-          "control_n": 145,
+          "control_n": 144,
           "direction": "lower"
         }
       ]
@@ -341,8 +314,8 @@
         {
           "feature": "volume_zscore",
           "event_median": 0.34,
-          "control_median": -0.38,
-          "effect_size": 0.725,
+          "control_median": -0.24,
+          "effect_size": 0.703,
           "event_n": 72,
           "control_n": 96,
           "direction": "higher"
@@ -350,8 +323,8 @@
         {
           "feature": "atr_pct",
           "event_median": 0.38,
-          "control_median": 0.27,
-          "effect_size": 0.703,
+          "control_median": 0.28,
+          "effect_size": 0.699,
           "event_n": 72,
           "control_n": 96,
           "direction": "higher"
@@ -359,8 +332,8 @@
         {
           "feature": "volume_ratio",
           "event_median": 1.32,
-          "control_median": 0.66,
-          "effect_size": 0.645,
+          "control_median": 0.75,
+          "effect_size": 0.667,
           "event_n": 72,
           "control_n": 96,
           "direction": "higher"
@@ -368,8 +341,8 @@
         {
           "feature": "bb_width_pct",
           "event_median": 1.68,
-          "control_median": 1.19,
-          "effect_size": 0.611,
+          "control_median": 1.23,
+          "effect_size": 0.641,
           "event_n": 72,
           "control_n": 96,
           "direction": "higher"
@@ -379,8 +352,8 @@
         {
           "feature": "volume_zscore",
           "event_median": 0.34,
-          "control_median": -0.38,
-          "effect_size": 0.725,
+          "control_median": -0.24,
+          "effect_size": 0.703,
           "event_n": 72,
           "control_n": 96,
           "direction": "higher"
@@ -388,8 +361,8 @@
         {
           "feature": "atr_pct",
           "event_median": 0.38,
-          "control_median": 0.27,
-          "effect_size": 0.703,
+          "control_median": 0.28,
+          "effect_size": 0.699,
           "event_n": 72,
           "control_n": 96,
           "direction": "higher"
@@ -397,8 +370,8 @@
         {
           "feature": "volume_ratio",
           "event_median": 1.32,
-          "control_median": 0.66,
-          "effect_size": 0.645,
+          "control_median": 0.75,
+          "effect_size": 0.667,
           "event_n": 72,
           "control_n": 96,
           "direction": "higher"
@@ -406,8 +379,8 @@
         {
           "feature": "bb_width_pct",
           "event_median": 1.68,
-          "control_median": 1.19,
-          "effect_size": 0.611,
+          "control_median": 1.23,
+          "effect_size": 0.641,
           "event_n": 72,
           "control_n": 96,
           "direction": "higher"
@@ -416,7 +389,7 @@
           "feature": "ll_ratio",
           "event_median": 0.47,
           "control_median": 0.46,
-          "effect_size": 0.391,
+          "effect_size": 0.411,
           "event_n": 72,
           "control_n": 96,
           "direction": "higher"
@@ -424,8 +397,8 @@
         {
           "feature": "bb_width_pctile",
           "event_median": 72.1,
-          "control_median": 60.55,
-          "effect_size": 0.289,
+          "control_median": 56.85,
+          "effect_size": 0.321,
           "event_n": 72,
           "control_n": 96,
           "direction": "higher"
@@ -434,7 +407,25 @@
           "feature": "hh_ratio",
           "event_median": 0.45,
           "control_median": 0.46,
-          "effect_size": -0.269,
+          "effect_size": -0.307,
+          "event_n": 72,
+          "control_n": 96,
+          "direction": "lower"
+        },
+        {
+          "feature": "direction_streak_len",
+          "event_median": 1.0,
+          "control_median": 0.0,
+          "effect_size": 0.26,
+          "event_n": 72,
+          "control_n": 96,
+          "direction": "higher"
+        },
+        {
+          "feature": "rsi_level",
+          "event_median": 46.35,
+          "control_median": 51.05,
+          "effect_size": -0.236,
           "event_n": 72,
           "control_n": 96,
           "direction": "lower"
@@ -444,15 +435,6 @@
           "event_median": 2.5,
           "control_median": 3.0,
           "effect_size": -0.208,
-          "event_n": 72,
-          "control_n": 96,
-          "direction": "lower"
-        },
-        {
-          "feature": "rsi_level",
-          "event_median": 46.35,
-          "control_median": 50.6,
-          "effect_size": -0.187,
           "event_n": 72,
           "control_n": 96,
           "direction": "lower"
@@ -469,29 +451,20 @@
         {
           "feature": "macd_hist_slope",
           "event_median": 1.58,
-          "control_median": -0.17,
+          "control_median": 0.05,
           "effect_size": 0.059,
           "event_n": 72,
           "control_n": 96,
           "direction": "higher"
         },
         {
-          "feature": "direction_streak_len",
-          "event_median": 1.0,
-          "control_median": 1.0,
-          "effect_size": -0.018,
-          "event_n": 72,
-          "control_n": 96,
-          "direction": "lower"
-        },
-        {
           "feature": "rsi_slope",
           "event_median": 0.1,
-          "control_median": 0.2,
-          "effect_size": -0.001,
+          "control_median": -1.6,
+          "effect_size": -0.004,
           "event_n": 72,
           "control_n": 96,
-          "direction": "lower"
+          "direction": "higher"
         }
       ]
     },
@@ -500,8 +473,8 @@
         {
           "feature": "atr_pct",
           "event_median": 0.5,
-          "control_median": 0.27,
-          "effect_size": 0.81,
+          "control_median": 0.28,
+          "effect_size": 0.808,
           "event_n": 161,
           "control_n": 96,
           "direction": "higher"
@@ -509,8 +482,8 @@
         {
           "feature": "bb_width_pct",
           "event_median": 1.98,
-          "control_median": 1.19,
-          "effect_size": 0.692,
+          "control_median": 1.23,
+          "effect_size": 0.712,
           "event_n": 161,
           "control_n": 96,
           "direction": "higher"
@@ -520,8 +493,8 @@
         {
           "feature": "atr_pct",
           "event_median": 0.5,
-          "control_median": 0.27,
-          "effect_size": 0.81,
+          "control_median": 0.28,
+          "effect_size": 0.808,
           "event_n": 161,
           "control_n": 96,
           "direction": "higher"
@@ -529,17 +502,8 @@
         {
           "feature": "bb_width_pct",
           "event_median": 1.98,
-          "control_median": 1.19,
-          "effect_size": 0.692,
-          "event_n": 161,
-          "control_n": 96,
-          "direction": "higher"
-        },
-        {
-          "feature": "volume_zscore",
-          "event_median": 0.01,
-          "control_median": -0.38,
-          "effect_size": 0.462,
+          "control_median": 1.23,
+          "effect_size": 0.712,
           "event_n": 161,
           "control_n": 96,
           "direction": "higher"
@@ -547,8 +511,17 @@
         {
           "feature": "volume_ratio",
           "event_median": 1.01,
-          "control_median": 0.66,
-          "effect_size": 0.443,
+          "control_median": 0.75,
+          "effect_size": 0.441,
+          "event_n": 161,
+          "control_n": 96,
+          "direction": "higher"
+        },
+        {
+          "feature": "volume_zscore",
+          "event_median": 0.01,
+          "control_median": -0.24,
+          "effect_size": 0.423,
           "event_n": 161,
           "control_n": 96,
           "direction": "higher"
@@ -556,8 +529,8 @@
         {
           "feature": "rsi_level",
           "event_median": 43.1,
-          "control_median": 50.6,
-          "effect_size": -0.292,
+          "control_median": 51.05,
+          "effect_size": -0.34,
           "event_n": 161,
           "control_n": 96,
           "direction": "lower"
@@ -566,25 +539,7 @@
           "feature": "hh_ratio",
           "event_median": 0.45,
           "control_median": 0.46,
-          "effect_size": -0.261,
-          "event_n": 161,
-          "control_n": 96,
-          "direction": "lower"
-        },
-        {
-          "feature": "direction_streak_len",
-          "event_median": 0.0,
-          "control_median": 1.0,
-          "effect_size": -0.241,
-          "event_n": 161,
-          "control_n": 96,
-          "direction": "lower"
-        },
-        {
-          "feature": "rsi_slope",
-          "event_median": -6.3,
-          "control_median": 0.2,
-          "effect_size": -0.161,
+          "effect_size": -0.299,
           "event_n": 161,
           "control_n": 96,
           "direction": "lower"
@@ -592,11 +547,20 @@
         {
           "feature": "bb_width_pctile",
           "event_median": 64.2,
-          "control_median": 60.55,
-          "effect_size": 0.146,
+          "control_median": 56.85,
+          "effect_size": 0.18,
           "event_n": 161,
           "control_n": 96,
           "direction": "higher"
+        },
+        {
+          "feature": "rsi_slope",
+          "event_median": -6.3,
+          "control_median": -1.6,
+          "effect_size": -0.161,
+          "event_n": 161,
+          "control_n": 96,
+          "direction": "lower"
         },
         {
           "feature": "day_of_week",
@@ -608,10 +572,19 @@
           "direction": "lower"
         },
         {
+          "feature": "direction_streak_len",
+          "event_median": 0.0,
+          "control_median": 0.0,
+          "effect_size": 0.047,
+          "event_n": 161,
+          "control_n": 96,
+          "direction": "lower"
+        },
+        {
           "feature": "macd_hist_slope",
           "event_median": 0.06,
-          "control_median": -0.17,
-          "effect_size": 0.039,
+          "control_median": 0.05,
+          "effect_size": 0.037,
           "event_n": 161,
           "control_n": 96,
           "direction": "higher"
@@ -620,10 +593,10 @@
           "feature": "ll_ratio",
           "event_median": 0.46,
           "control_median": 0.46,
-          "effect_size": -0.01,
+          "effect_size": 0.013,
           "event_n": 161,
           "control_n": 96,
-          "direction": "lower"
+          "direction": "higher"
         },
         {
           "feature": "hour_of_day_utc",
@@ -641,17 +614,8 @@
         {
           "feature": "atr_pct",
           "event_median": 0.38,
-          "control_median": 0.21,
-          "effect_size": 0.78,
-          "event_n": 72,
-          "control_n": 51,
-          "direction": "higher"
-        },
-        {
-          "feature": "bb_width_pct",
-          "event_median": 1.68,
-          "control_median": 0.89,
-          "effect_size": 0.661,
+          "control_median": 0.22,
+          "effect_size": 0.803,
           "event_n": 72,
           "control_n": 51,
           "direction": "higher"
@@ -659,8 +623,8 @@
         {
           "feature": "volume_zscore",
           "event_median": 0.44,
-          "control_median": -0.3,
-          "effect_size": 0.615,
+          "control_median": -0.4,
+          "effect_size": 0.778,
           "event_n": 72,
           "control_n": 51,
           "direction": "higher"
@@ -668,8 +632,17 @@
         {
           "feature": "volume_ratio",
           "event_median": 1.36,
-          "control_median": 0.67,
-          "effect_size": 0.564,
+          "control_median": 0.6,
+          "effect_size": 0.678,
+          "event_n": 72,
+          "control_n": 51,
+          "direction": "higher"
+        },
+        {
+          "feature": "bb_width_pct",
+          "event_median": 1.68,
+          "control_median": 0.91,
+          "effect_size": 0.656,
           "event_n": 72,
           "control_n": 51,
           "direction": "higher"
@@ -679,17 +652,8 @@
         {
           "feature": "atr_pct",
           "event_median": 0.38,
-          "control_median": 0.21,
-          "effect_size": 0.78,
-          "event_n": 72,
-          "control_n": 51,
-          "direction": "higher"
-        },
-        {
-          "feature": "bb_width_pct",
-          "event_median": 1.68,
-          "control_median": 0.89,
-          "effect_size": 0.661,
+          "control_median": 0.22,
+          "effect_size": 0.803,
           "event_n": 72,
           "control_n": 51,
           "direction": "higher"
@@ -697,8 +661,8 @@
         {
           "feature": "volume_zscore",
           "event_median": 0.44,
-          "control_median": -0.3,
-          "effect_size": 0.615,
+          "control_median": -0.4,
+          "effect_size": 0.778,
           "event_n": 72,
           "control_n": 51,
           "direction": "higher"
@@ -706,8 +670,17 @@
         {
           "feature": "volume_ratio",
           "event_median": 1.36,
-          "control_median": 0.67,
-          "effect_size": 0.564,
+          "control_median": 0.6,
+          "effect_size": 0.678,
+          "event_n": 72,
+          "control_n": 51,
+          "direction": "higher"
+        },
+        {
+          "feature": "bb_width_pct",
+          "event_median": 1.68,
+          "control_median": 0.91,
+          "effect_size": 0.656,
           "event_n": 72,
           "control_n": 51,
           "direction": "higher"
@@ -716,7 +689,7 @@
           "feature": "hh_ratio",
           "event_median": 0.45,
           "control_median": 0.47,
-          "effect_size": -0.459,
+          "effect_size": -0.497,
           "event_n": 72,
           "control_n": 51,
           "direction": "lower"
@@ -724,8 +697,8 @@
         {
           "feature": "bb_width_pctile",
           "event_median": 74.2,
-          "control_median": 49.5,
-          "effect_size": 0.382,
+          "control_median": 48.4,
+          "effect_size": 0.402,
           "event_n": 72,
           "control_n": 51,
           "direction": "higher"
@@ -734,7 +707,7 @@
           "feature": "ll_ratio",
           "event_median": 0.47,
           "control_median": 0.47,
-          "effect_size": 0.356,
+          "effect_size": 0.357,
           "event_n": 72,
           "control_n": 51,
           "direction": "lower"
@@ -749,10 +722,19 @@
           "direction": "lower"
         },
         {
+          "feature": "rsi_level",
+          "event_median": 46.35,
+          "control_median": 53.1,
+          "effect_size": -0.344,
+          "event_n": 72,
+          "control_n": 51,
+          "direction": "lower"
+        },
+        {
           "feature": "rsi_slope",
           "event_median": -7.45,
-          "control_median": 3.5,
-          "effect_size": -0.34,
+          "control_median": 4.9,
+          "effect_size": -0.344,
           "event_n": 72,
           "control_n": 51,
           "direction": "lower"
@@ -767,28 +749,19 @@
           "direction": "higher"
         },
         {
-          "feature": "rsi_level",
-          "event_median": 46.35,
-          "control_median": 51.1,
-          "effect_size": -0.278,
-          "event_n": 72,
-          "control_n": 51,
-          "direction": "lower"
-        },
-        {
           "feature": "direction_streak_len",
           "event_median": 1.0,
-          "control_median": 1.0,
-          "effect_size": 0.085,
+          "control_median": 0.0,
+          "effect_size": 0.269,
           "event_n": 72,
           "control_n": 51,
-          "direction": "lower"
+          "direction": "higher"
         },
         {
           "feature": "macd_hist_slope",
           "event_median": 1.57,
-          "control_median": -0.01,
-          "effect_size": 0.012,
+          "control_median": 0.21,
+          "effect_size": 0.003,
           "event_n": 72,
           "control_n": 51,
           "direction": "higher"
@@ -800,8 +773,8 @@
         {
           "feature": "atr_pct",
           "event_median": 0.5,
-          "control_median": 0.21,
-          "effect_size": 0.84,
+          "control_median": 0.22,
+          "effect_size": 0.852,
           "event_n": 161,
           "control_n": 51,
           "direction": "higher"
@@ -809,8 +782,8 @@
         {
           "feature": "bb_width_pct",
           "event_median": 1.98,
-          "control_median": 0.89,
-          "effect_size": 0.726,
+          "control_median": 0.91,
+          "effect_size": 0.724,
           "event_n": 161,
           "control_n": 51,
           "direction": "higher"
@@ -819,36 +792,7 @@
           "feature": "hh_ratio",
           "event_median": 0.45,
           "control_median": 0.47,
-          "effect_size": -0.586,
-          "event_n": 161,
-          "control_n": 51,
-          "direction": "lower"
-        }
-      ],
-      "all_features": [
-        {
-          "feature": "atr_pct",
-          "event_median": 0.5,
-          "control_median": 0.21,
-          "effect_size": 0.84,
-          "event_n": 161,
-          "control_n": 51,
-          "direction": "higher"
-        },
-        {
-          "feature": "bb_width_pct",
-          "event_median": 1.98,
-          "control_median": 0.89,
-          "effect_size": 0.726,
-          "event_n": 161,
-          "control_n": 51,
-          "direction": "higher"
-        },
-        {
-          "feature": "hh_ratio",
-          "event_median": 0.45,
-          "control_median": 0.47,
-          "effect_size": -0.586,
+          "effect_size": -0.621,
           "event_n": 161,
           "control_n": 51,
           "direction": "lower"
@@ -856,8 +800,8 @@
         {
           "feature": "volume_zscore",
           "event_median": 0.03,
-          "control_median": -0.3,
-          "effect_size": 0.413,
+          "control_median": -0.4,
+          "effect_size": 0.554,
           "event_n": 161,
           "control_n": 51,
           "direction": "higher"
@@ -865,8 +809,55 @@
         {
           "feature": "volume_ratio",
           "event_median": 1.02,
-          "control_median": 0.67,
-          "effect_size": 0.403,
+          "control_median": 0.6,
+          "effect_size": 0.517,
+          "event_n": 161,
+          "control_n": 51,
+          "direction": "higher"
+        }
+      ],
+      "all_features": [
+        {
+          "feature": "atr_pct",
+          "event_median": 0.5,
+          "control_median": 0.22,
+          "effect_size": 0.852,
+          "event_n": 161,
+          "control_n": 51,
+          "direction": "higher"
+        },
+        {
+          "feature": "bb_width_pct",
+          "event_median": 1.98,
+          "control_median": 0.91,
+          "effect_size": 0.724,
+          "event_n": 161,
+          "control_n": 51,
+          "direction": "higher"
+        },
+        {
+          "feature": "hh_ratio",
+          "event_median": 0.45,
+          "control_median": 0.47,
+          "effect_size": -0.621,
+          "event_n": 161,
+          "control_n": 51,
+          "direction": "lower"
+        },
+        {
+          "feature": "volume_zscore",
+          "event_median": 0.03,
+          "control_median": -0.4,
+          "effect_size": 0.554,
+          "event_n": 161,
+          "control_n": 51,
+          "direction": "higher"
+        },
+        {
+          "feature": "volume_ratio",
+          "event_median": 1.02,
+          "control_median": 0.6,
+          "effect_size": 0.517,
           "event_n": 161,
           "control_n": 51,
           "direction": "higher"
@@ -874,8 +865,8 @@
         {
           "feature": "rsi_level",
           "event_median": 43.1,
-          "control_median": 51.1,
-          "effect_size": -0.379,
+          "control_median": 53.1,
+          "effect_size": -0.443,
           "event_n": 161,
           "control_n": 51,
           "direction": "lower"
@@ -883,16 +874,25 @@
         {
           "feature": "bb_width_pctile",
           "event_median": 68.4,
-          "control_median": 49.5,
-          "effect_size": 0.259,
+          "control_median": 48.4,
+          "effect_size": 0.277,
           "event_n": 161,
           "control_n": 51,
           "direction": "higher"
         },
         {
+          "feature": "macd_hist_slope",
+          "event_median": 0.06,
+          "control_median": 0.21,
+          "effect_size": -0.26,
+          "event_n": 161,
+          "control_n": 51,
+          "direction": "lower"
+        },
+        {
           "feature": "rsi_slope",
           "event_median": -4.7,
-          "control_median": 3.5,
+          "control_median": 4.9,
           "effect_size": -0.248,
           "event_n": 161,
           "control_n": 51,
@@ -908,15 +908,6 @@
           "direction": "lower"
         },
         {
-          "feature": "macd_hist_slope",
-          "event_median": 0.06,
-          "control_median": -0.01,
-          "effect_size": -0.213,
-          "event_n": 161,
-          "control_n": 51,
-          "direction": "higher"
-        },
-        {
           "feature": "hour_of_day_utc",
           "event_median": 13.0,
           "control_median": 11.0,
@@ -928,11 +919,11 @@
         {
           "feature": "direction_streak_len",
           "event_median": 1.0,
-          "control_median": 1.0,
-          "effect_size": -0.09,
+          "control_median": 0.0,
+          "effect_size": 0.13,
           "event_n": 161,
           "control_n": 51,
-          "direction": "lower"
+          "direction": "higher"
         },
         {
           "feature": "ll_ratio",
