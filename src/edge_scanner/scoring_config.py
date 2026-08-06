@@ -1253,37 +1253,37 @@ CONFIG_V13_0 = ScoringConfig(
     display_types_extra=[],
 )
 
-# ── CONFIG_V14_0 — Pattern Discovery: data-driven from BTC/ETH 5%+ moves ──
-# Built from the Pattern Discovery Engine analysis of 199 BTC/ETH 5%+ moves.
-# Key findings:
-#   - UP moves start at RSI ~49 (neutral), DOWN moves from RSI ~16-38 (oversold)
-#   - UP moves from below EMA50 (-2.3%), BB lower half (0.14-0.48)
-#   - Volume ratio 0.8-1.2x for big moves
-#   - ATR 0.6-1.0% for ETH, 0.7% for BTC
-# Only applies to BTCUSDT and ETHUSDT (major pair strategy).
+# ── CONFIG_V14_0 — Precursor Pattern Strategy (validated) ──
+# Built from the full research pipeline:
+# Phase 1-4: 234 events detected, 991 features extracted, 23 validated precursors
+# Key validated findings (out-of-sample):
+#   - BTC: Volume ratio >1.1x (d=0.59), Volume z-score >0.3 (d=0.58)
+#   - BTC: Lower lows ratio >0.48 (d=1.16) — seller exhaustion before moves
+#   - ETH: ATR >0.37% (d=0.70), BB width >1.42 (d=0.49)
+#   - ETH: Higher highs ratio <0.45 (d=-0.71) — range compression
+#   - Both: RSI 45-50 (neutral, not oversold) before moves
+# Window: 30h (120 × 15m) | Lookback: 60h (240 × 15m)
 CONFIG_V14_0 = ScoringConfig(
     version="14.0",
-    description="Pattern Discovery: Data-driven from 199 BTC/ETH 5%+ moves. RSI-neutral entries, EMA50 proximity, BB lower-half confirmation.",
-    # Weights — moderate, RSI and medium-term trend are key
-    trend_weight=0.3,
-    medium_term_trend_weight=2.0,  # EMA50 proximity matters
-    volume_relative_weight=0.3,
-    signal_feed_weight=0.0,  # Not needed for BTC/ETH
+    description="Precursor Pattern: Validated OOS. Volume spike + ATR expansion + range compression before 5%+ moves.",
+    # Weights from validated precursors
+    trend_weight=0.2,
+    volume_relative_weight=3.0,  # Volume ratio >1.1x is key predictor
+    signal_feed_weight=0.0,
     scanner_hit_weight=0.0,
-    rsi_momentum_weight=3.0,  # RSI is the #1 predictor
+    volume_divergence_weight=2.0,
     # Risk management
     atr_stop_mult=3.0,
-    rr_ratio=1.2,
-    # Filters — data-driven from pattern analysis
+    rr_ratio=1.0,
+    # Filters from validated precursors
     min_abs_score=5.0,
-    min_atr_pct=0.5,  # Need volatility (ETH median 0.77%, BTC 0.72%)
-    min_volume_relative=0.5,  # Volume must be present
+    min_atr_pct=0.35,  # ETH validated ATR >0.37%
+    min_volume_relative=1.0,  # BTC validated >1.1x
     require_non_trend_confirmation=False,
     market_regime_filter="BTC",
     # Alert thresholds
     alert_min_score=5.0,
     alert_require_multi_source=False,
-    # Only BTC and ETH
     coin_type_filter=["ANY"],
     exclude_coin_types=[],
     display_types_extra=[],
