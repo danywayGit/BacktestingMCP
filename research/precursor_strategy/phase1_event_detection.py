@@ -25,7 +25,7 @@ from config.settings import TimeFrame
 
 # ── Configurable parameters ──────────────────────────────────────────────
 SYMBOLS = ["BTCUSDT", "ETHUSDT"]
-TIMEFRAME = TimeFrame.M15   # 15m candles
+TIMEFRAME = TimeFrame.M15
 W_CANDLES = 120              # 120 × 15m = 30h window for 5% move detection
 MOVE_THRESHOLD_PCT = 5.0     # 5% move threshold
 LOOKBACK_DAYS = 365          # 1 year of data
