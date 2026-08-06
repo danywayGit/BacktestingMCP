@@ -27,8 +27,8 @@ from config.settings import TimeFrame
 
 # ── Parameters ───────────────────────────────────────────────────────────
 SYMBOLS = ["BTCUSDT", "ETHUSDT"]
-TIMEFRAME = TimeFrame.M15
-LOOKBACK_CANDLES_VALUES = [10, 20, 50]  # K values to test: 2.5h, 5h, 12.5h
+TIMEFRAME = TimeFrame.H1
+LOOKBACK_CANDLES_VALUES = [20, 40, 60]  # K values: 20h, 40h, 60h (in 1h bars)
 LOOKBACK_DAYS = 365
 OUTPUT_DIR = Path(__file__).parent
 EVENTS_FILE = OUTPUT_DIR / "events.csv"
