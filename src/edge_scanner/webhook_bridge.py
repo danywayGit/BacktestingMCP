@@ -304,6 +304,12 @@ def select_signals() -> List[Dict]:
             # MARKET REGIME CHECK: don't trade against BTC trend
             from src.edge_scanner.scoring_config import ALL_CONFIGS
             _cfg = ALL_CONFIGS.get(version)
+            if _cfg and _cfg.status == "disabled":
+                logger.info(
+                    "  %s: SKIPPED %s %s — config %s is disabled",
+                    label, sig["direction"], sym, version,
+                )
+                continue
             if _cfg and _cfg.market_regime_filter != "OFF":
                 regime_ok, regime_reason = _check_market_regime(sig["direction"], _cfg.market_regime_filter)
                 if not regime_ok:
