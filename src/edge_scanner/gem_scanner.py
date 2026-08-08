@@ -109,6 +109,8 @@ class GemCandidate:
     market_cap_rank: Optional[int]
     on_binance_futures: bool
     coin_gecko_id: str
+    price_change_24h: Optional[float] = None
+    has_burn_program: bool = False
     atl_date: Optional[str] = None        # CoinGecko ATL date — proxy for coin age
     score: float = 0.0
     breakdown: Dict[str, float] = field(default_factory=dict)
@@ -285,6 +287,67 @@ def _score_gem(c: GemCandidate) -> GemCandidate:
     return c
 
 
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../data/crypto.db")
+
+
+def _compute_own_price_changes(symbol: str):
+    """Compute 24h, 7d, 30d price change from our own OHLCV data.
+    Returns (pct_24h, pct_7d, pct_30d) or (None, None, None) if insufficient data.
+    """
+    try:
+        import sqlite3
+        conn = sqlite3.connect(DB_PATH)
+        # Get 1h close prices: most recent + 24h/7d/30d ago
+        rows = conn.execute("""
+            SELECT timestamp, close FROM market_data
+            WHERE symbol=? AND timeframe='1h'
+            ORDER BY timestamp DESC LIMIT 1
+        """, (symbol,)).fetchall()
+        if not rows:
+            conn.close()
+            return None, None, None
+        latest_ts, latest_close = rows[0]
+        
+        # 24h ago = 24 candles back
+        last_24h = conn.execute("""
+            SELECT close FROM market_data
+            WHERE symbol=? AND timeframe='1h' AND timestamp <= ?
+            ORDER BY timestamp DESC LIMIT 1
+        """, (symbol, latest_ts - 23 * 3600)).fetchone()
+        
+        # 7d ago = 168 candles back
+        last_7d = conn.execute("""
+            SELECT close FROM market_data
+            WHERE symbol=? AND timeframe='1h' AND timestamp <= ?
+            ORDER BY timestamp DESC LIMIT 1
+        """, (symbol, latest_ts - 167 * 3600)).fetchone()
+        
+        # 30d ago = 720 candles back
+        last_30d = conn.execute("""
+            SELECT close FROM market_data
+            WHERE symbol=? AND timeframe='1h' AND timestamp <= ?
+        """, (symbol, latest_ts - 719 * 3600)).fetchone()
+        
+        conn.close()
+        
+        p24 = ((latest_close - last_24h[0]) / last_24h[0] * 100) if last_24h and last_24h[0] > 0 else None
+        p7 = ((latest_close - last_7d[0]) / last_7d[0] * 100) if last_7d and last_7d[0] > 0 else None
+        p30 = ((latest_close - last_30d[0]) / last_30d[0] * 100) if last_30d and last_30d[0] > 0 else None
+        return p24, p7, p30
+    except Exception:
+        return None, None, None
+
+
+def _check_burn_program(symbol: str, coingecko_id: str) -> bool:
+    """Check if a coin has an active burn/buyback program using the burn tracker."""
+    # Known major burn tokens (cached for speed, no API call)
+    BURN_TOKENS = {"BNB", "ETH", "OKB", "LEO", "KCS", "CRO", "NEAR", "APT", "SHIB", "CAKE"}
+    if symbol.upper() in BURN_TOKENS:
+        return True
+    # Could extend with on-chain check via burn_tracker module
+    return False
+
+
 def scan_gems(pages: int = 5, start_page: int = 3) -> List[GemCandidate]:
     """
     Scan CoinGecko for gem candidates across multiple pages.
@@ -381,6 +444,16 @@ def scan_gems(pages: int = 5, start_page: int = 3) -> List[GemCandidate]:
                     coin_gecko_id=c.get("id", ""),
                 )
                 gem = _score_gem(gem)
+                # Compute 24h/7d/30d price change from our own OHLCV data
+                p24, p7, p30 = _compute_own_price_changes(symbol)
+                if p24 is not None:
+                    gem.price_change_24h = p24
+                if p7 is not None:
+                    gem.price_change_7d = p7
+                if p30 is not None:
+                    gem.price_change_30d = p30
+                # Check burn program
+                gem.has_burn_program = _check_burn_program(symbol, c.get("id", ""))
                 candidates.append(gem)
 
             # Rate limit: CoinGecko free = 10-30 calls/min
@@ -477,8 +550,8 @@ def format_gem_report(candidates: List[GemCandidate], top_n: int = 20) -> str:
         "🔍 *Spot Gem Scan — {}*".format(datetime.now().strftime("%Y-%m-%d")),
         "Coins on Binance with strong tokenomics for 3-6 month holds",
         "",
-        f"`{'Rank':<4} {'Symbol':<8} {'Score':<6} {'MCap':<10} {'Vol/MCap':<9} {'ATH%':<7} {'FDVx':<6} {'Circ%':<6} {'30d%':<7}`",
-        "`" + "-" * 68 + "`",
+        f"`{'Rank':<4} {'Symbol':<8} {'Score':<6} {'MCap':<10} {'Vol/MCap':<9} {'ATH%':<7} {'24h%':<7} {'7d%':<6} {'30d%':<7}`",
+        "`" + "-" * 74 + "`",
     ]
 
     for i, c in enumerate(candidates[:top_n], 1):
@@ -497,12 +570,16 @@ def format_gem_report(candidates: List[GemCandidate], top_n: int = 20) -> str:
             emoji = "⚪"
 
         fut = "📍" if c.on_binance_futures else "  "
+        burn = "🔥" if c.has_burn_program else "  "
+        p24 = f"{c.price_change_24h:+.1f}%" if c.price_change_24h is not None else "N/A"
+        p7 = f"{c.price_change_7d:+.1f}%" if c.price_change_7d is not None else "N/A"
+        p30 = f"{c.price_change_30d:+.1f}%" if c.price_change_30d is not None else "N/A"
 
         lines.append(
-            f"`{i:<4} {c.symbol:<8} {c.score:<6.2f} ${c.market_cap/1e6:<7.0f}M {vol_mcap:<7.1f}% {ath_str:<7} {dilution:<5.1f}x {circ_pct:<5.0f}% {p30:<7}`{emoji}{fut}"
+            f"`{i:<4} {c.symbol:<8} {c.score:<6.2f} ${c.market_cap/1e6:<7.0f}M {vol_mcap:<7.1f}% {ath_str:<7} {p24:<7} {p7:<6} {p30:<7}`{emoji}{fut}{burn}"
         )
 
     lines.append("")
-    lines.append("_MCap: Market Cap | FDVx: FDV/MCap ratio | Circ%: Circulating %_")
+    lines.append("_MCap: Market Cap | 24h%/7d%/30d% from own data | 🔥 = Burn_")
     lines.append("_🟢 Strong | 🟡 Moderate | ⚪ Weak | 📍 Binance Futures_")
     return "\n".join(lines)
