@@ -13,6 +13,7 @@ Scores coins on a multi-factor model:
 
 import httpx
 import time
+import os
 import logging
 import random
 from dataclasses import dataclass, field
