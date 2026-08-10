@@ -58,7 +58,7 @@ CONFIG_PRIORITY = [
 
 MAX_SIGNALS_PER_BATCH = 3       # Max positions the bot can handle
 MAX_SCORE_CAP = 11.0            # Cap composite score — 12+ signals mean-revert (22% WR vs 59% for 10-12)
-EXCLUDED_SYMBOLS = {"BTW", "EUL", "EIGEN", "MORPHO", "DGB"}  # 0% WR symbols — never profitable
+EXCLUDED_SYMBOLS = {"BTWUSDT", "EULUSDT", "EIGENUSDT", "MORPHOUSDT", "DGBUSDT"}  # 0% WR symbols — never profitable
 MAX_SLIPPAGE_PCT = 0.5           # Max price difference from entry before skipping signal
 
 
