@@ -359,7 +359,7 @@ def _check_burn_program(symbol: str, coingecko_id: str) -> bool:
     BURN_TOKENS = {"BNB", "ETH", "OKB", "LEO", "KCS", "CRO", "NEAR", "APT", "SHIB", "CAKE"}
     if symbol.upper() in BURN_TOKENS:
         return True
-    # Could extend with on-chain check via burn_tracker module
+    # Extended: check if description mentions burn (will be checked during enrichment)
     return False
 
 
@@ -469,6 +469,11 @@ def scan_gems(pages: int = 5, start_page: int = 3) -> List[GemCandidate]:
                     gem.price_change_30d = p30
                 # Check burn program
                 gem.has_burn_program = _check_burn_program(symbol, c.get("id", ""))
+                # If description loaded during enrichment, also check for burn keywords
+                if not gem.has_burn_program and gem.description:
+                    burn_kw = ["token burn", "burns ", "buyback", "burn mechanism",
+                               "deflationary", "auto-burn", "burnt"]
+                    gem.has_burn_program = any(k in gem.description.lower() for k in burn_kw)
                 candidates.append(gem)
 
             # Rate limit: CoinGecko free = 10-30 calls/min
