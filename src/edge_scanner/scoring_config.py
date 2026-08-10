@@ -486,6 +486,10 @@ class ScoringConfig:
     """Additional altFINS display_types to fetch for this config's scoring.
     These are fetched alongside the base fields in each scan cycle."""
 
+    symbol_whitelist: List[str] = field(default_factory=list)
+    """Explicit symbol whitelist. Empty list = no filter (use coin_type_filter).
+    Example: ['BTCUSDT', 'ETHUSDT'] = only these symbols."""
+
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     notes: str = ""
 
@@ -1316,6 +1320,7 @@ CONFIG_V14_0 = ScoringConfig(
     coin_type_filter=["ANY"],
     exclude_coin_types=[],
     display_types_extra=[],
+    symbol_whitelist=["BTCUSDT", "ETHUSDT"],  # Precursor research was BTC/ETH only
 )
 
 # ── CONFIG_V15_0 — Multi-Timeframe Alignment ──
@@ -1876,6 +1881,32 @@ CONFIG_V3_4 = ScoringConfig(
     regime_dir_bull_short_penalty=2.0,
 )
 
+
+
+# ── CONFIG_V3_5 — Auto-generated 2026-08-09 14:02 ──
+CONFIG_V3_5 = ScoringConfig(
+    version="3.5",
+    description="LLM-evolved: win-rate optimized config, tightened filters for higher quality",
+    min_abs_score=8.0,
+    min_adx=25,
+    min_rsi=25,
+    max_rsi=65,
+    min_atr_pct=0.4,
+    atr_stop_mult=2.0,
+    rr_ratio=2.0,
+    trend_weight=0.4,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.2,
+    onchain_netflow_weight=0.2,
+    volume_divergence_weight=4.0,
+    smart_money_index_weight=3.0,
+    low_float_squeeze_weight=2.0,
+    regime_dir_bear_short_bonus=3.0,
+    regime_dir_bear_long_penalty=2.0,
+    regime_dir_bull_long_bonus=3.0,
+    regime_dir_bull_short_penalty=2.0,
+)
+
 ACTIVE_CONFIG = CONFIG_V3_1
 
 ALL_CONFIGS: dict[str, ScoringConfig] = {
@@ -1885,7 +1916,7 @@ ALL_CONFIGS: dict[str, ScoringConfig] = {
         # Multi-timeframe (all kept for records)
         CONFIG_V2_0, CONFIG_V2_1, CONFIG_V2_2,
         # ADX momentum (all kept for records)
-        CONFIG_V3_0, CONFIG_V3_1, CONFIG_V3_2, CONFIG_V3_3,
+        CONFIG_V3_0, CONFIG_V3_1, CONFIG_V3_2, CONFIG_V3_3, CONFIG_V3_5,
         # Breakout intensity
         CONFIG_V4_0, CONFIG_V4_1,
         # Coin-type specific

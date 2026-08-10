@@ -310,6 +310,13 @@ def select_signals() -> List[Dict]:
                     label, sig["direction"], sym, version,
                 )
                 continue
+            if _cfg and _cfg.symbol_whitelist and sym not in _cfg.symbol_whitelist:
+                logger.info(
+                    "  %s: SKIPPED %s %s — not in config %s whitelist (%s)",
+                    label, sig["direction"], sym, version,
+                    ",".join(_cfg.symbol_whitelist),
+                )
+                continue
             if _cfg and _cfg.market_regime_filter != "OFF":
                 regime_ok, regime_reason = _check_market_regime(sig["direction"], _cfg.market_regime_filter)
                 if not regime_ok:
