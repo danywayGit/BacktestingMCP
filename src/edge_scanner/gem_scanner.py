@@ -113,6 +113,20 @@ class GemCandidate:
     price_change_24h: Optional[float] = None
     has_burn_program: bool = False
     atl_date: Optional[str] = None        # CoinGecko ATL date — proxy for coin age
+    # Social / developer data (from CoinGecko per-coin endpoint)
+    github_stars: Optional[int] = None
+    github_forks: Optional[int] = None
+    github_subscribers: Optional[int] = None
+    commit_count_4w: Optional[int] = None
+    code_additions_4w: Optional[int] = None
+    code_deletions_4w: Optional[int] = None
+    pull_requests_merged: Optional[int] = None
+    twitter_followers: Optional[int] = None
+    reddit_subscribers: Optional[int] = None
+    telegram_users: Optional[int] = None
+    description: str = ""
+    homepage: str = ""
+    twitter_handle: str = ""
     score: float = 0.0
     breakdown: Dict[str, float] = field(default_factory=dict)
 
@@ -480,7 +494,7 @@ def scan_gems(pages: int = 5, start_page: int = 3) -> List[GemCandidate]:
             time.sleep(COINGECKO_INDIVIDUAL_DELAY)  # Rate limit between individual lookups
             resp = _coingecko_get(
                 f"https://api.coingecko.com/api/v3/coins/{gem.coin_gecko_id}",
-                params={"localization": "false", "tickers": "false", "community_data": "false", "sparkline": "false"},
+                params={"localization": "false", "tickers": "false", "community_data": "true", "developer_data": "true", "sparkline": "false"},
                 timeout=10.0,
             )
             if resp is not None and resp.status_code == 200:
@@ -490,6 +504,26 @@ def scan_gems(pages: int = 5, start_page: int = 3) -> List[GemCandidate]:
                 if atl_dt:
                     gem.atl_date = atl_dt
                 ath_dt = md.get("ath_date", {}).get("usd")
+
+                # ── Social / developer data ──
+                cd = coin_data.get("community_data", {})
+                dd = coin_data.get("developer_data", {})
+                links = coin_data.get("links", {})
+                gem.github_stars = dd.get("stars")
+                gem.github_forks = dd.get("forks")
+                gem.github_subscribers = dd.get("subscribers")
+                gem.commit_count_4w = dd.get("commit_count_4_weeks")
+                cadd = dd.get("code_additions_deletions_4_weeks") or {}
+                gem.code_additions_4w = cadd.get("additions")
+                gem.code_deletions_4w = cadd.get("deletions")
+                gem.pull_requests_merged = dd.get("pull_requests_merged")
+                gem.twitter_followers = cd.get("twitter_followers")
+                gem.reddit_subscribers = cd.get("reddit_subscribers")
+                gem.telegram_users = cd.get("telegram_channel_user_count")
+                gem.description = (coin_data.get("description") or {}).get("en", "")[:300]
+                hp = links.get("homepage") or []
+                gem.homepage = hp[0] if hp else ""
+                gem.twitter_handle = links.get("twitter_screen_name") or ""
 
                 # Determine exact age from genesis_date, ATL date, or ATH date
                 genesis = coin_data.get("genesis_date", "")
@@ -539,6 +573,12 @@ def scan_gems(pages: int = 5, start_page: int = 3) -> List[GemCandidate]:
 
     young_candidates.sort(key=lambda x: x.score, reverse=True)
     logger.info("After age filter: %d young gem candidates", len(young_candidates))
+    # Save gem metrics snapshot for progression tracking
+    try:
+        from .gem_metrics_store import save_gem_metrics
+        save_gem_metrics(young_candidates)
+    except Exception:
+        pass
     return young_candidates
 
 
@@ -583,4 +623,15 @@ def format_gem_report(candidates: List[GemCandidate], top_n: int = 20) -> str:
     lines.append("")
     lines.append("_MCap: Market Cap | 24h%/7d%/30d% from own data | 🔥 = Burn_")
     lines.append("_🟢 Strong | 🟡 Moderate | ⚪ Weak | 📍 Binance Futures_")
-    return "\n".join(lines)
+
+    # Progression report (social/developer data changes since last scan)
+    try:
+        from .gem_metrics_store import format_progression_report
+        prog = format_progression_report(candidates[:top_n])
+        if prog and "No progression" not in prog:
+            lines.append("")
+            lines.append(prog)
+    except Exception:
+        pass
+
+    return "\\n".join(lines)
