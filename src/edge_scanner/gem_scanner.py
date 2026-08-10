@@ -639,4 +639,4 @@ def format_gem_report(candidates: List[GemCandidate], top_n: int = 20) -> str:
     except Exception:
         pass
 
-    return "\\n".join(lines)
+    return "\n".join(lines)
