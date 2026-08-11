@@ -41,6 +41,7 @@ CONFIG_PRIORITY = [
     ("16.0", 6.0, "V16.0 Vol Squeeze"),     # BB squeeze breakout
     ("15.0", 6.0, "V15.0 Multi-TF"),        # All timeframes aligned
     ("3.6", 7.0, "V3.6 Bridge-Active ADX"), # First V3.x that sends signals
+    ("1.4", 7.0, "V1.4 Scanner-Focused"),  # Scanner hits weighted 2x
     ("14.0", 5.0, "V14.0 Pattern Discovery"),  # Data-driven from BTC/ETH
     ("13.0", 8.0, "V13.0 Auto-Evolved"),  # LLM-suggested, high ADX + SMI
     ("12.0", 9.0, "V12.0 Optimized Pro V2"),  # Parameter-optimized, 46.7% WR
