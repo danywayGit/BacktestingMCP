@@ -1907,7 +1907,37 @@ CONFIG_V3_5 = ScoringConfig(
     regime_dir_bull_short_penalty=2.0,
 )
 
-ACTIVE_CONFIG = CONFIG_V3_1
+# ── CONFIG_V3_6 — Bridge-Active: first V3.x that actually sends signals ──
+# V3.0-3.5 all had 0 sent signals (buried in bridge priority).
+# V3.6 uses the best of V3.3-3.5 (volume divergence, regime bias) but
+# with a lower threshold and added to the bridge priority.
+# Key changes from V3.5:
+#   - Lower min_abs_score (7.0 → 5.0) to actually get signals through
+#   - Lower min_adx (25 → 18) — soft filter, not hard gate
+#   - Added to bridge priority at threshold 7.0
+CONFIG_V3_6 = ScoringConfig(
+    version="3.6",
+    description="Bridge-Active ADX: Lowered threshold to send signals. Volume divergence + regime bias.",
+    min_abs_score=5.0,
+    min_adx=18,
+    min_rsi=25,
+    max_rsi=65,
+    min_atr_pct=0.3,
+    atr_stop_mult=3.0,
+    rr_ratio=1.5,
+    volume_relative_weight=1.0,
+    signal_feed_weight=0.2,
+    onchain_netflow_weight=0.2,
+    volume_divergence_weight=3.0,
+    smart_money_index_weight=2.0,
+    low_float_squeeze_weight=1.0,
+    regime_dir_bear_short_bonus=2.0,
+    regime_dir_bear_long_penalty=2.0,
+    regime_dir_bull_long_bonus=2.0,
+    regime_dir_bull_short_penalty=2.0,
+)
+
+ACTIVE_CONFIG = CONFIG_V1_4
 
 ALL_CONFIGS: dict[str, ScoringConfig] = {
     c.version: c for c in [
@@ -1916,7 +1946,7 @@ ALL_CONFIGS: dict[str, ScoringConfig] = {
         # Multi-timeframe (all kept for records)
         CONFIG_V2_0, CONFIG_V2_1, CONFIG_V2_2,
         # ADX momentum (all kept for records)
-        CONFIG_V3_0, CONFIG_V3_1, CONFIG_V3_2, CONFIG_V3_3, CONFIG_V3_5,
+        CONFIG_V3_0, CONFIG_V3_1, CONFIG_V3_2, CONFIG_V3_3, CONFIG_V3_5, CONFIG_V3_6,
         # Breakout intensity
         CONFIG_V4_0, CONFIG_V4_1,
         # Coin-type specific
