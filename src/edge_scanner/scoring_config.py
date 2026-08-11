@@ -734,12 +734,15 @@ CONFIG_V1_3 = ScoringConfig(
 
 CONFIG_V1_4 = ScoringConfig(
     version="1.4",
-    description="Scanner-focused: Higher weight for scanner hits (2.0)",
+    description="Scanner-focused: Higher weight for scanner hits (2.0). Active config.",
     trend_weight=1.0,
     volume_relative_weight=1.0,
     signal_feed_weight=1.0,
     scanner_hit_weight=2.0,
     onchain_netflow_weight=1.0,
+    # Risk management
+    atr_stop_mult=3.0,
+    rr_ratio=1.5,
     # Alert thresholds
     alert_min_score=4.0,
     alert_require_multi_source=True,
@@ -748,6 +751,7 @@ CONFIG_V1_4 = ScoringConfig(
     max_market_cap_usd=0.0,
     coin_type_filter=["ANY"],
     exclude_coin_types=[],
+    market_regime_filter="BTC",
     # Metadata
     display_types_extra=[],
 )
