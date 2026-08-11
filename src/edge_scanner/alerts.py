@@ -115,15 +115,16 @@ def _format_alert(c: CandidateScore) -> str:
     atr = _get_atr(c.symbol)
     if atr and c.last_close and atr > 0:
         stop_distance = atr * ATR_MULT_STOP
+        _rr = c.rr_ratio or RR_RATIO
         if c.direction == "LONG":
             stop = c.last_close - stop_distance
-            target = c.last_close + stop_distance * RR_RATIO
+            target = c.last_close + stop_distance * _rr
         else:
             stop = c.last_close + stop_distance
-            target = c.last_close - stop_distance * RR_RATIO
+            target = c.last_close - stop_distance * _rr
         stop_str = f"${stop:.4f}"
         target_str = f"${target:.4f}"
-        rr_str = f"1:{RR_RATIO}"
+        rr_str = f"1:{_rr}"
     else:
         stop_str = "N/A"
         target_str = "N/A"
