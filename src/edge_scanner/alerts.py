@@ -61,11 +61,33 @@ def _get_winrate(symbol: str, config_version: str = "") -> Optional[dict]:
     """Fetch resolved win-rate for this symbol, both per-config and all-configs.
     
     Returns dict with:
-      - per_config: {n, wr, avg_return} for this config_version on this symbol
-      - all_configs: {n, wr, avg_return} for all configs on this symbol
-      - disabled_excluded: True if disabled configs were excluded from all_configs
+      - per_config: {n, wr, avg_return, avg_win, avg_loss, avg_ttr_win, avg_ttr_loss}
+      - all_configs: {n, wr, avg_return, avg_win, avg_loss, avg_ttr_win, avg_ttr_loss}
     Returns None if both per-config and all-configs have < 5 trades.
     """
+    def _compute_stats(signals):
+        if len(signals) < 3:
+            return None
+        wins = [s for s in signals if s.get("outcome") == "WIN"]
+        losses = [s for s in signals if s.get("outcome") == "LOSS"]
+        total = len(signals)
+        win_count = len(wins)
+        loss_count = len(losses)
+        if win_count + loss_count == 0:
+            return None
+        wr = win_count / (win_count + loss_count) * 100 if (win_count + loss_count) > 0 else 0
+        avg_ret = sum(s.get("forward_return_pct", 0) for s in signals) / total
+        avg_win = sum(s.get("forward_return_pct", 0) for s in wins) / win_count if win_count else 0
+        avg_loss = sum(s.get("forward_return_pct", 0) for s in losses) / loss_count if loss_count else 0
+        avg_ttr_win = sum(s.get("time_to_resolve_hours", 0) for s in wins) / win_count if win_count else 0
+        avg_ttr_loss = sum(s.get("time_to_resolve_hours", 0) for s in losses) / loss_count if loss_count else 0
+        return {
+            "n": total, "wr": round(wr, 1),
+            "avg_return": round(avg_ret, 2),
+            "avg_win": round(avg_win, 2), "avg_loss": round(avg_loss, 2),
+            "avg_ttr_win": round(avg_ttr_win, 1), "avg_ttr_loss": round(avg_ttr_loss, 1),
+        }
+    
     try:
         from ..data.database import db
         from datetime import datetime, timezone, timedelta
@@ -75,38 +97,17 @@ def _get_winrate(symbol: str, config_version: str = "") -> Optional[dict]:
         if not symbol_signals:
             return None
         
-        # Disabled configs to exclude from aggregate
         DISABLED_VERSIONS = {"2.0", "3.0", "7.0", "7.7"}
         
-        # Per-config stats
-        per_config = None
-        if config_version:
-            cfg_signals = [s for s in symbol_signals if s.get("config_version") == config_version]
-            if len(cfg_signals) >= 3:
-                cfg_wins = sum(1 for s in cfg_signals if s.get("outcome") == "WIN")
-                cfg_tot = len(cfg_signals)
-                cfg_avg = sum(s.get("forward_return_pct", 0) for s in cfg_signals) / cfg_tot
-                per_config = {
-                    "n": cfg_tot, "wr": round(cfg_wins / cfg_tot * 100, 1),
-                    "avg_return": round(cfg_avg, 2)
-                }
+        per_config = _compute_stats(
+            [s for s in symbol_signals if s.get("config_version") == config_version]
+        ) if config_version else None
         
-        # All-configs stats (excluding disabled)
         active_signals = [s for s in symbol_signals if s.get("config_version") not in DISABLED_VERSIONS]
-        if len(active_signals) >= 5:
-            all_wins = sum(1 for s in active_signals if s.get("outcome") == "WIN")
-            all_tot = len(active_signals)
-            all_avg = sum(s.get("forward_return_pct", 0) for s in active_signals) / all_tot
-            all_configs = {
-                "n": all_tot, "wr": round(all_wins / all_tot * 100, 1),
-                "avg_return": round(all_avg, 2)
-            }
-        else:
-            all_configs = None
+        all_configs = _compute_stats(active_signals) if len(active_signals) >= 5 else None
         
         if per_config is None and all_configs is None:
             return None
-        
         return {"per_config": per_config, "all_configs": all_configs}
     except Exception:
         return None
@@ -173,10 +174,17 @@ def _format_alert(c: CandidateScore) -> str:
         parts = []
         if wr.get("per_config"):
             p = wr["per_config"]
-            parts.append(f"{c.config_version}: {p['wr']}% ({p['n']}t, avg {p['avg_return']:+.2f}%)")
+            parts.append(
+                f"{c.config_version}: {p['wr']}% ({p['n']}t, "
+                f"⬆{p['avg_win']:+.1f}%⬇{p['avg_loss']:+.1f}%, "
+                f"⏱{p['avg_ttr_win']:.0f}h/{p['avg_ttr_loss']:.0f}h)"
+            )
         if wr.get("all_configs"):
             a = wr["all_configs"]
-            parts.append(f"All: {a['wr']}% ({a['n']}t, avg {a['avg_return']:+.2f}%)")
+            parts.append(
+                f"All: {a['wr']}% ({a['n']}t, "
+                f"⬆{a['avg_win']:+.1f}%⬇{a['avg_loss']:+.1f}%)"
+            )
         wr_str = " | ".join(parts)
     else:
         wr_str = "N/A (< 5 resolved trades)"
