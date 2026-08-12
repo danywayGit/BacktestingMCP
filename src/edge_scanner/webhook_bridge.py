@@ -34,15 +34,18 @@ DB_PATH = "/home/hermes/BacktestingMCP/data/crypto.db"
 
 # Config priority: (version, min_score, label)
 CONFIG_PRIORITY = [
+    ("10.0", 7.0, "V10.0 Chart Pattern Hunter"),  # 90.9% WR — best performer
     ("20.0", 5.0, "V20.0 Time-of-Day"),     # Filters by active hours
     ("19.0", 5.0, "V19.0 Ratio Arb"),       # BTC/ETH ratio pairs trade
     ("18.0", 6.0, "V18.0 Mean Reversion"),  # RSI extremes
     ("17.0", 6.0, "V17.0 Liquidation"),     # Near swing extremes
     ("16.0", 6.0, "V16.0 Vol Squeeze"),     # BB squeeze breakout
     ("15.0", 6.0, "V15.0 Multi-TF"),        # All timeframes aligned
+    ("6.4", 7.0, "V6.4 Flat Killer"),       # Tight stop, R:R 1.2, high vol
     ("3.6", 7.0, "V3.6 Bridge-Active ADX"), # First V3.x that sends signals
+    ("1.5", 7.0, "V1.5 Conservative R:R"),  # R:R 1.2, same as V1.0 formula
     ("1.4", 7.0, "V1.4 Scanner-Focused"),  # Scanner hits weighted 2x
-    ("14.0", 5.0, "V14.0 Pattern Discovery"),  # Data-driven from BTC/ETH
+    ("14.0", 7.0, "V14.0 Pattern Discovery"),  # BTC/ETH only, precursor-based
     ("13.0", 8.0, "V13.0 Auto-Evolved"),  # LLM-suggested, high ADX + SMI
     ("12.0", 9.0, "V12.0 Optimized Pro V2"),  # Parameter-optimized, 46.7% WR
     ("11.0", 7.0, "V11.0 Optimized Pro"),  # Built from analysis, 59% WR sweet spot
@@ -55,7 +58,6 @@ CONFIG_PRIORITY = [
     ("4.1", 7.5, "V4.1 Breakout"),    # 58.0% WR
     ("9.0", 7.0, "V9.0 Vol Imbalance"),  # New strategy
     ("1.5", 7.5, "V1.5 Conservative R:R"),  # 1.2 R:R for higher TP hit
-    ("1.0", 10.0, "V1.0 Baseline"),   # 52.1% WR, workhorse (only top signals, rr=2.0 too wide)
 ]
 
 MAX_SIGNALS_PER_BATCH = 3       # Max positions the bot can handle

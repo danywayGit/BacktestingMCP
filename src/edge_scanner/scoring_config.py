@@ -654,7 +654,8 @@ class ScoringConfig:
 
 CONFIG_V1_0 = ScoringConfig(
     version="1.0",
-    description="Baseline: Original scoring formula with equal weights",
+    description="Baseline: Original scoring formula with equal weights [DISABLED — replaced by V1.4/V1.5]",
+    status="disabled",
     trend_weight=1.0,
     volume_relative_weight=1.0,
     signal_feed_weight=1.0,
@@ -1132,7 +1133,8 @@ CONFIG_V6_2 = ScoringConfig(
 #   - min_adx=15 filters out non-trending markets (pullbacks need trends)
 CONFIG_V6_3 = ScoringConfig(
     version="6.3",
-    description="Pullback v2: Reduced flats from 64% with higher vol/ADX filters + volume divergence confirmation.",
+    description="Pullback v2: Reduced flats [DISABLED — 14.3% WR, EV=-3.50%]",
+    status="disabled",
     trend_weight=0.35,
     volume_relative_weight=0.25,
     signal_feed_weight=0.20,
