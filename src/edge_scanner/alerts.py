@@ -57,20 +57,57 @@ def _get_atr(symbol: str) -> Optional[float]:
         return None
 
 
-def _get_winrate(symbol: str) -> Optional[dict]:
-    """Fetch resolved win-rate for this symbol. Returns None if insufficient data."""
+def _get_winrate(symbol: str, config_version: str = "") -> Optional[dict]:
+    """Fetch resolved win-rate for this symbol, both per-config and all-configs.
+    
+    Returns dict with:
+      - per_config: {n, wr, avg_return} for this config_version on this symbol
+      - all_configs: {n, wr, avg_return} for all configs on this symbol
+      - disabled_excluded: True if disabled configs were excluded from all_configs
+    Returns None if both per-config and all-configs have < 5 trades.
+    """
     try:
         from ..data.database import db
         from datetime import datetime, timezone, timedelta
         since = datetime.now(timezone.utc) - timedelta(days=90)
         signals = db.get_resolved_edge_signals(since=since)
-        relevant = [s for s in signals if s.get("symbol") == symbol.upper()]
-        if len(relevant) < 5:
+        symbol_signals = [s for s in signals if s.get("symbol") == symbol.upper()]
+        if not symbol_signals:
             return None
-        wins = sum(1 for s in relevant if s.get("outcome") == "WIN")
-        totals = len(relevant)
-        avg_ret = sum(s.get("forward_return_pct", 0) for s in relevant) / totals
-        return {"n": totals, "wr": round(wins / totals * 100, 1), "avg_return": round(avg_ret, 2)}
+        
+        # Disabled configs to exclude from aggregate
+        DISABLED_VERSIONS = {"2.0", "3.0", "7.0", "7.7"}
+        
+        # Per-config stats
+        per_config = None
+        if config_version:
+            cfg_signals = [s for s in symbol_signals if s.get("config_version") == config_version]
+            if len(cfg_signals) >= 3:
+                cfg_wins = sum(1 for s in cfg_signals if s.get("outcome") == "WIN")
+                cfg_tot = len(cfg_signals)
+                cfg_avg = sum(s.get("forward_return_pct", 0) for s in cfg_signals) / cfg_tot
+                per_config = {
+                    "n": cfg_tot, "wr": round(cfg_wins / cfg_tot * 100, 1),
+                    "avg_return": round(cfg_avg, 2)
+                }
+        
+        # All-configs stats (excluding disabled)
+        active_signals = [s for s in symbol_signals if s.get("config_version") not in DISABLED_VERSIONS]
+        if len(active_signals) >= 5:
+            all_wins = sum(1 for s in active_signals if s.get("outcome") == "WIN")
+            all_tot = len(active_signals)
+            all_avg = sum(s.get("forward_return_pct", 0) for s in active_signals) / all_tot
+            all_configs = {
+                "n": all_tot, "wr": round(all_wins / all_tot * 100, 1),
+                "avg_return": round(all_avg, 2)
+            }
+        else:
+            all_configs = None
+        
+        if per_config is None and all_configs is None:
+            return None
+        
+        return {"per_config": per_config, "all_configs": all_configs}
     except Exception:
         return None
 
@@ -130,10 +167,17 @@ def _format_alert(c: CandidateScore) -> str:
         target_str = "N/A"
         rr_str = "N/A"
 
-    # Hit rate (resolved signal data)
-    wr = _get_winrate(c.symbol)
+    # Hit rate (resolved signal data — per-config + all-configs)
+    wr = _get_winrate(c.symbol, config_version=c.config_version)
     if wr:
-        wr_str = f"{wr['wr']}% ({wr['n']} trades, avg {wr['avg_return']:+.2f}%)"
+        parts = []
+        if wr.get("per_config"):
+            p = wr["per_config"]
+            parts.append(f"{c.config_version}: {p['wr']}% ({p['n']}t, avg {p['avg_return']:+.2f}%)")
+        if wr.get("all_configs"):
+            a = wr["all_configs"]
+            parts.append(f"All: {a['wr']}% ({a['n']}t, avg {a['avg_return']:+.2f}%)")
+        wr_str = " | ".join(parts)
     else:
         wr_str = "N/A (< 5 resolved trades)"
 
