@@ -30,6 +30,10 @@ ALERT_MIN_SCORE = 7.0
 HIGH_CONFIDENCE_THRESHOLD = 9.0  # Score ≥ 9.0 = 🔥 high-confidence alert
 ALERT_MULTI_SOURCE = True
 
+# Dont re-alert the same symbol+config+direction within this window
+ALERT_COOLDOWN_HOURS = 4
+_alerted_cache = {}
+
 # Default risk parameters (only used when actual ATR data exists)
 RR_RATIO = 2.0        # risk 1 → reward 2
 ATR_MULT_STOP = 1.5   # stop = ATR × 1.5
@@ -265,6 +269,18 @@ def send_alerts(candidates: List[CandidateScore], dry_run: bool = False) -> int:
         and abs(c.composite_score) >= ALERT_MIN_SCORE
         and (not ALERT_MULTI_SOURCE or _is_multi_source(c))
     ]
+
+    # Dedup: dont re-alert same symbol+config+direction within cooldown window
+    now = datetime.now(timezone.utc)
+    deduped = []
+    for c in triggered:
+        key = (c.symbol, c.config_version, c.direction)
+        last_alerted = _alerted_cache.get(key)
+        if last_alerted and (now - last_alerted).total_seconds() < ALERT_COOLDOWN_HOURS * 3600:
+            continue
+        _alerted_cache[key] = now
+        deduped.append(c)
+    triggered = deduped
 
     if not triggered:
         return 0
