@@ -34,6 +34,15 @@ SIGNIFICANCE_LEVEL = 0.10       # p-value threshold for promotion (10% = moderat
 
 class ConfigStats:
     """Per-configuration performance statistics."""
+    _FALLBACK_CFG = None
+
+    @classmethod
+    def _get_fallback(cls):
+        if cls._FALLBACK_CFG is None:
+            from src.edge_scanner.scoring_config import ScoringConfig
+            cls._FALLBACK_CFG = ScoringConfig(version="", description="")
+        return cls._FALLBACK_CFG
+
     def __init__(self, config_version: str):
         self.config_version = config_version
         self.total_signals = 0
@@ -227,8 +236,12 @@ def _two_proportion_z_test(wins1: int, n1: int, wins2: int, n2: int) -> tuple:
 
 
 def rank_configs(stats: Dict[str, ConfigStats], min_trades: int = MIN_NON_FLAT_TRADES) -> List[ConfigStats]:
-    """Rank configs by composite score, filtering those with enough data."""
-    eligible = [c for c in stats.values() if c.non_flat_trades >= min_trades]
+    """Rank configs by composite score, filtering those with enough data.
+    Excludes disabled configs."""
+    from src.edge_scanner.scoring_config import ALL_CONFIGS
+    _fallback = ConfigStats._get_fallback()
+    eligible = [c for c in stats.values() if c.non_flat_trades >= min_trades
+                and ALL_CONFIGS.get(c.config_version, _fallback).status != 'disabled']
     eligible.sort(key=lambda c: c.composite_rank_score, reverse=True)
     return eligible
 
