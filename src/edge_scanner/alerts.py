@@ -31,7 +31,7 @@ HIGH_CONFIDENCE_THRESHOLD = 9.0  # Score ≥ 9.0 = 🔥 high-confidence alert
 ALERT_MULTI_SOURCE = True
 
 # Dont re-alert the same symbol+config+direction within this window
-ALERT_COOLDOWN_HOURS = 4
+ALERT_COOLDOWN_HOURS = 24  # Only alert once per signal per day
 _alerted_cache = {}
 
 # Default risk parameters (only used when actual ATR data exists)
@@ -271,13 +271,26 @@ def send_alerts(candidates: List[CandidateScore], dry_run: bool = False) -> int:
     ]
 
     # Dedup: dont re-alert same symbol+config+direction within cooldown window
+    # Also skip if an unresolved signal already exists for this symbol+config
     now = datetime.now(timezone.utc)
     deduped = []
     for c in triggered:
         key = (c.symbol, c.config_version, c.direction)
+        # Check cooldown
         last_alerted = _alerted_cache.get(key)
         if last_alerted and (now - last_alerted).total_seconds() < ALERT_COOLDOWN_HOURS * 3600:
             continue
+        # Check if already has an unresolved signal in DB
+        try:
+            from ..data.database import db
+            unresolved = db.get_pending_edge_signal(
+                symbol=c.symbol, direction=c.direction,
+                config_version=c.config_version
+            )
+            if unresolved:
+                continue
+        except Exception:
+            pass
         _alerted_cache[key] = now
         deduped.append(c)
     triggered = deduped
