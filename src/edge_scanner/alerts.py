@@ -32,7 +32,8 @@ ALERT_MULTI_SOURCE = True
 
 # Dont re-alert the same symbol+config+direction within this window
 ALERT_COOLDOWN_HOURS = 24  # Only alert once per signal per day
-_alerted_cache = {}
+# Persistent cache across process restarts (file-backed, JSON)
+_ALERT_CACHE_FILE = os.path.join(os.path.dirname(__file__), "../../data/alerted_cache.json")
 
 # Default risk parameters (only used when actual ATR data exists)
 RR_RATIO = 2.0        # risk 1 → reward 2
