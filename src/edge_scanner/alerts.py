@@ -131,8 +131,16 @@ def _is_multi_source(c: CandidateScore) -> bool:
         sources += 1
     elif c.direction == "SHORT" and feed == "BEARISH":
         sources += 1
+    # Vol relative: lowered threshold from 2.0 to 1.5 for earlier detection
     vol = comp.get("altfins_volume_relative", 1.0)
-    if vol >= 2.0:
+    if vol >= 1.5:
+        sources += 1
+    # Own volume: relative to 10MA (catches volume accumulation before breakout)
+    own_vol = comp.get("volume_relative_10ma", 0)
+    if own_vol >= 1.5:
+        sources += 1
+    # Volume accumulation: increasing volume over 3 candles (building pressure)
+    if comp.get("volume_accumulation") and own_vol >= 1.0:
         sources += 1
     if comp.get("backtestingmcp_scanner_hits"):
         sources += 1
@@ -142,6 +150,10 @@ def _is_multi_source(c: CandidateScore) -> bool:
             sources += 1
         elif c.direction == "SHORT" and netflow < -0.05:
             sources += 1
+    # Price above EMA20 + elevated volume = powerful early signal (2 sources)
+    above_ema = comp.get("price_above_ema20")
+    if above_ema and own_vol >= 1.2:
+        sources += 2  # Counts as 2 sources: trend direction + volume confirmation
     return sources >= 2
 
 
