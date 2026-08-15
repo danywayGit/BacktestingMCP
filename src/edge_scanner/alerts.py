@@ -280,14 +280,15 @@ def send_alerts(candidates: List[CandidateScore], dry_run: bool = False) -> int:
         last_alerted = _alerted_cache.get(key)
         if last_alerted and (now - last_alerted).total_seconds() < ALERT_COOLDOWN_HOURS * 3600:
             continue
-        # Check if already has an unresolved signal in DB
+        # Check if already has an unresolved signal that was SENT to the bot
+        # (a just-logged PENDING signal from this scan should still alert)
         try:
             from ..data.database import db
             unresolved = db.get_pending_edge_signal(
                 symbol=c.symbol, direction=c.direction,
                 config_version=c.config_version
             )
-            if unresolved:
+            if unresolved and unresolved.get("webhook_sent_at"):
                 continue
         except Exception:
             pass

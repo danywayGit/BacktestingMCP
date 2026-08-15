@@ -503,7 +503,8 @@ class CryptoDatabase:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT id, symbol, pair, timeframe, direction, composite_score,
-                       entry_price, entry_time, horizon_hours, components, config_version
+                       entry_price, entry_time, horizon_hours, components, config_version,
+                       webhook_sent_at
                 FROM edge_signals
                 WHERE status = 'PENDING' AND symbol = ? AND direction = ? AND config_version = ?
                 LIMIT 1
