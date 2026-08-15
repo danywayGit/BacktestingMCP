@@ -363,6 +363,7 @@ def score_symbol(
         pass
 
     triggered_scans: List[str] = []
+    data = None
     try:
         end_date = datetime.now(timezone.utc)
         start_date = end_date - timedelta(days=lookback_days)
@@ -425,6 +426,25 @@ def score_symbol(
     except Exception as exc:
         logger.warning("Could not fetch/scan OHLCV for %s: %s", pair, exc)
     components["backtestingmcp_scanner_hits"] = triggered_scans
+    
+    # Compute EMA20 position and volume accumulation for alert multi-source
+    if data is not None and not data.empty:
+        try:
+            close = data["Close"].astype(float)
+            ema20 = close.ewm(span=20, adjust=False).mean().iloc[-1]
+            last_close = float(close.iloc[-1])
+            components["price_above_ema20"] = last_close > ema20
+            # Volume accumulation: volume increasing over last 3 candles
+            vol = data["Volume"].astype(float)
+            vol_ma10 = vol.rolling(10).mean().iloc[-1]
+            components["volume_relative_10ma"] = round(float(vol.iloc[-1] / vol_ma10) if vol_ma10 > 0 else 1.0, 2)
+            vol_3 = vol.iloc[-3:].mean() if len(vol) >= 3 else 0
+            components["volume_accumulation"] = vol_3 > vol_ma10 if vol_ma10 > 0 else False
+        except Exception:
+            components["price_above_ema20"] = False
+            components["volume_relative_10ma"] = 1.0
+            components["volume_accumulation"] = False
+    
     components["coin_type"] = coin_type
 
     # ── Chart Pattern Scoring (from altFINS TA scraper) ──────────────────
