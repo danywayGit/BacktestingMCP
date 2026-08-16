@@ -197,11 +197,70 @@ Emergency close if SL placement fails. Hard rule: no position open without SL.
 
 ---
 
-## Known Issues (Not Yet Fixed)
+## 2026-08-13 to 2026-08-15: Major Reconfiguration
 
+### Context
+After analyzing 333 sent signals, clear performance hierarchy emerged. V1.0 (38.2% WR) and V6.3 (14.3% WR) were bleeding. V10.0 (90.9% WR) was underutilized at middle priority.
+
+### Config Changes
+
+| Action | Config | Why |
+|--------|--------|-----|
+| **DISABLED** | V1.0 | 38.2% WR, was the main culprit in 8-9.9 score range |
+| **DISABLED** | V6.3 | 14.3% WR, EV=-3.50% per trade |
+| **ENABLED** | V1.4 | Scanner-focused (scanner_hit_weight=2.0), atr_stop_mult=3.0, rr_ratio=1.5 |
+| **ENABLED** | V1.5 | Conservative R:R (1.2), same formula as V1.0 |
+| **ENABLED** | V3.6 | First V3.x that actually sends signals (bridge-added) |
+| **ENABLED** | V6.4 | Flat Killer: tight stop, R:R 1.2, high vol (added to bridge) |
+
+### Bridge Priority (Aug 15)
+
+| # | Config | Threshold | Label |
+|---|--------|-----------|-------|
+| 1 | V10.0 | 7.0 | Chart Pattern Hunter (90.9% WR 🏆) |
+| 2 | V20.0 | 5.0 | Time-of-Day |
+| 3 | V19.0 | 5.0 | Ratio Arb |
+| 4 | V18.0 | 6.0 | Mean Reversion |
+| 5 | V17.0 | 6.0 | Liquidation |
+| 6 | V16.0 | 6.0 | Vol Squeeze |
+| 7 | V15.0 | 6.0 | Multi-TF |
+| 8 | V6.4 | 7.0 | Flat Killer 🆕 |
+| 9 | V3.6 | 7.0 | Bridge-Active ADX 🆕 |
+| 10 | V1.5 | 7.0 | Conservative R:R 🆕 |
+| 11 | V1.4 | 7.0 | Scanner-Focused |
+| 12 | V14.0 | 7.0 | Pattern Discovery (BTC/ETH only) |
+
+### ACTIVE_CONFIG Changed
+V3.1 → **V1.4** (Telegram alerts now use scanner-focused formula)
+
+### Alert System Improvements
+
+| Issue | Fix |
+|-------|-----|
+| **Duplicate alerts every 15min** | 24h cooldown cache (file-backed JSON, survives restarts) |
+| **Same signal re-alerted** | DB check: skip if unresolved signal already sent to bot |
+| **UTF-8 garbage in logs** | Replaced emoji/multiplication chars with ASCII |
+| **Resolved stats aggregated all configs** | Now shows per-config + all-configs, excludes disabled configs |
+
+### Early Signal Detection (V1.4 Improvement)
+
+**Problem:** V1.4 signals arrived 16h+ late — after the move already happened. The TA scanner only detected breakouts AFTER they occurred.
+
+**Root Cause:** `_is_multi_source` required altFINS sources that are reactive. Volume threshold of 2.0x missed accumulation phases.
+
+**Fix:** Added 3 new multi-source checks using own OHLCV data (no altFINS dependency):
+
+| New Source | Description | Example Catch |
+|------------|-------------|---------------|
+| **own_volume ≥ 1.5x** | Our volume relative to 10-candle MA | Catches volume spikes from market_data table |
+| **volume_accumulation** | Increasing volume over 3+ candles | Detects building pressure |
+| **price_above_ema20 + vol ≥ 1.2x** | **Counts as 2 sources** | The pattern user identified: "above many MAs with volume" |
+
+**Result:** For ICP, the setup was visible at Aug 14 10:00 (price above EMA20, volume 3.4x avg). This would have triggered the alert ~16 hours earlier than the previous signal.
+
+### Known Issues (Updated)
 1. **Stale `.pyc` cache** — After code changes, resolution cron may use old bytecode. Force recompile.
 2. **No market regime detection** — Configs don't adapt to bull/bear/sideways markets
-3. **No trade journal** — Bot doesn't record why each trade was taken (which config, which pattern)
-4. **No auto-stop** — Configs with 0% WR continue generating signals until manually disabled
+3. **V1.4 timing still altFINS-dependent** — New OHLCV-based sources help but altFINS trend_score is still the main source
 5. **ATR timeframe mismatch** — 1h ATR used for 1h signals, but 4h ATR may be more stable
 6. **No correlation filter** — Multiple correlated signals (e.g., 2 ETH-related coins) can open simultaneously
