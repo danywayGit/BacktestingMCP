@@ -33,33 +33,58 @@ STRATEGY = "EdgeScanner"
 DB_PATH = "/home/hermes/BacktestingMCP/data/crypto.db"
 
 # Config priority: (version, min_score, label)
+# Reordered by backtested EV (resolved signals in DB, >=20 trades)
+#   Top tiers: highest EV configs get priority
+#   Bottom tier: rotation round-robin for data collection
 CONFIG_PRIORITY = [
-    ("10.0", 7.0, "V10.0 Chart Pattern Hunter"),  # 90.9% WR — best performer
-    ("20.0", 5.0, "V20.0 Time-of-Day"),     # Filters by active hours
-    ("19.0", 5.0, "V19.0 Ratio Arb"),       # BTC/ETH ratio pairs trade
-    ("18.0", 7.0, "V18.0 Mean Reversion"),  # RSI extremes
-    ("17.0", 7.0, "V17.0 Liquidation"),     # Near swing extremes
-    ("16.0", 7.0, "V16.0 Vol Squeeze"),     # BB squeeze breakout (raised from 6.0)
-    ("15.0", 7.0, "V15.0 Multi-TF"),        # All timeframes aligned
-    ("6.4", 7.0, "V6.4 Flat Killer"),       # Tight stop, R:R 1.2, high vol
-    ("1.5", 7.0, "V1.5 Conservative R:R"),  # R:R 1.2, same as V1.0 formula
-    ("1.4", 7.0, "V1.4 Scanner-Focused"),  # Scanner hits weighted 2x
-    ("14.0", 7.0, "V14.0 Pattern Discovery"),  # BTC/ETH only, precursor-based
-    ("13.0", 8.0, "V13.0 Auto-Evolved"),  # LLM-suggested, high ADX + SMI
-    ("12.0", 9.0, "V12.0 Optimized Pro V2"),  # Parameter-optimized, 46.7% WR
-    ("11.0", 7.0, "V11.0 Optimized Pro"),  # Built from analysis, 59% WR sweet spot
-    ("5.1", 7.5, "V5.1 AI-focused"),      # 48.9% WR (60.5% non-flat) — best performer
-    ("10.0", 7.5, "V10.0 Chart Patterns"),  # Chart pattern hunter — new
-    ("6.2", 7.5, "V6.2 Pullback"),    # 63.6% WR — best performer
-    ("6.4", 7.5, "V6.4 Flat Killer"),  # Tight stop + close target
-    ("3.1", 7.5, "V3.1 ADX Trend"),  # 59.6% WR
-    ("4.1", 7.5, "V4.1 Breakout"),    # 58.0% WR
-    ("9.0", 7.0, "V9.0 Vol Imbalance"),  # New strategy
-    ("1.5", 7.5, "V1.5 Conservative R:R"),  # 1.2 R:R for higher TP hit
+    # ── TIER 1: Best EV (backtested) — always checked first ──
+    ("3.1", 7.0, "V3.1 ADX Trend"),         # EV=+7.05% 🏆
+    ("4.1", 7.0, "V4.1 Breakout+Vol"),       # EV=+5.55%
+    ("5.1", 7.0, "V5.1 AI-focused"),         # EV=+5.17%
+    ("6.1", 7.0, "V6.1 Breakout Momentum"),  # EV=+4.87%
+    ("2.1", 7.0, "V2.1 MT Alignment"),       # EV=+3.65%
+    ("4.0", 7.0, "V4.0 TR/ATR Breakout"),    # EV=+2.92%
+    # ── TIER 2: Solid EV configs ──
+    ("1.3", 7.0, "V1.3 On-Chain"),           # EV=+2.27%
+    ("1.1", 7.0, "V1.1 Volume-Weighted"),    # EV=+2.26%
+    ("1.4", 7.0, "V1.4 Scanner-Focused"),    # EV=+2.23% (ACTIVE)
+    ("1.2", 7.0, "V1.2 Signal-Focused"),     # EV=+2.10%
+    ("2.2", 7.0, "V2.2 Soft MT Alignment"),  # EV=+1.92%
+    ("8.0", 7.0, "V8.0 Funding Rate"),       # EV=+1.76%
+    ("6.0", 7.0, "V6.0 Pullback"),           # EV=+1.70%
+    ("3.2", 7.0, "V3.2 Soft ADX"),           # EV=+1.46%
+    ("5.2", 7.0, "V5.2 Balanced DeFi/AI"),   # EV=+1.09%
+    ("1.5", 7.0, "V1.5 Conservative R:R"),   # EV=+0.86%
+    ("6.2", 7.0, "V6.2 Pullback Strat"),     # EV=+0.72%
+    ("14.0", 7.0, "V14.0 Precursor BTC/ETH"), # EV=+0.45% (BTC/ETH only)
+    ("5.0", 7.0, "V5.0 DEFI-focused"),       # EV=+0.05%
+    # ── TIER 3: Negative EV but keep for rotation / special ──
+    # V10.0 (EV=-0.57%), V16.0 (EV=-0.78%), V12.0 (EV=-0.34%)
+    ("10.0", 7.0, "V10.0 Chart Patterns"),   # High WR (90.9% executed)
+    ("12.0", 7.0, "V12.0 Optimized Pro V2"), # Parameter-optimized
+    ("16.0", 7.0, "V16.0 Vol Squeeze"),      # Most execution data
+    ("11.0", 7.0, "V11.0 Optimized Pro"),    # 57.5% WR in backtest
+    ("13.0", 7.0, "V13.0 Auto-Evolved"),     # LLM-suggested
+    # ── TIER 4: Rotating configs (lower EV, for data collection) ──
+    # Picked via round-robin rotation based on day of month
+    ("7.2", 7.0, "V7.2 Filtered Quality"),
+    ("7.5", 7.0, "V7.5 LLM Quality Gate"),
+    ("7.6", 7.0, "V7.6 LLM Evolved"),
+    ("7.8", 7.0, "V7.8 LLM Evolved v2"),
+    ("3.3", 7.0, "V3.3 LLM ADX"),
+    ("3.5", 7.0, "V3.5 LLM ADX v2"),
+    ("6.4", 7.0, "V6.4 Flat Killer"),
+    # Special purpose (not in backtest rotation)
+    ("20.0", 5.0, "V20.0 Time-of-Day"),
+    ("19.0", 5.0, "V19.0 Ratio Arb"),
+    ("18.0", 7.0, "V18.0 Mean Reversion"),
+    ("17.0", 7.0, "V17.0 Liquidation"),
+    ("15.0", 7.0, "V15.0 Multi-TF"),
+    ("9.0", 7.0, "V9.0 Vol Imbalance"),
 ]
 
-MAX_SIGNALS_PER_BATCH = 3       # Max positions the bot can handle
-MAX_SCORE_CAP = 15.0            # Raised from 11.0 — 12+ signals have 57.1% WR, EV=+4.12%
+MAX_SIGNALS_PER_BATCH = 8       # Matches the 8 concurrent trade slots
+MAX_SCORE_CAP = 15.0            # 12+ scores have 57.1% WR, EV=+4.12%
 EXCLUDED_SYMBOLS = {"BTWUSDT", "EULUSDT", "EIGENUSDT", "MORPHOUSDT", "DGBUSDT"}  # 0% WR symbols — never profitable
 MAX_SLIPPAGE_PCT = 0.5           # Max price difference from entry before skipping signal
 
@@ -254,7 +279,14 @@ def select_signals() -> List[Dict]:
     cooldown_symbols = get_open_position_symbols()
     selected = []       # Final selected signals
     selected_symbols = set()  # Symbols already picked in this batch
+    selected_configs = set()  # Configs already picked in this batch (diversity)
     sent_count = 0
+
+    # ── ROTATION: rotate Tier-4 configs (lower EV) round-robin by day ──
+    # This gives under-tested configs a chance to accumulate execution data.
+    from datetime import datetime, timezone
+    _rot_offset = datetime.now(timezone.utc).day % 7  # 0-6, changes daily
+    _tier4_idx = 0
 
     for version, min_score, label in CONFIG_PRIORITY:
         if sent_count >= MAX_SIGNALS_PER_BATCH:
@@ -379,9 +411,18 @@ def select_signals() -> List[Dict]:
                 except Exception:
                     pass  # skip TestNet check if it fails
 
+            # CONFIG DIVERSITY: max 1 signal per config per batch
+            if version in selected_configs:
+                logger.info(
+                    "  %s: SKIPPED %s %s — config already contributed this batch",
+                    label, sig["direction"], sym,
+                )
+                continue
+
             sig["_priority_label"] = label
             selected.append(sig)
             selected_symbols.add(sym)
+            selected_configs.add(version)
             sent_count += 1
             logger.info(
                 "  %s: selected %s %s (score=%.1f) [%d/%d]",
