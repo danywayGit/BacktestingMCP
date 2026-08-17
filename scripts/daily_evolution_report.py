@@ -34,7 +34,15 @@ def get_pending_and_resolved(db_path='data/crypto.db'):
     return pending, resolved
 
 
-def build_report():
+def _is_active(config_version: str) -> bool:
+    """Check if a config version is not disabled."""
+    try:
+        cfg = ALL_CONFIGS.get(config_version)
+        return cfg is not None and cfg.status != 'disabled'
+    except Exception:
+        return True  # If we can't check, assume active
+
+def build_report() -> str:
     result = auto_evolve(dry_run=True)
     stats = analyze_configs()
     ranked = rank_configs(stats)
@@ -121,7 +129,8 @@ def build_report():
         notable = [c for c in stats.values()
                    if c.non_flat_trades >= MIN_NON_FLAT_TRADES
                    and c.win_rate > 55
-                   and c.config_version not in [t.config_version for t in top3]]
+                   and c.config_version not in [t.config_version for t in top3]
+                   and _is_active(c.config_version)]
         notable.sort(key=lambda c: c.win_rate, reverse=True)
     if notable:
         lines.append("\u2501\u2501\u2501\u2501\u2501 *OTHER NOTABLE* \u2501\u2501\u2501\u2501\u2501")
@@ -134,7 +143,7 @@ def build_report():
     lines.append("\u2501\u2501\u2501\u2501\u2501 *SUMMARY* \u2501\u2501\u2501\u2501\u2501")
     lines.append(f"\U0001f4c8 Total resolved signals: {resolved}")
     lines.append(f"\u23f3 Pending signals: {pending}")
-    lines.append(f"\U0001f4ca Active configs registered: {len(ALL_CONFIGS)}")
+    lines.append(f"📊 Active configs registered: {sum(1 for c in ALL_CONFIGS.values() if c.status != 'disabled')} ({len(ALL_CONFIGS)} total)")
     lines.append(f"\U0001f3c6 Configs with \u2265{MIN_NON_FLAT_TRADES}t data: {len(eligible)}")
     lines.append(f"\u2699\ufe0f  Min {MIN_NON_FLAT_TRADES} trades | p<0.10 | age\u22653d")
     lines.append("")
