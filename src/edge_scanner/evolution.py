@@ -457,7 +457,7 @@ def _build_report(
         lines.append("_No config has enough resolved data for ranking yet._")
         if stats:
             # Show what's available
-            lines.append(f"_Configs with data: {', '.join(sorted(stats.keys()))}_")
+            lines.append(f"_Configs with data: {', '.join(sorted(k for k in stats.keys() if _is_active(k))) or 'none'}_")
 
     lines.append("")
     lines.append("⚙️ *Auto-Promotion Rules*")
@@ -474,6 +474,15 @@ def _build_report(
 
     return "\n".join(lines)
 
+
+def _is_active(config_version: str) -> bool:
+    """Check if a config version is not disabled."""
+    try:
+        from src.edge_scanner.scoring_config import ALL_CONFIGS
+        cfg = ALL_CONFIGS.get(config_version)
+        return cfg is not None and cfg.status != 'disabled'
+    except Exception:
+        return True
 
 def _count_pending(db_path: str = 'data/crypto.db') -> int:
     """Count PENDING signals in the database."""
