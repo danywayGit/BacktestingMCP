@@ -44,17 +44,14 @@ CONFIG_PRIORITY = [
     ("6.1", 7.0, "V6.1 Breakout Momentum"),  # EV=+4.87%
     ("2.1", 7.0, "V2.1 MT Alignment"),       # EV=+3.65%
     ("4.0", 7.0, "V4.0 TR/ATR Breakout"),    # EV=+2.92%
-    # ── TIER 2: Solid EV configs ──
-    ("1.3", 7.0, "V1.3 On-Chain"),           # EV=+2.27%
-    ("1.1", 7.0, "V1.1 Volume-Weighted"),    # EV=+2.26%
-    ("1.4", 7.0, "V1.4 Scanner-Focused"),    # EV=+2.23% (ACTIVE)
-    ("1.2", 7.0, "V1.2 Signal-Focused"),     # EV=+2.10%
+    # ── TIER 2: Solid EV configs (max 2 V1.x) ──
+    ("1.4", 7.0, "V1.4 Scanner-Focused"),    # EV=+2.23% (ACTIVE, proven)
+    ("1.5", 7.0, "V1.5 Conservative R:R"),   # EV=+0.86%, best execution EV
     ("2.2", 7.0, "V2.2 Soft MT Alignment"),  # EV=+1.92%
     ("8.0", 7.0, "V8.0 Funding Rate"),       # EV=+1.76%
     ("6.0", 7.0, "V6.0 Pullback"),           # EV=+1.70%
     ("3.2", 7.0, "V3.2 Soft ADX"),           # EV=+1.46%
     ("5.2", 7.0, "V5.2 Balanced DeFi/AI"),   # EV=+1.09%
-    ("1.5", 7.0, "V1.5 Conservative R:R"),   # EV=+0.86%
     ("6.2", 7.0, "V6.2 Pullback Strat"),     # EV=+0.72%
     ("14.0", 7.0, "V14.0 Precursor BTC/ETH"), # EV=+0.45% (BTC/ETH only)
     ("5.0", 7.0, "V5.0 DEFI-focused"),       # EV=+0.05%
@@ -65,8 +62,11 @@ CONFIG_PRIORITY = [
     ("16.0", 7.0, "V16.0 Vol Squeeze"),      # Most execution data
     ("11.0", 7.0, "V11.0 Optimized Pro"),    # 57.5% WR in backtest
     ("13.0", 7.0, "V13.0 Auto-Evolved"),     # LLM-suggested
-    # ── TIER 4: Rotating configs (lower EV, for data collection) ──
+    # ── TIER 4: Rotating configs (for data collection) ──
     # Picked via round-robin rotation based on day of month
+    ("1.1", 7.0, "V1.1 Volume-Weighted"),
+    ("1.2", 7.0, "V1.2 Signal-Focused"),
+    ("1.3", 7.0, "V1.3 On-Chain"),
     ("7.2", 7.0, "V7.2 Filtered Quality"),
     ("7.5", 7.0, "V7.5 LLM Quality Gate"),
     ("7.6", 7.0, "V7.6 LLM Evolved"),
