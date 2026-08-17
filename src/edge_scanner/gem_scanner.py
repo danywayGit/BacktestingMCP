@@ -83,7 +83,6 @@ WEIGHTS = {
 MCAP_MIN = 10_000_000      # $10M minimum (was $5M)
 MCAP_MAX = 300_000_000     # $300M maximum (still room to 10-50x from here)
 VOL_MCAP_MIN = 0.03         # 3% minimum volume/mcap ratio
-VOL_MIN_24H = 500_000       # $500k minimum daily volume
 ATH_DROP_MIN = 30           # At least 30% down from ATH
 FDV_MCAP_MAX = 10.0         # Max 10x FDV/MCap (dilution cap)
 CIRCULATING_MIN = 0.10      # At least 10% circulating
@@ -419,9 +418,9 @@ def scan_gems(pages: int = 5, start_page: int = 3) -> List[GemCandidate]:
                 if mcap < MCAP_MIN or mcap > MCAP_MAX:
                     continue
 
-                # Volume filter — require either volume/mcap ratio OR minimum daily volume
+                # Volume filter
                 vol_mcap = vol / mcap if mcap > 0 else 0
-                if vol_mcap < VOL_MCAP_MIN and vol < VOL_MIN_24H:
+                if vol_mcap < VOL_MCAP_MIN:
                     continue
 
                 # ATH drop filter
