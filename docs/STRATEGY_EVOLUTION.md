@@ -258,6 +258,42 @@ V3.1 → **V1.4** (Telegram alerts now use scanner-focused formula)
 
 **Result:** For ICP, the setup was visible at Aug 14 10:00 (price above EMA20, volume 3.4x avg). This would have triggered the alert ~16 hours earlier than the previous signal.
 
+## 2026-08-17: Deep Week Analysis — Major Reconfiguration (v2)
+
+### Context
+Last week (Aug 10-17): 92 trades, 42.9% WR, **net negative**. V16.0 bleeding (34 trades, EV=-0.71%), V3.6 terrible (0% WR, EV=-4.79%).
+
+### Key Findings
+
+| Finding | Data | Action |
+|---------|------|--------|
+| **V14.0 whitelist broken** | 106 signals since Aug 9, ZERO for BTC/ETH | Added symbol_whitelist check to `passes_filters()` — now enforced at scoring level |
+| **V16.0 bleeding** | 34 trades, 44.1% WR, EV=-0.71% | Raised bridge threshold 6.0→7.0 |
+| **V3.6 terrible** | 0% WR, EV=-4.79% | DISABLED |
+| **Score 12+ profitable** | 57.1% WR, EV=+4.12% | Raised MAX_SCORE_CAP 11.0→15.0 |
+| **R:R 1.0-1.4 sweet spot** | 53.8% WR, EV=+1.00% | All configs lowered to 1.0-1.4 |
+| **V1.4 only positive EV** | 21 trades, EV=+0.95% | Stays active, rr lowered to 1.3 |
+
+### V14.0 Rebuild (Validated Precursors)
+Removed dependency on 5% move triggers. Now uses validated OOS precursors:
+- **ATR expansion** (effect size 0.85 ETH / 0.80 BTC)
+- **Volume Z-Score / Ratio** (effect size 0.78 / 0.68)
+- **BB Width expansion** (effect size 0.81 / 0.66)
+- Added `bb_squeeze_min=0.3` for Bollinger Band squeeze detection
+- Whitelist now enforced at **scoring level** (not just bridge)
+
+### Config Changes
+
+| Action | Config | Detail |
+|--------|--------|--------|
+| **DISABLED** | V3.6 | 0% WR, EV=-4.79% |
+| **FIXED** | V14.0 | Whitelist enforced at scoring, BB squeeze added |
+| **RAISED** | V16.0 | Bridge threshold 6.0→7.0 |
+| **RAISED** | V15/17/18 | Bridge threshold 6.0→7.0 |
+| **LOWERED** | All active | R:R to 1.0-1.4 (V1.4: 1.3, V10: 1.3, V16: 1.3) |
+| **RAISED** | MAX_SCORE_CAP | 11.0→15.0 (12+ scores profitable) |
+| **REMOVED** | V3.6, V6.3 | From bridge priority (disabled) |
+
 ### Known Issues (Updated)
 1. **Stale `.pyc` cache** — After code changes, resolution cron may use old bytecode. Force recompile.
 2. **No market regime detection** — Configs don't adapt to bull/bear/sideways markets
