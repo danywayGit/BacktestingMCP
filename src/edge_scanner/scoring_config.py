@@ -587,6 +587,10 @@ class ScoringConfig:
         if coin_type in self.exclude_coin_types:
             return False, f"coin_type={coin_type} excluded"
 
+        # Symbol whitelist — only score symbols in the whitelist (if set)
+        if self.symbol_whitelist and symbol not in self.symbol_whitelist:
+            return False, f"symbol not in whitelist: {self.symbol_whitelist}"
+
         return True, ""
 
     def compute_extended_score(self, additional: dict, base_score: float, direction_hint: float) -> tuple[float, dict]:
@@ -743,7 +747,7 @@ CONFIG_V1_4 = ScoringConfig(
     onchain_netflow_weight=1.0,
     # Risk management
     atr_stop_mult=3.0,
-    rr_ratio=1.5,
+    rr_ratio=1.3,
     # Alert thresholds
     alert_min_score=4.0,
     alert_require_multi_source=True,
@@ -784,7 +788,7 @@ CONFIG_V10_0 = ScoringConfig(
     # ATR filter — patterns need volatility
     min_atr_pct=0.15,
     # R:R
-    rr_ratio=1.5,
+    rr_ratio=1.3,
     # Filters
     min_abs_score=4.0,
     alert_min_score=4.0,
@@ -1303,21 +1307,23 @@ CONFIG_V13_0 = ScoringConfig(
 # Window: 30h (120 × 15m) | Lookback: 60h (240 × 15m)
 CONFIG_V14_0 = ScoringConfig(
     version="14.0",
-    description="⚠️ [RE-EVALUATION PENDING] Precursor Pattern: Validated OOS. Volume spike + ATR expansion + range compression before 5%+ moves. Auto-updated weekly by research pipeline.",
+    description="Precursor Pattern: Validated ATR expansion + volume spike + BB squeeze before moves. BTC/ETH only. Uses market_data OHLCV precursors (not 5% move triggers).",
     status="enabled",
     # Weights from validated precursors
     trend_weight=0.2,
-    volume_relative_weight=3.0,  # Volume ratio >1.1x is key predictor
+    volume_relative_weight=3.0,  # Volume ratio >1.1x is key predictor (validated)
     signal_feed_weight=0.0,
     scanner_hit_weight=0.0,
     volume_divergence_weight=2.0,
+    # Bollinger Band squeeze (validated precursor: BB width expands before moves)
+    bb_squeeze_min=0.3,  # BB width percentile threshold for squeeze detection
     # Risk management
     atr_stop_mult=3.0,
     rr_ratio=1.0,
     # Filters from validated precursors
     min_abs_score=5.0,
-    min_atr_pct=0.35,  # ETH validated ATR >0.37%
-    min_volume_relative=1.0,  # BTC validated >1.1x
+    min_atr_pct=0.35,  # ETH validated ATR >0.37% (effect size 0.85)
+    min_volume_relative=1.0,  # BTC validated >1.1x (effect size 0.68)
     require_non_trend_confirmation=False,
     market_regime_filter="BTC",
     # Alert thresholds
@@ -1342,7 +1348,7 @@ CONFIG_V15_0 = ScoringConfig(
     scanner_hit_weight=0.2,
     onchain_netflow_weight=0.1,
     require_multi_timeframe_alignment=True,
-    rr_ratio=1.5,
+    rr_ratio=1.3,
     atr_stop_mult=3.0,
     min_abs_score=6.0,
     min_volume_relative=0.5,
@@ -1361,7 +1367,7 @@ CONFIG_V16_0 = ScoringConfig(
     scanner_hit_weight=0.1,
     volume_divergence_weight=2.0,
     bb_squeeze_min=20.0,
-    rr_ratio=1.5,
+    rr_ratio=1.3,
     atr_stop_mult=3.0,
     min_abs_score=6.0,
     min_atr_pct=0.2,
@@ -1416,7 +1422,7 @@ CONFIG_V19_0 = ScoringConfig(
     volume_relative_weight=0.0,
     signal_feed_weight=0.0,
     scanner_hit_weight=0.0,
-    rr_ratio=1.5,
+    rr_ratio=1.3,
     atr_stop_mult=3.0,
     min_abs_score=5.0,
     display_types_extra=[],
@@ -1435,7 +1441,7 @@ CONFIG_V20_0 = ScoringConfig(
     onchain_netflow_weight=0.1,
     allowed_start_hour=0,
     allowed_end_hour=6,
-    rr_ratio=1.5,
+    rr_ratio=1.3,
     atr_stop_mult=3.0,
     min_abs_score=5.0,
     display_types_extra=[],
@@ -1687,7 +1693,7 @@ CONFIG_V9_0 = ScoringConfig(
     volume_imbalance_weight=5.0,
     # Risk management
     atr_stop_mult=3.0,
-    rr_ratio=2.0,
+    rr_ratio=1.2,
     # Quality filters — moderate
     min_abs_score=5.0,
     min_trend_abs_score=3,
@@ -1923,7 +1929,8 @@ CONFIG_V3_5 = ScoringConfig(
 #   - Added to bridge priority at threshold 7.0
 CONFIG_V3_6 = ScoringConfig(
     version="3.6",
-    description="Bridge-Active ADX: Lowered threshold to send signals. Volume divergence + regime bias.",
+    description="Bridge-Active ADX: [DISABLED — 0% WR last week, EV=-4.79%]",
+    status="disabled",
     min_abs_score=5.0,
     min_adx=18,
     min_rsi=25,
@@ -1940,6 +1947,32 @@ CONFIG_V3_6 = ScoringConfig(
     regime_dir_bear_short_bonus=2.0,
     regime_dir_bear_long_penalty=2.0,
     regime_dir_bull_long_bonus=2.0,
+    regime_dir_bull_short_penalty=2.0,
+)
+
+
+
+# ── CONFIG_V1_6 — Auto-generated 2026-08-16 14:00 ──
+CONFIG_V1_6 = ScoringConfig(
+    version="1.6",
+    description="LLM-evolved: win-rate optimized config, tightened filters for higher quality",
+    min_abs_score=8.0,
+    min_adx=25,
+    min_rsi=35,
+    max_rsi=65,
+    min_atr_pct=0.5,
+    atr_stop_mult=1.5,
+    rr_ratio=2.0,
+    trend_weight=0.5,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.2,
+    onchain_netflow_weight=0.1,
+    volume_divergence_weight=4.0,
+    smart_money_index_weight=2.0,
+    low_float_squeeze_weight=1.5,
+    regime_dir_bear_short_bonus=3.0,
+    regime_dir_bear_long_penalty=2.0,
+    regime_dir_bull_long_bonus=3.0,
     regime_dir_bull_short_penalty=2.0,
 )
 
@@ -1966,7 +1999,9 @@ ALL_CONFIGS: dict[str, ScoringConfig] = {
         CONFIG_V8_0,
         # Volume Imbalance (Paper 2)
         CONFIG_V9_0,
-    ]
+    
+        CONFIG_V1_6,
+]
 }
 
 

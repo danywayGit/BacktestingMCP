@@ -37,12 +37,11 @@ CONFIG_PRIORITY = [
     ("10.0", 7.0, "V10.0 Chart Pattern Hunter"),  # 90.9% WR — best performer
     ("20.0", 5.0, "V20.0 Time-of-Day"),     # Filters by active hours
     ("19.0", 5.0, "V19.0 Ratio Arb"),       # BTC/ETH ratio pairs trade
-    ("18.0", 6.0, "V18.0 Mean Reversion"),  # RSI extremes
-    ("17.0", 6.0, "V17.0 Liquidation"),     # Near swing extremes
-    ("16.0", 6.0, "V16.0 Vol Squeeze"),     # BB squeeze breakout
-    ("15.0", 6.0, "V15.0 Multi-TF"),        # All timeframes aligned
+    ("18.0", 7.0, "V18.0 Mean Reversion"),  # RSI extremes
+    ("17.0", 7.0, "V17.0 Liquidation"),     # Near swing extremes
+    ("16.0", 7.0, "V16.0 Vol Squeeze"),     # BB squeeze breakout (raised from 6.0)
+    ("15.0", 7.0, "V15.0 Multi-TF"),        # All timeframes aligned
     ("6.4", 7.0, "V6.4 Flat Killer"),       # Tight stop, R:R 1.2, high vol
-    ("3.6", 7.0, "V3.6 Bridge-Active ADX"), # First V3.x that sends signals
     ("1.5", 7.0, "V1.5 Conservative R:R"),  # R:R 1.2, same as V1.0 formula
     ("1.4", 7.0, "V1.4 Scanner-Focused"),  # Scanner hits weighted 2x
     ("14.0", 7.0, "V14.0 Pattern Discovery"),  # BTC/ETH only, precursor-based
@@ -52,7 +51,6 @@ CONFIG_PRIORITY = [
     ("5.1", 7.5, "V5.1 AI-focused"),      # 48.9% WR (60.5% non-flat) — best performer
     ("10.0", 7.5, "V10.0 Chart Patterns"),  # Chart pattern hunter — new
     ("6.2", 7.5, "V6.2 Pullback"),    # 63.6% WR — best performer
-    ("6.3", 7.5, "V6.3 Pullback v2"),  # Improved flats reduction
     ("6.4", 7.5, "V6.4 Flat Killer"),  # Tight stop + close target
     ("3.1", 7.5, "V3.1 ADX Trend"),  # 59.6% WR
     ("4.1", 7.5, "V4.1 Breakout"),    # 58.0% WR
@@ -61,7 +59,7 @@ CONFIG_PRIORITY = [
 ]
 
 MAX_SIGNALS_PER_BATCH = 3       # Max positions the bot can handle
-MAX_SCORE_CAP = 11.0            # Cap composite score — 12+ signals mean-revert (22% WR vs 59% for 10-12)
+MAX_SCORE_CAP = 15.0            # Raised from 11.0 — 12+ signals have 57.1% WR, EV=+4.12%
 EXCLUDED_SYMBOLS = {"BTWUSDT", "EULUSDT", "EIGENUSDT", "MORPHOUSDT", "DGBUSDT"}  # 0% WR symbols — never profitable
 MAX_SLIPPAGE_PCT = 0.5           # Max price difference from entry before skipping signal
 

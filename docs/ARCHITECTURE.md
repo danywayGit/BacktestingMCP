@@ -53,19 +53,18 @@ logs for forward validation, and surfaces the best performers.
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                          EXECUTION LAYER                                   │
 │                                                                           │
-│  webhook_bridge.py ──→ 12 config priority queue                          │
+│  webhook_bridge.py ──→ 11 config priority queue                          │
 │    ├─ V10.0 (≥7.0)  Chart Pattern Hunter (90.9% WR 🏆)                   │
 │    ├─ V20.0 (≥5.0)  Time-of-Day                                          │
 │    ├─ V19.0 (≥5.0)  Ratio Arb                                            │
-│    ├─ V18.0 (≥6.0)  Mean Reversion                                       │
-│    ├─ V17.0 (≥6.0)  Liquidation                                          │
-│    ├─ V16.0 (≥6.0)  Vol Squeeze                                          │
-│    ├─ V15.0 (≥6.0)  Multi-TF                                             │
+│    ├─ V18.0 (≥7.0)  Mean Reversion                                       │
+│    ├─ V17.0 (≥7.0)  Liquidation                                          │
+│    ├─ V16.0 (≥7.0)  Vol Squeeze                                          │
+│    ├─ V15.0 (≥7.0)  Multi-TF                                             │
 │    ├─ V6.4  (≥7.0)  Flat Killer                                          │
-│    ├─ V3.6  (≥7.0)  Bridge-Active ADX                                    │
 │    ├─ V1.5  (≥7.0)  Conservative R:R                                     │
 │    ├─ V1.4  (≥7.0)  Scanner-Focused                                      │
-│    └─ V14.0 (≥7.0)  Pattern Discovery (BTC/ETH only)                     │
+│    └─ V14.0 (≥7.0)  Pattern Discovery (BTC/ETH only, precursors)         │
 │                                                                           │
 │  Dedup rules: 1 signal/symbol per batch, max 3/batch, open-position      │
 │  Validation: entry > 0, stop < entry < target (LONG)                     │
