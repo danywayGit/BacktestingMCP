@@ -124,7 +124,7 @@ def get_pending_signals_for_config(version: str, min_score: float) -> List[Dict]
           AND stop_price > 0
           AND target_price > 0
           AND webhook_sent_at IS NULL
-          AND created_at > datetime('now', '-24 hours')
+          AND created_at > datetime('now', '-2 hours')
         ORDER BY composite_score DESC
         LIMIT 10
     """, (version, min_score)).fetchall()
