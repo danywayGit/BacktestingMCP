@@ -437,6 +437,76 @@ def select_signals() -> List[Dict]:
 
 # ── Webhook sender ──────────────────────────────────────────────────────────
 
+def _compute_tier_multiplier(signal: Dict) -> float:
+    """Compute tier sizing multiplier for a signal using the edge scanner DB.
+    Matches the logic in manual_trading.py but runs on this machine (has DB)."""
+    try:
+        import sqlite3, os
+        db_path = "/home/hermes/BacktestingMCP/data/crypto.db"
+        if not os.path.exists(db_path):
+            return 1.0
+        conn = sqlite3.connect(db_path)
+        
+        config_version = signal.get("config_version", "")
+        composite_score = signal.get("composite_score", 0)
+        
+        # Tier 1: Config WR
+        tier1 = 1.0
+        wr_row = conn.execute("""
+            SELECT (SUM(CASE WHEN outcome='WIN' THEN 1 ELSE 0 END)*1.0/
+                   NULLIF(SUM(CASE WHEN outcome='WIN' THEN 1 ELSE 0 END)+
+                          SUM(CASE WHEN outcome='LOSS' THEN 1 ELSE 0 END), 0)) as wr,
+                   SUM(CASE WHEN outcome='WIN' THEN 1 ELSE 0 END)+
+                   SUM(CASE WHEN outcome='LOSS' THEN 1 ELSE 0 END) as n
+            FROM edge_signals WHERE config_version=? AND webhook_sent_at IS NOT NULL
+              AND outcome IN ('WIN','LOSS')
+        """, (config_version,)).fetchone()
+        if wr_row and wr_row[1] and wr_row[1] >= 10:
+            wr = wr_row[0]
+            if wr > 0.60:
+                tier1 = 1.2
+            elif wr > 0.40:
+                tier1 = 1.0
+            elif wr > 0.20:
+                tier1 = 0.7
+            else:
+                tier1 = 0.5
+        else:
+            tier1 = 0.5
+        
+        # Tier 2: Signal score
+        score = float(composite_score)
+        if score >= 10.0:
+            tier2 = 1.3
+        elif score >= 8.0:
+            tier2 = 1.0
+        elif score >= 5.0:
+            tier2 = 0.7
+        else:
+            tier2 = 0.5
+        
+        # Tier 3: R:R from config
+        tier3 = 1.0
+        rr_row = conn.execute("""
+            SELECT DISTINCT config_json FROM scoring_configs WHERE version=?
+        """, (config_version,)).fetchone()
+        if rr_row:
+            import json
+            cfg_json = json.loads(rr_row[0])
+            rr = float(cfg_json.get("rr_ratio", 1.5))
+            if rr >= 2.0:
+                tier3 = 1.0
+            elif rr >= 1.5:
+                tier3 = 0.8
+            else:
+                tier3 = 0.6
+        
+        conn.close()
+        return round(tier1 * tier2 * tier3, 2)
+    except Exception:
+        return 1.0
+
+
 def format_webhook_msg(signal: Dict) -> str:
     """Format an edge signal into the webhook's newline-separated message format."""
     action = "OpenLong" if signal["direction"].upper() == "LONG" else "OpenShort"
@@ -455,6 +525,7 @@ def format_webhook_msg(signal: Dict) -> str:
         f"TakeProfit: {signal['target_price']}",
         f"Score: {signal['composite_score']}",
         f"ConfigVersion: {signal['config_version']}",
+        f"TierMultiplier: {_compute_tier_multiplier(signal)}",
     ]
     return "\n".join(lines)
 
