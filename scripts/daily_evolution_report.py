@@ -55,8 +55,9 @@ def build_report() -> str:
     active_trades = active_s.non_flat_trades if active_s else 0
     active_flat = active_s.flat_rate if active_s else 0.0
 
-    # Top 3 eligible
-    eligible = [c for c in stats.values() if c.non_flat_trades >= MIN_NON_FLAT_TRADES]
+    # Top 3 eligible (active configs only)
+    eligible = [c for c in stats.values() if c.non_flat_trades >= MIN_NON_FLAT_TRADES
+                and _is_active(c.config_version)]
     eligible.sort(key=lambda c: c.composite_rank_score, reverse=True)
     top3 = eligible[:3] if eligible else []
 
