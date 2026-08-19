@@ -86,7 +86,7 @@ CONFIG_PRIORITY = [
 MAX_SIGNALS_PER_BATCH = 8       # Matches the 8 concurrent trade slots
 MAX_SCORE_CAP = 15.0            # 12+ scores have 57.1% WR, EV=+4.12%
 EXCLUDED_SYMBOLS = {"BTWUSDT", "EULUSDT", "EIGENUSDT", "MORPHOUSDT", "DGBUSDT"}  # 0% WR symbols — never profitable
-MAX_SLIPPAGE_PCT = 1.0           # Max diff from entry before skipping (0.5% for same-exchange, 1.0% for CoinGecko→Binance spread)
+MAX_SLIPPAGE_PCT = 0.5           # Max price difference from entry before skipping signal
 
 
 # ── DB helpers ──────────────────────────────────────────────────────────────
