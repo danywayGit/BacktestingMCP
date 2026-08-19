@@ -120,13 +120,23 @@ def log_signals(scores: List[CandidateScore], timeframe: TimeFrame, horizon_hour
             atr_stop_mult, rr_ratio,
         )
 
+        # Fetch current Binance Futures price for accurate entry
+        current_price = score.last_close  # fallback
+        try:
+            import httpx
+            resp = httpx.get(f"https://fapi.binance.com/fapi/v1/ticker/price?symbol={score.symbol}USDT", timeout=5)
+            if resp.status_code == 200:
+                current_price = float(resp.json()["price"])
+        except Exception:
+            pass  # fallback to candle close
+
         # Dedup per config-version: same symbol+direction+config = update, not insert
         existing = db.get_pending_edge_signal(score.symbol, score.direction, score.config_version)
         if existing is not None:
             db.update_edge_signal(
                 signal_id=existing["id"],
                 composite_score=score.composite_score,
-                entry_price=score.last_close,
+                entry_price=current_price,
                 components=score.components,
             )
             updated += 1
@@ -139,7 +149,7 @@ def log_signals(scores: List[CandidateScore], timeframe: TimeFrame, horizon_hour
             direction=score.direction,
             composite_score=score.composite_score,
             components=score.components,
-            entry_price=score.last_close,
+            entry_price=current_price,
             horizon_hours=horizon_hours,
             config_version=score.config_version,
             coin_type=score.coin_type,
