@@ -1051,6 +1051,16 @@ def edge_scan(timeframe, lookback_days, per_side, horizon_hours, log, multi, ver
         if result.total_alerts_sent:
             click.echo(f"Sent {result.total_alerts_sent} Telegram alert(s) from active config ({ACTIVE_CONFIG.version})")
 
+    # ── Immediately send signals to execution bot (same process, no delay) ──
+    if multi or True:
+        try:
+            from src.edge_scanner.webhook_bridge import run_bridge
+            sent_count = run_bridge()
+            if sent_count > 0:
+                click.echo(f"Sent {sent_count} signal(s) to webhook execution bot")
+        except Exception as bridge_err:
+            click.echo(f"Bridge warning: {bridge_err}")
+
     click.echo()
 
 
