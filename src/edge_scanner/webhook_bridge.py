@@ -53,7 +53,8 @@ CONFIG_PRIORITY = [
     ("3.2", 7.0, "V3.2 Soft ADX"),           # EV=+1.46%
     ("5.2", 7.0, "V5.2 Balanced DeFi/AI"),   # EV=+1.09%
     ("6.2", 7.0, "V6.2 Pullback Strat"),     # EV=+0.72%
-    ("14.0", 7.0, "V14.0 Precursor BTC/ETH"), # EV=+0.45% (BTC/ETH only)
+    ("14.0", 7.0, "V14.0 Precursor BTC/ETH"),    # EV=+0.45% (BTC/ETH only)
+       ("14.1", 7.0, "V14.1 Precursor SHORT BTC/ETH"), # SHORT-focus variant
     ("5.0", 7.0, "V5.0 DEFI-focused"),       # EV=+0.05%
     # ── TIER 3: Negative EV but keep for rotation / special ──
     # V10.0 (EV=-0.57%), V16.0 (EV=-0.78%), V12.0 (EV=-0.34%)
