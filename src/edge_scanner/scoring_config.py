@@ -1325,7 +1325,7 @@ CONFIG_V14_0 = ScoringConfig(
     # Filters from validated precursors
     min_abs_score=5.0,
     min_atr_pct=0.35,  # ETH validated ATR >0.37% (effect size 0.85)
-    min_volume_relative=0.7,  # BTC validated >1.1x but altFINS data lags; 0.7 catches real spikes
+    min_volume_relative=0.5,  # BTC validated >1.1x but altFINS data lags; 0.5 catches real spikes
     require_non_trend_confirmation=False,
     market_regime_filter="BTC",
     # Alert thresholds
