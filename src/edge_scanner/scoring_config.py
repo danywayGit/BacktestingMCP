@@ -356,6 +356,14 @@ class ScoringConfig:
     signal to be valid. 0 = disabled (all signals pass). Set to 2 or 3
     to require multi-precursor confirmation, reducing false positives."""
 
+    # ── Liquidation Data (from Binance liquidation engine) ──────────────────
+    liquidation_weight: float = 0.0
+    """Weight for liquidation imbalance score. When massive SHORT liquidations
+    occur (short squeeze), price is likely to move UP. When massive LONG
+    liquidations occur, price is likely to move DOWN.
+    Score = imbalance ratio * volume scale * weight.
+    Range: typically -3.0 to +3.0 before weight multiplication."""
+
     # ── Mean Reversion (RSI extremes) ──────────────────────────────────────
     mean_reversion_weight: float = 0.0
     """Weight for mean reversion signal. Enters when RSI is extreme:
@@ -1361,6 +1369,8 @@ CONFIG_V14_0 = ScoringConfig(
     symbol_whitelist=["BTCUSDT", "ETHUSDT"],  # Precursor research was BTC/ETH only
     # Multi-precursor validation
     min_precursors=2,  # Require ≥2 precursor types to fire (reduces false positives)
+    # Liquidation imbalance
+    liquidation_weight=1.5,  # Short squeeze = bullish, long liquidation = bearish
 )
 
 # ── CONFIG_V14_1 — Precursor Pattern SHORT-focus ──
@@ -1408,6 +1418,8 @@ CONFIG_V14_1 = ScoringConfig(
     symbol_whitelist=["BTCUSDT", "ETHUSDT"],
     # Multi-precursor validation
     min_precursors=2,
+    # Liquidation imbalance — SHORT squeezes are especially powerful
+    liquidation_weight=2.0,  # Higher weight for SHORT bias (short squeezes = violent upside)
 )
 
 # ── CONFIG_V15_0 — Multi-Timeframe Alignment ──
