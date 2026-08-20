@@ -234,6 +234,7 @@ def score_symbol(
     coin_type = get_coin_type(symbol)
     components: Dict[str, Any] = {}
     score = 0.0
+    direction: Optional[str] = None
 
     # Apply config filters before scoring — fail fast
     passes, filter_reason = cfg.passes_filters(symbol, screener_row)
@@ -431,19 +432,92 @@ def score_symbol(
     if data is not None and not data.empty:
         try:
             close = data["Close"].astype(float)
+            high = data["High"].astype(float)
+            low = data["Low"].astype(float)
+            vol = data["Volume"].astype(float)
             ema20 = close.ewm(span=20, adjust=False).mean().iloc[-1]
             last_close = float(close.iloc[-1])
-            components["price_above_ema20"] = last_close > ema20
+            components["price_above_ema20"] = bool(last_close > ema20)
             # Volume accumulation: volume increasing over last 3 candles
-            vol = data["Volume"].astype(float)
             vol_ma10 = vol.rolling(10).mean().iloc[-1]
             components["volume_relative_10ma"] = round(float(vol.iloc[-1] / vol_ma10) if vol_ma10 > 0 else 1.0, 2)
             vol_3 = vol.iloc[-3:].mean() if len(vol) >= 3 else 0
-            components["volume_accumulation"] = vol_3 > vol_ma10 if vol_ma10 > 0 else False
-        except Exception:
-            components["price_above_ema20"] = False
-            components["volume_relative_10ma"] = 1.0
-            components["volume_accumulation"] = False
+            components["volume_accumulation"] = bool(vol_3 > vol_ma10) if vol_ma10 > 0 else False
+
+            # ── BB Squeeze Detection (20-period Bollinger) ──
+            if cfg.bb_squeeze_min > 0 or cfg.bb_squeeze_weight > 0 or cfg.bb_position_weight > 0:
+                bb_period = 20
+                if len(close) >= bb_period + 5:
+                    bb_sma = close.rolling(bb_period).mean().iloc[-1]
+                    bb_std = close.rolling(bb_period).std(ddof=0).iloc[-1]
+                    bb_upper = bb_sma + 2 * bb_std
+                    bb_lower = bb_sma - 2 * bb_std
+                    bb_width = (bb_upper - bb_lower) / bb_sma * 100  # %
+                    
+                    # BB position (%)
+                    bb_pct = (last_close - bb_lower) / (bb_upper - bb_lower) * 100 if bb_std > 0 else 50.0
+                    components["bb_position_pct"] = round(bb_pct, 1)
+                    components["bb_width_pct"] = round(bb_width, 2)
+                    
+                    # BB squeeze: compare current BB width to trailing 60-period range
+                    bb_widths = ((close.rolling(bb_period).std(ddof=0) * 4) / close.rolling(bb_period).mean() * 100)
+                    bb_width_history = bb_widths.iloc[-60:] if len(bb_widths) >= 60 else bb_widths
+                    if len(bb_width_history) > 5:
+                        bb_min = bb_width_history.min()
+                        bb_max = bb_width_history.max()
+                        bb_range = bb_max - bb_min if bb_max > bb_min else 1.0
+                        bb_percentile = (bb_width - bb_min) / bb_range * 100 if bb_range > 0 else 100.0
+                        components["bb_percentile"] = round(bb_percentile, 1)
+                        
+                        # Was there a squeeze (width near min) that's now expanding?
+                        if bb_percentile <= cfg.bb_squeeze_min:
+                            components["bb_squeeze_detected"] = True
+                        else:
+                            components["bb_squeeze_detected"] = False
+                        
+                        # BB squeeze expansion score: if width was squeezed and expanding
+                        if cfg.bb_squeeze_weight > 0:
+                            # Check if squeeze happened in the last 10 periods
+                            recent_tight = bb_widths.iloc[-10:].min() <= bb_min + bb_range * (cfg.bb_squeeze_min / 100) if bb_range > 0 else False
+                            if recent_tight:
+                                squeeze_score = min(bb_percentile / 100.0, 3.0) * cfg.bb_squeeze_weight
+                                score += squeeze_score
+                                components["bb_squeeze_score"] = round(squeeze_score, 2)
+                    
+                    # BB position score
+                    if cfg.bb_position_weight > 0:
+                        if direction is None:
+                            # No direction yet — use trend bias
+                            pass
+                        pos_score = 0.0
+                        # Near upper band (>80%) for LONG
+                        if bb_pct > 80:
+                            pos_score = (bb_pct - 80) / 20.0 * cfg.bb_position_weight
+                        elif bb_pct < 20:
+                            pos_score = -(20 - bb_pct) / 20.0 * cfg.bb_position_weight
+                        if pos_score != 0:
+                            score += pos_score
+                            components["bb_position_score"] = round(pos_score, 2)
+
+            # ── ATR Expansion Ratio ──
+            if cfg.atr_expansion_weight > 0 and len(data) >= 28:
+                atr_period = 14
+                tr = pd.DataFrame({
+                    "hl": high - low,
+                    "hc": abs(high - close.shift(1)),
+                    "lc": abs(low - close.shift(1)),
+                }).max(axis=1)
+                atr_14 = tr.rolling(atr_period).mean().iloc[-1]
+                atr_28_avg = tr.rolling(28).mean().iloc[-1]
+                atr_ratio = atr_14 / atr_28_avg if atr_28_avg > 0 else 1.0
+                components["atr_expansion_ratio"] = round(atr_ratio, 2)
+                if atr_ratio > 1.0:
+                    atr_score = min(atr_ratio - 1.0, 2.0) * cfg.atr_expansion_weight
+                    score += atr_score
+                    components["atr_expansion_score"] = round(atr_score, 2)
+
+        except Exception as exc:
+            logger.debug("OHLCV/BB precursor computation failed for %s: %s", pair, exc)
     
     components["coin_type"] = coin_type
 

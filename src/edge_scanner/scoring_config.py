@@ -336,6 +336,21 @@ class ScoringConfig:
     Squeeze detected when BB width is below this percentile vs trailing history,
     then triggers when BB width expands above the squeeze threshold."""
 
+    bb_squeeze_weight: float = 0.0
+    """Weight for BB squeeze expansion score. When BB width was tight and
+    starts expanding (pre-breakout pattern), adds score proportional to
+    the width increase. 0 = disabled."""
+
+    atr_expansion_weight: float = 0.0
+    """Weight for ATR expansion ratio. When current ATR is higher than the
+    trailing 28-period average ATR, the ratio predicts imminent volatility.
+    Score: min(expansion_ratio - 1.0, 2.0) * weight. 0 = disabled."""
+
+    bb_position_weight: float = 0.0
+    """Weight for BB position scoring. When close is near the upper band
+    (>80%) in a LONG direction, or near the lower band (<20%) in a SHORT
+    direction, adds score. Catches momentum continuation setups."""
+
     # ── Mean Reversion (RSI extremes) ──────────────────────────────────────
     mean_reversion_weight: float = 0.0
     """Weight for mean reversion signal. Enters when RSI is extreme:
@@ -1317,15 +1332,19 @@ CONFIG_V14_0 = ScoringConfig(
     signal_feed_weight=0.0,
     scanner_hit_weight=0.0,
     volume_divergence_weight=2.0,
-    # Bollinger Band squeeze (validated precursor: BB width expands before moves)
-    bb_squeeze_min=0.3,  # BB width percentile threshold for squeeze detection
+    # Bollinger Band squeeze + position (new: wired into composite)
+    bb_squeeze_min=20.0,  # BB width percentile — squeeze detected when BB < 20th %ile
+    bb_squeeze_weight=2.0,  # Score for squeeze expansion after tight BB
+    bb_position_weight=0.5,  # Score boost when close near upper/lower band
+    # ATR expansion ratio (validated precursor: ATR accelerates before moves)
+    atr_expansion_weight=1.5,  # Score for ATR expansion ratio >1.0x
     # Risk management
     atr_stop_mult=3.0,
     rr_ratio=1.0,
-    # Filters from validated precursors
+    # Filters from validated precursors — lowered for BTC low-vol regimes
     min_abs_score=5.0,
-    min_atr_pct=0.35,  # ETH validated ATR >0.37% (effect size 0.85)
-    min_volume_relative=0.5,  # BTC validated >1.1x but altFINS data lags; 0.5 catches real spikes
+    min_atr_pct=0.20,  # BTC pre-move ATR was 0.23-0.30%; 0.20 catches low-vol squeezes
+    min_volume_relative=0.5,  # altFINS data lags; 0.5 catches real spikes
     require_non_trend_confirmation=False,
     market_regime_filter="BTC",
     # Alert thresholds
