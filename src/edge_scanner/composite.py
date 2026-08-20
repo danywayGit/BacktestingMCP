@@ -235,6 +235,7 @@ def score_symbol(
     components: Dict[str, Any] = {}
     score = 0.0
     direction: Optional[str] = None
+    _precursor_passed: bool = True
 
     # Apply config filters before scoring — fail fast
     passes, filter_reason = cfg.passes_filters(symbol, screener_row)
@@ -532,7 +533,12 @@ def score_symbol(
                 components["precursor_count"] = precursor_count
                 if precursor_count < cfg.min_precursors:
                     components["filtered_out"] = f"precursors={precursor_count} < min={cfg.min_precursors}"
-                    return _filtered_result(symbol, pair, coin_type, cfg.version, components)
+                    # Don't return yet — liquidation may still fire
+                    _precursor_passed = False
+                else:
+                    _precursor_passed = True
+            else:
+                _precursor_passed = True
 
             # ── Dynamic ATR adjustment ──
             if cfg.min_atr_pct > 0 and len(data) >= 60:
@@ -561,6 +567,33 @@ def score_symbol(
             logger.debug("OHLCV/BB precursor computation failed for %s: %s", pair, exc)
     
     components["coin_type"] = coin_type
+
+    # ── Liquidation Imbalance Score (from Binance) ──────────────────────────
+    if cfg.liquidation_weight > 0:
+        try:
+            from ..integrations.binance_liquidations import get_liquidation_pressure_cached
+            liq_score, liq_comp = get_liquidation_pressure_cached(symbol)
+            if liq_score != 0.0:
+                liq_bonus = liq_score * cfg.liquidation_weight
+                score += liq_bonus
+                components["liquidation_bonus"] = round(liq_bonus, 3)
+            components.update(liq_comp)
+        except Exception as exc:
+            logger.debug("Liquidation scoring failed for %s: %s", symbol, exc)
+            components["liq_pressure_score"] = 0.0
+            components["liq_long_short_ratio"] = 0.0
+
+    # ── Final precursor count check (including liquidation) ──
+    if cfg.min_precursors > 0 and not _precursor_passed:
+        # Re-check with liquidation data
+        liq_val = abs(components.get("liq_pressure_score", 0))
+        if liq_val > 0.5:
+            components["precursor_count"] = components.get("precursor_count", 0) + 1
+            if components["precursor_count"] >= cfg.min_precursors:
+                components["filtered_out"] = ""  # Clear the filter — liquidation saved it
+                _precursor_passed = True
+        if not _precursor_passed:
+            return _filtered_result(symbol, pair, coin_type, cfg.version, components)
 
     # ── Chart Pattern Scoring (from altFINS TA scraper) ──────────────────
     chart_pattern_score = 0.0
