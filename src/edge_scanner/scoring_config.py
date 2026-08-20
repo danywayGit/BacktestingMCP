@@ -1534,6 +1534,99 @@ CONFIG_V20_0 = ScoringConfig(
     display_types_extra=[],
 )
 
+# ── CONFIG_V22_0 — Liquidation Pressure LONG ──
+# Core idea: When SHORT liquidations dominate (long/short ratio < 0.7),
+# shorts are crowded → a short squeeze is likely → price moves UP.
+# Confirmed by volume spike + BB squeeze (low vol → explosion).
+# Designed for BTC/ETH only.
+CONFIG_V22_0 = ScoringConfig(
+    version="22.0",
+    description="Liquidation LONG: Short squeeze detection via extreme long/short ratio + volume spike + BB squeeze. BTC/ETH only.",
+    status="enabled",
+    # Very low trend weight — liquidation is the primary signal
+    trend_weight=0.1,
+    volume_relative_weight=3.0,  # Volume confirms smart money moving
+    signal_feed_weight=0.0,
+    scanner_hit_weight=0.0,
+    volume_divergence_weight=2.0,  # Bearish divergence = capitulation before squeeze
+    # BB squeeze + position — tight bands before explosion
+    bb_squeeze_min=20.0,
+    bb_squeeze_weight=2.0,
+    bb_position_weight=0.5,  # Near lower band = oversold + squeeze potential
+    # ATR expansion confirms volatility is coming
+    atr_expansion_weight=1.0,
+    # Liquidation is the STAR — high weight
+    liquidation_weight=5.0,  # Primary driver!
+    # Risk management
+    atr_stop_mult=3.0,
+    rr_ratio=1.2,
+    # Filters
+    min_abs_score=5.0,
+    min_atr_pct=0.15,  # Very relaxed — squeezes happen in low vol
+    min_volume_relative=0.5,
+    require_non_trend_confirmation=False,
+    market_regime_filter="BTC",
+    # Regime direction bias — LONG favored in bull, but SHORT squeeze works in bear too
+    regime_dir_bull_long_bonus=2.0,
+    regime_dir_bear_long_penalty=2.0,
+    # Alert thresholds
+    alert_min_score=5.0,
+    alert_require_multi_source=False,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    display_types_extra=[],
+    symbol_whitelist=["BTCUSDT", "ETHUSDT"],
+    # Multi-precursor: needs at least 1 other precursor + liquidation
+    min_precursors=1,  # Loose — liquidation is the main condition
+)
+
+# ── CONFIG_V22_1 — Liquidation Pressure SHORT ──
+# Core idea: When LONG liquidations dominate (long/short ratio > 1.5),
+# longs are crowded → a long squeeze is likely → price moves DOWN.
+# Confirmed by ATR expansion + BB near upper band (overextended).
+# Designed for BTC/ETH only.
+CONFIG_V22_1 = ScoringConfig(
+    version="22.1",
+    description="Liquidation SHORT: Long squeeze detection via extreme long/short ratio + ATR expansion + BB overextension. BTC/ETH only.",
+    status="enabled",
+    # Low trend weight — liquidation is the primary signal
+    trend_weight=0.1,
+    volume_relative_weight=3.0,  # Volume confirms panic
+    signal_feed_weight=0.0,
+    scanner_hit_weight=0.0,
+    volume_divergence_weight=2.0,  # Bullish divergence = top before dump
+    # BB squeeze + position — near upper band = overextended longs
+    bb_squeeze_min=20.0,
+    bb_squeeze_weight=1.0,
+    bb_position_weight=1.0,  # Near upper band = overextended → liquidation risk
+    # ATR expansion confirms volatility
+    atr_expansion_weight=1.5,
+    # Liquidation is the STAR — high weight
+    liquidation_weight=5.0,  # Primary driver!
+    # Risk management — tighter stops for short squeezes (they can be violent)
+    atr_stop_mult=3.5,
+    rr_ratio=1.2,
+    # Filters
+    min_abs_score=5.0,
+    short_min_abs_score=5.0,
+    min_atr_pct=0.15,
+    min_volume_relative=0.5,
+    require_non_trend_confirmation=False,
+    market_regime_filter="BTC",
+    # Regime direction bias — SHORT favored in bear, penalized in bull
+    regime_dir_bear_short_bonus=3.0,
+    regime_dir_bull_short_penalty=2.0,
+    # Alert thresholds
+    alert_min_score=5.0,
+    alert_require_multi_source=False,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    display_types_extra=[],
+    symbol_whitelist=["BTCUSDT", "ETHUSDT"],
+    # Multi-precursor: needs at least 1 other precursor + liquidation
+    min_precursors=1,
+)
+
 # Quality Gate configs - NEW in v7.0
 CONFIG_V7_0 = ScoringConfig(
     version="7.0",
@@ -2068,7 +2161,7 @@ ACTIVE_CONFIG = CONFIG_V1_4
 ALL_CONFIGS: dict[str, ScoringConfig] = {
     c.version: c for c in [
         # Baseline variants
-        CONFIG_V1_0, CONFIG_V1_1, CONFIG_V1_2, CONFIG_V1_3, CONFIG_V1_4, CONFIG_V1_5, CONFIG_V10_0, CONFIG_V11_0, CONFIG_V12_0, CONFIG_V13_0, CONFIG_V14_0, CONFIG_V14_1, CONFIG_V15_0, CONFIG_V16_0, CONFIG_V17_0, CONFIG_V18_0, CONFIG_V19_0, CONFIG_V20_0,
+        CONFIG_V1_0, CONFIG_V1_1, CONFIG_V1_2, CONFIG_V1_3, CONFIG_V1_4, CONFIG_V1_5, CONFIG_V10_0, CONFIG_V11_0, CONFIG_V12_0, CONFIG_V13_0, CONFIG_V14_0, CONFIG_V14_1, CONFIG_V15_0, CONFIG_V16_0, CONFIG_V17_0, CONFIG_V18_0, CONFIG_V19_0, CONFIG_V20_0, CONFIG_V22_0, CONFIG_V22_1,
         # Multi-timeframe (all kept for records)
         CONFIG_V2_0, CONFIG_V2_1, CONFIG_V2_2,
         # ADX momentum (all kept for records)
