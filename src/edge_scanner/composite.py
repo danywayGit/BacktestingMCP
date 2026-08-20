@@ -568,11 +568,17 @@ def score_symbol(
     
     components["coin_type"] = coin_type
 
-    # ── Liquidation Imbalance Score (from Binance) ──────────────────────────
+    # ── Liquidation Imbalance Score (from Binance liquidations) ──────────────
     if cfg.liquidation_weight > 0:
         try:
-            from ..integrations.binance_liquidations import get_liquidation_pressure_cached
-            liq_score, liq_comp = get_liquidation_pressure_cached(f"{symbol}USDT")
+            # Try Coinglass first (real liquidation data), fall back to Binance L/S ratio
+            from ..integrations.coinglass_liquidations import get_liquidation_cached
+            liq_score, liq_comp = get_liquidation_cached(f"{symbol}USDT")
+            if liq_score == 0.0 and liq_comp.get("liq_data_source") in ("unavailable", "no_liquidations", ""):
+                # Fallback to Binance L/S ratio
+                from ..integrations.binance_liquidations import get_liquidation_pressure_cached
+                liq_score, liq_comp = get_liquidation_pressure_cached(f"{symbol}USDT")
+                liq_comp["liq_data_source"] = "binance_ls_ratio"
             if liq_score != 0.0:
                 liq_bonus = liq_score * cfg.liquidation_weight
                 score += liq_bonus
@@ -587,6 +593,8 @@ def score_symbol(
     if cfg.min_precursors > 0 and not _precursor_passed:
         # Re-check with liquidation data
         liq_val = abs(components.get("liq_pressure_score", 0))
+        if liq_val == 0:
+            liq_val = abs(components.get("liquidation_bonus", 0))
         if liq_val > 0.5:
             components["precursor_count"] = components.get("precursor_count", 0) + 1
             if components["precursor_count"] >= cfg.min_precursors:
