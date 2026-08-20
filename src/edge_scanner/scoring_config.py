@@ -1575,7 +1575,7 @@ CONFIG_V22_0 = ScoringConfig(
     coin_type_filter=["ANY"],
     exclude_coin_types=[],
     display_types_extra=[],
-    symbol_whitelist=["BTCUSDT", "ETHUSDT"],
+    symbol_whitelist=[],  # All symbols — liquidation data works on any Futures pair
     # Multi-precursor: needs at least 1 other precursor + liquidation
     min_precursors=1,  # Loose — liquidation is the main condition
 )
@@ -1622,7 +1622,7 @@ CONFIG_V22_1 = ScoringConfig(
     coin_type_filter=["ANY"],
     exclude_coin_types=[],
     display_types_extra=[],
-    symbol_whitelist=["BTCUSDT", "ETHUSDT"],
+    symbol_whitelist=[],  # All symbols — liquidation data works on any Futures pair
     # Multi-precursor: needs at least 1 other precursor + liquidation
     min_precursors=1,
 )
