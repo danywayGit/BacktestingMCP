@@ -63,7 +63,10 @@ CONFIG_PRIORITY = [
     ("16.0", 7.0, "V16.0 Vol Squeeze"),      # Most execution data
     ("11.0", 7.0, "V11.0 Optimized Pro"),    # 57.5% WR in backtest
     ("13.0", 7.0, "V13.0 Auto-Evolved"),     # LLM-suggested
-    # ── TIER 4: Rotating configs (for data collection) ──
+    # ── TIER 4: Liquidation-driven (new, live data only) ──
+    ("22.0", 7.0, "V22.0 Liquidation LONG"),   # Short squeeze detection
+    ("22.1", 7.0, "V22.1 Liquidation SHORT"),  # Long squeeze detection
+    # ── TIER 5: Rotating configs (for data collection) ──
     # Picked via round-robin rotation based on day of month
     ("1.1", 7.0, "V1.1 Volume-Weighted"),
     ("1.2", 7.0, "V1.2 Signal-Focused"),

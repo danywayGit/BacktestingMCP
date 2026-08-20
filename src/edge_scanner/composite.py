@@ -572,7 +572,7 @@ def score_symbol(
     if cfg.liquidation_weight > 0:
         try:
             from ..integrations.binance_liquidations import get_liquidation_pressure_cached
-            liq_score, liq_comp = get_liquidation_pressure_cached(symbol)
+            liq_score, liq_comp = get_liquidation_pressure_cached(f"{symbol}USDT")
             if liq_score != 0.0:
                 liq_bonus = liq_score * cfg.liquidation_weight
                 score += liq_bonus
