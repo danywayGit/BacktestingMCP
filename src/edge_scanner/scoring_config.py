@@ -351,6 +351,11 @@ class ScoringConfig:
     (>80%) in a LONG direction, or near the lower band (<20%) in a SHORT
     direction, adds score. Catches momentum continuation setups."""
 
+    min_precursors: int = 0
+    """Minimum number of distinct precursor types that must fire for a
+    signal to be valid. 0 = disabled (all signals pass). Set to 2 or 3
+    to require multi-precursor confirmation, reducing false positives."""
+
     # ── Mean Reversion (RSI extremes) ──────────────────────────────────────
     mean_reversion_weight: float = 0.0
     """Weight for mean reversion signal. Enters when RSI is extreme:
@@ -1354,6 +1359,55 @@ CONFIG_V14_0 = ScoringConfig(
     exclude_coin_types=[],
     display_types_extra=[],
     symbol_whitelist=["BTCUSDT", "ETHUSDT"],  # Precursor research was BTC/ETH only
+    # Multi-precursor validation
+    min_precursors=2,  # Require ≥2 precursor types to fire (reduces false positives)
+)
+
+# ── CONFIG_V14_1 — Precursor Pattern SHORT-focus ──
+# Same precursor logic as V14.0 but biased toward SHORT signals:
+# - BB position near lower band (<20%) scores higher
+# - Volume divergence bearish detection weighted
+# - ATR expansion in bearish context
+# - Higher market regime penalty for LONG
+# Designed to catch major breakdowns and reversals
+CONFIG_V14_1 = ScoringConfig(
+    version="14.1",
+    description="Precursor Pattern SHORT: ATR expansion + volume spike + BB squeeze for bearish BTC/ETH. Same precursors as V14.0 but biased for SHORT setups.",
+    status="enabled",
+    # Weights — lower trend weight, favor volume divergence for bearish detection
+    trend_weight=0.2,
+    volume_relative_weight=3.0,
+    signal_feed_weight=0.0,
+    scanner_hit_weight=0.0,
+    volume_divergence_weight=3.0,  # Higher — catches bearish volume divergence
+    # Bollinger Band squeeze + position
+    bb_squeeze_min=20.0,
+    bb_squeeze_weight=2.0,
+    bb_position_weight=1.0,  # Higher — near lower band (<20%) = bearish continuation
+    # ATR expansion
+    atr_expansion_weight=1.5,
+    # Risk management
+    atr_stop_mult=3.0,
+    rr_ratio=1.0,
+    # Filters
+    min_abs_score=5.0,
+    short_min_abs_score=5.0,  # Same threshold for SHORT signals
+    min_atr_pct=0.20,
+    min_volume_relative=0.5,
+    require_non_trend_confirmation=False,
+    market_regime_filter="BTC",
+    # Regime direction bias — favor SHORT in bear trends, penalize LONG
+    regime_dir_bear_short_bonus=3.0,  # Extra bonus for SHORT in bear market
+    regime_dir_bear_long_penalty=5.0,  # Big penalty for LONG in bear market
+    # Alert thresholds
+    alert_min_score=5.0,
+    alert_require_multi_source=False,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    display_types_extra=[],
+    symbol_whitelist=["BTCUSDT", "ETHUSDT"],
+    # Multi-precursor validation
+    min_precursors=2,
 )
 
 # ── CONFIG_V15_0 — Multi-Timeframe Alignment ──
@@ -2002,7 +2056,7 @@ ACTIVE_CONFIG = CONFIG_V1_4
 ALL_CONFIGS: dict[str, ScoringConfig] = {
     c.version: c for c in [
         # Baseline variants
-        CONFIG_V1_0, CONFIG_V1_1, CONFIG_V1_2, CONFIG_V1_3, CONFIG_V1_4, CONFIG_V1_5, CONFIG_V10_0, CONFIG_V11_0, CONFIG_V12_0, CONFIG_V13_0, CONFIG_V14_0, CONFIG_V15_0, CONFIG_V16_0, CONFIG_V17_0, CONFIG_V18_0, CONFIG_V19_0, CONFIG_V20_0,
+        CONFIG_V1_0, CONFIG_V1_1, CONFIG_V1_2, CONFIG_V1_3, CONFIG_V1_4, CONFIG_V1_5, CONFIG_V10_0, CONFIG_V11_0, CONFIG_V12_0, CONFIG_V13_0, CONFIG_V14_0, CONFIG_V14_1, CONFIG_V15_0, CONFIG_V16_0, CONFIG_V17_0, CONFIG_V18_0, CONFIG_V19_0, CONFIG_V20_0,
         # Multi-timeframe (all kept for records)
         CONFIG_V2_0, CONFIG_V2_1, CONFIG_V2_2,
         # ADX momentum (all kept for records)

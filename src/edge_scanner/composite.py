@@ -516,6 +516,47 @@ def score_symbol(
                     score += atr_score
                     components["atr_expansion_score"] = round(atr_score, 2)
 
+            # ── Multi-precursor validation ──
+            if cfg.min_precursors > 0:
+                precursor_count = 0
+                if components.get("bb_squeeze_score", 0) > 0:
+                    precursor_count += 1
+                if components.get("atr_expansion_score", 0) > 0:
+                    precursor_count += 1
+                if (components.get("volume_relative_10ma", 0) or 0) > 1.5:
+                    precursor_count += 1
+                if components.get("volume_accumulation", False):
+                    precursor_count += 1
+                if components.get("bb_position_score", 0) > 0:
+                    precursor_count += 1
+                components["precursor_count"] = precursor_count
+                if precursor_count < cfg.min_precursors:
+                    components["filtered_out"] = f"precursors={precursor_count} < min={cfg.min_precursors}"
+                    return _filtered_result(symbol, pair, coin_type, cfg.version, components)
+
+            # ── Dynamic ATR adjustment ──
+            if cfg.min_atr_pct > 0 and len(data) >= 60:
+                tr_adj = pd.DataFrame({
+                    "hl": high - low,
+                    "hc": abs(high - close.shift(1)),
+                    "lc": abs(low - close.shift(1)),
+                }).max(axis=1)
+                atr_pcts = (tr_adj.rolling(14).mean() / close) * 100
+                atr_60 = atr_pcts.iloc[-60:] if len(atr_pcts) >= 60 else atr_pcts
+                if len(atr_60) > 10:
+                    atr_regime_low = atr_60.quantile(0.25)
+                    atr_regime_high = atr_60.quantile(0.75)
+                    components["atr_regime_low"] = round(atr_regime_low, 2)
+                    components["atr_regime_high"] = round(atr_regime_high, 2)
+                    current_atr_pct = atr_pcts.iloc[-1]
+                    _effective_min = cfg.min_atr_pct
+                    if current_atr_pct < atr_regime_low:
+                        _effective_min = cfg.min_atr_pct * 0.7
+                        components["atr_regime_adj"] = f"low-vol, min_atr {cfg.min_atr_pct}→{_effective_min:.3f}"
+                    if current_atr_pct < _effective_min:
+                        components["filtered_out"] = f"ATR%={current_atr_pct:.2f}% < eff min={_effective_min:.2f}%"
+                        return _filtered_result(symbol, pair, coin_type, cfg.version, components)
+
         except Exception as exc:
             logger.debug("OHLCV/BB precursor computation failed for %s: %s", pair, exc)
     
