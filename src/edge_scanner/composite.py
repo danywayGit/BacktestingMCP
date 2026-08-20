@@ -574,7 +574,7 @@ def score_symbol(
             # Try Coinglass first (real liquidation data), fall back to Binance L/S ratio
             from ..integrations.coinglass_liquidations import get_liquidation_cached
             liq_score, liq_comp = get_liquidation_cached(f"{symbol}USDT")
-            if liq_score == 0.0 and liq_comp.get("liq_data_source") in ("unavailable", "no_liquidations", ""):
+            if liq_score == 0.0 and liq_comp.get("liq_data_source") in ("unavailable", "no_liquidations", "upgrade_required", "no_data", ""):
                 # Fallback to Binance L/S ratio
                 from ..integrations.binance_liquidations import get_liquidation_pressure_cached
                 liq_score, liq_comp = get_liquidation_pressure_cached(f"{symbol}USDT")
