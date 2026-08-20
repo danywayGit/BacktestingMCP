@@ -587,9 +587,11 @@ class ScoringConfig:
         if coin_type in self.exclude_coin_types:
             return False, f"coin_type={coin_type} excluded"
 
-        # Symbol whitelist — only score symbols in the whitelist (if set)
-        if self.symbol_whitelist and symbol not in self.symbol_whitelist:
-            return False, f"symbol not in whitelist: {self.symbol_whitelist}"
+        # Symbol whitelist — strip USDT suffix for comparison
+        check_symbol = symbol.replace("USDT", "")
+        whitelist_clean = [s.replace("USDT", "") for s in (self.symbol_whitelist or [])]
+        if whitelist_clean and check_symbol not in whitelist_clean:
+            return False, f"symbol {check_symbol} not in whitelist: {whitelist_clean}"
 
         return True, ""
 
@@ -1323,7 +1325,7 @@ CONFIG_V14_0 = ScoringConfig(
     # Filters from validated precursors
     min_abs_score=5.0,
     min_atr_pct=0.35,  # ETH validated ATR >0.37% (effect size 0.85)
-    min_volume_relative=1.0,  # BTC validated >1.1x (effect size 0.68)
+    min_volume_relative=0.7,  # BTC validated >1.1x but altFINS data lags; 0.7 catches real spikes
     require_non_trend_confirmation=False,
     market_regime_filter="BTC",
     # Alert thresholds
