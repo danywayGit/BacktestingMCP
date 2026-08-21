@@ -22,31 +22,101 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+# Paths resolve relative to src/integrations/ — two levels up = repo root.
+# (The old "../../.." went 3 levels up to ~/ which is why the snapshot
+# landed in ~/data/ instead of BacktestingMCP/data/ — the docs always
+# said data/liquidation_snapshot.json.)
 _SNAPSHOT_PATH = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "..", "..", "data", "liquidation_snapshot.json")
+    os.path.join(os.path.dirname(__file__), "..", "..", "data", "liquidation_snapshot.json")
+)
+_REST_CACHE_PATH = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "data", "liquidation_rest_cache.json")
 )
 _WINDOW_SEC = 3600  # 1h
+_HEARTBEAT_SEC = 60  # daemon writes snapshot even with zero events
 
 # Free Binance REST endpoints (no key needed)
 LS_RATIO_URL = "https://fapi.binance.com/futures/data/globalLongShortAccountRatio"
 TAKER_RATIO_URL = "https://fapi.binance.com/futures/data/takerlongshortRatio"
 TOP_LS_URL = "https://fapi.binance.com/futures/data/topLongShortAccountRatio"
 
-# Cache for REST data
+# Cache for REST data — in-memory fast layer + disk-persisted layer
+# so each 5-min scan process does NOT re-fetch per-symbol (the old
+# per-process cache caused a REST storm: every scan cycle cold-started
+# and called takerlongshortRatio + globalLongShortAccountRatio for
+# every scored symbol → scan timeout (exit 124)).
 _cache: Dict[str, dict] = {}
 _cache_time: Optional[datetime] = None
-CACHE_TTL = 120  # 2 min
+CACHE_TTL = 120  # 2 min in-process
+REST_CACHE_TTL = 600  # 10 min disk-persisted (ratios change slowly)
+
+
+def _load_rest_cache() -> dict:
+    try:
+        with open(_REST_CACHE_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_rest_cache(cache: dict) -> None:
+    try:
+        os.makedirs(os.path.dirname(_REST_CACHE_PATH), exist_ok=True)
+        with open(_REST_CACHE_PATH, "w") as f:
+            json.dump(cache, f)
+    except Exception:
+        pass
+
+
+def _cached_get(url: str, params: dict, cache_key: str) -> Optional[list]:
+    """GET with disk-persisted cache so data survives process restarts.
+
+    Returns the JSON list payload, or None on miss/error.
+    """
+    cache = _load_rest_cache()
+    now = time.time()
+    entry = cache.get(cache_key)
+    if entry and now - entry.get("t", 0) < REST_CACHE_TTL:
+        return entry.get("data")
+    try:
+        resp = httpx.get(url, params=params, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            cache[cache_key] = {"t": now, "data": data}
+            _save_rest_cache(cache)
+            return data
+    except Exception:
+        pass
+    return None
 
 
 def read_snapshot() -> List[dict]:
-    """Read liquidation events accumulated by the background WS daemon."""
+    """Read liquidation events accumulated by the background WS daemon.
+
+    Only returns events if the daemon has written a heartbeat recently
+    (file mtime < 5 min). A stale file means the daemon is dead — we
+    must NOT trust its old events.
+    """
     try:
+        mtime = os.path.getmtime(_SNAPSHOT_PATH)
+        if time.time() - mtime > 300:  # 5 min without heartbeat = daemon dead
+            return []
         with open(_SNAPSHOT_PATH) as f:
             data = json.load(f)
         now = time.time()
         return [e for e in data.get("events", []) if e.get("t", 0) >= now - _WINDOW_SEC]
     except Exception:
         return []
+
+
+def _write_snapshot(events: List[dict]) -> None:
+    """Persist the rolling event list with a timestamp (heartbeat)."""
+    try:
+        os.makedirs(os.path.dirname(_SNAPSHOT_PATH), exist_ok=True)
+        with open(_SNAPSHOT_PATH, "w") as f:
+            json.dump({"ts": time.time(), "events": events}, f)
+    except Exception:
+        pass
 
 
 def get_liquidation_score(symbol: str) -> Tuple[float, dict]:
@@ -81,50 +151,50 @@ def get_liquidation_score(symbol: str) -> Tuple[float, dict]:
 
     # 2. Fallback: taker buy/sell ratio (orderflow proxy for liquidation pressure)
     try:
-        resp = httpx.get(TAKER_RATIO_URL, params={"symbol": f"{clean}USDT", "period": "1h", "limit": 2}, timeout=10)
-        if resp.status_code == 200:
-            data = resp.json()
-            if data:
-                cur = data[-1]
-                ratio = float(cur.get("buySellRatio", 1.0))
-                buy_vol = float(cur.get("buyVol", 0))
-                sell_vol = float(cur.get("sellVol", 0))
-                # ratio > 1 = more buyers than sellers = bullish pressure
-                # ratio < 1 = more sellers than buyers = bearish pressure
-                total_vol = buy_vol + sell_vol
-                if total_vol > 0 and ratio != 1.0:
-                    # Normalise: ratio 1.3 → +0.3, ratio 0.7 → -0.3
-                    raw = (ratio - 1.0) / 1.0
-                    scale = min(1.0 + (total_vol * float(cur.get("price", 0) if "price" in cur else 1) / 50_000_000), 3.0)
-                    score = raw * scale * 2.0  # amplify
-                    return round(score, 3), {
-                        "liq_data_source": "binance_taker",
-                        "liq_taker_buy_vol": round(buy_vol, 0),
-                        "liq_taker_sell_vol": round(sell_vol, 0),
-                        "liq_taker_ratio": round(ratio, 3),
-                        "liq_pressure_score": round(score, 3),
-                    }
+        data = _cached_get(TAKER_RATIO_URL,
+                           {"symbol": f"{clean}USDT", "period": "1h", "limit": 2},
+                           f"taker:{clean}USDT")
+        if data:
+            cur = data[-1]
+            ratio = float(cur.get("buySellRatio", 1.0))
+            buy_vol = float(cur.get("buyVol", 0))
+            sell_vol = float(cur.get("sellVol", 0))
+            # ratio > 1 = more buyers than sellers = bullish pressure
+            # ratio < 1 = more sellers than buyers = bearish pressure
+            total_vol = buy_vol + sell_vol
+            if total_vol > 0 and ratio != 1.0:
+                # Normalise: ratio 1.3 → +0.3, ratio 0.7 → -0.3
+                raw = (ratio - 1.0) / 1.0
+                scale = min(1.0 + (total_vol * float(cur.get("price", 0) if "price" in cur else 1) / 50_000_000), 3.0)
+                score = raw * scale * 2.0  # amplify
+                return round(score, 3), {
+                    "liq_data_source": "binance_taker",
+                    "liq_taker_buy_vol": round(buy_vol, 0),
+                    "liq_taker_sell_vol": round(sell_vol, 0),
+                    "liq_taker_ratio": round(ratio, 3),
+                    "liq_pressure_score": round(score, 3),
+                }
     except Exception:
         pass
 
     # 3. Final fallback: L/S account ratio
     try:
-        resp = httpx.get(LS_RATIO_URL, params={"symbol": f"{clean}USDT", "period": "1h", "limit": 2}, timeout=10)
-        if resp.status_code == 200:
-            data = resp.json()
-            if data:
-                cur = data[-1]
-                ratio = float(cur.get("longShortRatio", 1.0))
-                score = 0.0
-                if ratio > 1.5:
-                    score = -(ratio - 1.5) / 1.5 * 2.0
-                elif ratio < 0.7:
-                    score = (0.7 - ratio) / 0.7 * 2.0
-                return round(score, 3), {
-                    "liq_data_source": "binance_ls_ratio",
-                    "liq_long_short_ratio": round(ratio, 3),
-                    "liq_pressure_score": score,
-                }
+        data = _cached_get(LS_RATIO_URL,
+                           {"symbol": f"{clean}USDT", "period": "1h", "limit": 2},
+                           f"ls:{clean}USDT")
+        if data:
+            cur = data[-1]
+            ratio = float(cur.get("longShortRatio", 1.0))
+            score = 0.0
+            if ratio > 1.5:
+                score = -(ratio - 1.5) / 1.5 * 2.0
+            elif ratio < 0.7:
+                score = (0.7 - ratio) / 0.7 * 2.0
+            return round(score, 3), {
+                "liq_data_source": "binance_ls_ratio",
+                "liq_long_short_ratio": round(ratio, 3),
+                "liq_pressure_score": score,
+            }
     except Exception:
         pass
 
@@ -155,24 +225,32 @@ def run_ws_daemon():
         events: List[dict] = []
         while True:
             try:
-                async with websockets.connect("wss://fstream.binance.com/ws/!forceOrder@arr", open_timeout=15, ping_interval=20) as ws:
+                async with websockets.connect("wss://fstream.binance.com/stream?streams=!forceOrder@arr", open_timeout=15, ping_interval=20) as ws:
                     logger.info("WS liquidation daemon connected")
+                    last_heartbeat = time.time()
+                    # Heartbeat on connect so a quiet market still writes a
+                    # fresh snapshot — read_snapshot() then knows the daemon
+                    # is alive (vs dead) by file mtime.
+                    _write_snapshot(events)
                     while True:
-                        msg = await asyncio.wait_for(ws.recv(), timeout=120)
-                        o = json.loads(msg).get("o", {})
-                        sym, side, price, qty = o.get("s", ""), o.get("S", ""), float(o.get("p", 0) or 0), float(o.get("q", 0) or 0)
-                        if sym and price > 0:
-                            events.append({"s": sym, "S": side, "p": price, "q": qty, "v": price * qty, "t": time.time()})
-                            # keep 1h
-                            cutoff = time.time() - _WINDOW_SEC
-                            events[:] = [e for e in events if e["t"] >= cutoff]
-                            # persist snapshot
-                            try:
-                                os.makedirs(os.path.dirname(_SNAPSHOT_PATH), exist_ok=True)
-                                with open(_SNAPSHOT_PATH, "w") as f:
-                                    json.dump({"ts": time.time(), "events": events}, f)
-                            except Exception:
-                                pass
+                        try:
+                            msg = await asyncio.wait_for(ws.recv(), timeout=_HEARTBEAT_SEC)
+                            o = json.loads(msg).get("o", {})
+                            sym, side, price, qty = o.get("s", ""), o.get("S", ""), float(o.get("p", 0) or 0), float(o.get("q", 0) or 0)
+                            if sym and price > 0:
+                                events.append({"s": sym, "S": side, "p": price, "q": qty, "v": price * qty, "t": time.time()})
+                                # keep 1h
+                                cutoff = time.time() - _WINDOW_SEC
+                                events[:] = [e for e in events if e["t"] >= cutoff]
+                                _write_snapshot(events)
+                        except asyncio.TimeoutError:
+                            # No liquidation in the window — still heartbeat so
+                            # consumers can distinguish alive-but-quiet vs dead.
+                            pass
+                        # Periodic heartbeat regardless of event flow
+                        if time.time() - last_heartbeat >= _HEARTBEAT_SEC:
+                            _write_snapshot(events)
+                            last_heartbeat = time.time()
             except Exception as e:
                 logger.warning("WS error, reconnecting: %s", e)
                 await asyncio.sleep(3)

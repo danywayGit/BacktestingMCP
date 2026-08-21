@@ -41,6 +41,14 @@ class CryptoDatabase:
     
     def _init_database(self):
         """Initialize database tables."""
+        # Set WAL once at init — it's persistent per DB file and enabling it
+        # per-connection (as before) added a lock round-trip on every open
+        # (~1300 connections per scan cycle → seconds of overhead).
+        try:
+            with self.get_connection() as conn:
+                conn.execute("PRAGMA journal_mode=WAL")
+        except Exception:
+            pass
         with self.get_connection() as conn:
             # Market data table
             conn.execute("""
@@ -166,8 +174,16 @@ class CryptoDatabase:
     
     @contextmanager
     def get_connection(self):
-        """Get database connection with automatic closing."""
-        conn = sqlite3.connect(self.db_path)
+        """Get database connection with automatic closing.
+
+        WAL + busy_timeout so concurrent readers/writers (threaded edge scan,
+        resolution cron, bridge) don't hit 'database is locked'.
+        NOTE: journal_mode=WAL is set once at init (it's persistent per DB
+        file); doing it per-connection adds a lock round-trip on every open
+        (~1300 connections per scan cycle).
+        """
+        conn = sqlite3.connect(self.db_path, timeout=30)
+        conn.execute("PRAGMA busy_timeout=30000")
         try:
             yield conn
             conn.commit()
