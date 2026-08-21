@@ -25,6 +25,10 @@ _cache: Dict[str, dict] = {}
 _cache_time: Optional[datetime] = None
 CACHE_TTL_SEC = 120
 
+# Circuit breaker: once Coinglass reports "upgrade required", skip all
+# further per-symbol attempts (they all return the same plan error anyway).
+_UPGRADE_DETECTED = False
+
 API_BASE = "https://open-api-v4.coinglass.com"
 
 
@@ -71,16 +75,22 @@ def fetch_liquidation_data(symbol: str) -> Optional[dict]:
 
 def get_liquidation_score(symbol: str) -> Tuple[float, dict]:
     """Compute liquidation imbalance score from Coinglass v4."""
+    global _UPGRADE_DETECTED
     api_key = _get_api_key()
     if not api_key:
         return 0.0, {"liq_data_source": "no_key", "liq_note": "Set COINGLASS_API_KEY in .env"}
 
+    # Short-circuit once the plan is known insufficient.
+    if _UPGRADE_DETECTED:
+        return 0.0, {"liq_data_source": "upgrade_required", "liq_note": "Coinglass plan needs upgrade for liquidation data"}
+
     data = fetch_liquidation_data(symbol)
-    
+
     if data is None:
         return 0.0, {"liq_data_source": "unavailable"}
-    
+
     if data.get("_upgrade_required"):
+        _UPGRADE_DETECTED = True
         return 0.0, {"liq_data_source": "upgrade_required", "liq_note": "Coinglass plan needs upgrade for liquidation data"}
     
     result = data.get("data", {})
