@@ -568,17 +568,11 @@ def score_symbol(
     
     components["coin_type"] = coin_type
 
-    # ── Liquidation Imbalance Score (from Binance liquidations) ──────────────
+    # ── Liquidation Imbalance Score (from Binance WebSocket / REST) ──────────
     if cfg.liquidation_weight > 0:
         try:
-            # Try Coinglass first (real liquidation data), fall back to Binance L/S ratio
-            from ..integrations.coinglass_liquidations import get_liquidation_cached
+            from ..integrations.binance_liq_ws import get_liquidation_cached
             liq_score, liq_comp = get_liquidation_cached(f"{symbol}USDT")
-            if liq_score == 0.0 and liq_comp.get("liq_data_source") in ("unavailable", "no_liquidations", "upgrade_required", "no_data", ""):
-                # Fallback to Binance L/S ratio
-                from ..integrations.binance_liquidations import get_liquidation_pressure_cached
-                liq_score, liq_comp = get_liquidation_pressure_cached(f"{symbol}USDT")
-                liq_comp["liq_data_source"] = "binance_ls_ratio"
             if liq_score != 0.0:
                 liq_bonus = liq_score * cfg.liquidation_weight
                 score += liq_bonus
