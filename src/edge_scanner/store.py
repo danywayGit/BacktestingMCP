@@ -30,13 +30,66 @@ MIN_MOVE_PCT = 0.3
 # Binance USDT-M Futures taker: 0.04% per trade
 COST_BPS = 11  # 4bps entry + 4bps exit + 3bps slippage = 11bps = 0.11%
 
+# ── Live price cache (module-level, survives all log_signals() calls) ─────────
+# log_signals() is called once PER CONFIG (43×) per scan cycle with ~15
+# actionable signals each. Each signal used to fire its own httpx GET to
+# Binance — 600+ sequential network calls per cycle, making the "5-min" scan
+# take 7-10 minutes (cron timeout → exit 124 every cycle → signals every ~11
+# min instead of 5). Fix: one batched GET to /fapi/v1/ticker/price (returns
+# ALL symbols in one response) to warm the cache, then per-symbol lookups are
+# instant. Module-level so the cache survives across all 43 per-config calls.
+_LIVE_PRICE_CACHE: dict = {}
+
+
+def _warm_live_price_cache() -> None:
+    """Fetch ALL Binance Futures prices in one batched call (populates cache)."""
+    if _LIVE_PRICE_CACHE:
+        return
+    try:
+        import httpx
+        resp = httpx.get("https://fapi.binance.com/fapi/v1/ticker/price", timeout=10)
+        if resp.status_code == 200:
+            for item in resp.json():
+                sym = item.get("symbol", "")          # e.g. "BTCUSDT"
+                price = float(item.get("price", 0) or 0)
+                if sym.endswith("USDT") and price > 0:
+                    _LIVE_PRICE_CACHE[sym[:-4]] = price  # bare symbol key
+    except Exception:
+        pass  # fall back to per-symbol fetches below
+
+
+def _live_price(symbol: str) -> float:
+    """Current Binance Futures price, cached per symbol per scan cycle."""
+    if symbol in _LIVE_PRICE_CACHE:
+        return _LIVE_PRICE_CACHE[symbol]
+    price = 0.0
+    try:
+        import httpx
+        resp = httpx.get(f"https://fapi.binance.com/fapi/v1/ticker/price?symbol={symbol}USDT", timeout=5)
+        if resp.status_code == 200:
+            price = float(resp.json()["price"])
+    except Exception:
+        pass
+    if price > 0:
+        _LIVE_PRICE_CACHE[symbol] = price
+    return price
+
 
 def _get_atr(pair: str, timeframe: TimeFrame) -> float:
-    """Fetch ATR(14) from recent OHLCV data. Returns 0.0 if unavailable."""
+    """Fetch ATR(14) from recent OHLCV data. Returns 0.0 if unavailable.
+
+    Uses composite's per-process market data cache — the composite scan
+    already fetched this symbol's OHLCV this cycle, so we must NOT refetch
+    it here. Previously each of the ~600 logged signals fired its own
+    engine.get_data() (30 days of 1h bars per signal!) — that was the main
+    reason a "5-min" scan took 7-10 minutes.
+    """
     try:
+        from .composite import _get_market_data_cached
         end = datetime.now(timezone.utc)
         start = end - timedelta(days=30)
-        data = engine.get_data(pair, timeframe, start, end)
+        lookback = 30
+        data = _get_market_data_cached(pair, timeframe, lookback)
         if data.empty or len(data) < 20:
             return 0.0
         high, low, close = data["High"], data["Low"], data["Close"]
@@ -102,6 +155,8 @@ def log_signals(scores: List[CandidateScore], timeframe: TimeFrame, horizon_hour
     """
     logged = 0
     updated = 0
+    # One batched price fetch for the whole cycle (see header comment).
+    _warm_live_price_cache()
     for score in scores:
         if score.direction is None or score.last_close is None:
             continue
@@ -116,15 +171,12 @@ def log_signals(scores: List[CandidateScore], timeframe: TimeFrame, horizon_hour
             atr_stop_mult = 1.5
             rr_ratio = 2.0
 
-        # Fetch current Binance Futures price for accurate entry
+        # Fetch current Binance Futures price for accurate entry (cached per
+        # symbol per cycle — module-level cache, see header comment).
         current_price = score.last_close  # fallback
-        try:
-            import httpx
-            resp = httpx.get(f"https://fapi.binance.com/fapi/v1/ticker/price?symbol={score.symbol}USDT", timeout=5)
-            if resp.status_code == 200:
-                current_price = float(resp.json()["price"])
-        except Exception:
-            pass  # fallback to candle close
+        cached_price = _live_price(score.symbol)
+        if cached_price > 0:
+            current_price = cached_price
 
         # Compute ATR-based stop and target prices using the LIVE price so
         # entry/target/stop are consistent. Previously target/stop were computed
@@ -295,6 +347,31 @@ def resolve_due_signals() -> int:
             db.resolve_edge_signal(signal["id"], 0.0, 0.0, "FLAT", time_to_resolve_hours=24.0)
             resolved += 1
             continue
+        target_price = signal.get("target_price")
+        stop_price = signal.get("stop_price")
+        entry_price = signal["entry_price"]
+        direction = signal["direction"]
+
+        # Guard: impossible setup — target on the wrong side of entry.
+        # E.g. LONG with target <= entry (pre-Aug-21-fix signals). These
+        # would resolve as WIN with a NEGATIVE return (window_high >= target
+        # is trivially true at entry). Resolve FLAT immediately so stats stay
+        # honest AND the symbol slot is freed for fresh signals (the dedup
+        # blocks symbols with sent-but-unresolved signals).
+        if target_price is not None:
+            if direction == "LONG" and target_price <= entry_price:
+                logger.warning("Impossible LONG setup id=%s %s (target %.4f <= entry %.4f) → FLAT",
+                               signal["id"], signal["symbol"], target_price, entry_price)
+                db.resolve_edge_signal(signal["id"], 0.0, 0.0, "FLAT", time_to_resolve_hours=24.0)
+                resolved += 1
+                continue
+            if direction == "SHORT" and target_price >= entry_price:
+                logger.warning("Impossible SHORT setup id=%s %s (target %.4f >= entry %.4f) → FLAT",
+                               signal["id"], signal["symbol"], target_price, entry_price)
+                db.resolve_edge_signal(signal["id"], 0.0, 0.0, "FLAT", time_to_resolve_hours=24.0)
+                resolved += 1
+                continue
+
         entry_time = datetime.fromisoformat(signal["entry_time"])
         if entry_time.tzinfo is None:
             entry_time = entry_time.replace(tzinfo=timezone.utc)
@@ -303,10 +380,6 @@ def resolve_due_signals() -> int:
             continue
 
         timeframe = TimeFrame(signal["timeframe"])
-        target_price = signal.get("target_price")
-        stop_price = signal.get("stop_price")
-        entry_price = signal["entry_price"]
-        direction = signal["direction"]
 
         # Fetch the full OHLCV window from entry to now
         df, window_high, window_low, exit_price = _fetch_window_data(

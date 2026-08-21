@@ -153,25 +153,34 @@ def run_parallel_scan(
 
     # ── Step 3: Score each symbol against each config ─────────────────────
     # Group by symbol first to deduplicate Santiment calls across configs
-    # (Santiment is already cached 6h in santiment_client, so this is safe)
-    for cfg in active_configs:
+    # (Santiment is already cached 6h in santiment_client, so this is safe).
+    # Configs are scored in a thread pool: scoring is network-bound (market
+    # data downloads, funding, liquidation REST) and mostly independent per
+    # config, so threads give near-linear speedup. The old sequential loop
+    # made a full 44-config scan take 10+ minutes (cron timeout 300s → exit
+    # 124 every cycle). Market data is memoized per-symbol in composite.py,
+    # so the first config to touch a symbol pays the fetch; the rest reuse it.
+    import concurrent.futures as _cf
+
+    def _score_one_config(cfg) -> tuple:
         scored: List[CandidateScore] = []
         for symbol, row in candidates.items():
             candidate = score_symbol(
                 symbol, row, feed_index, timeframe, lookback_days, config=cfg
             )
             scored.append(candidate)
-
-        # Sort by abs score descending
         scored.sort(key=lambda c: abs(c.composite_score), reverse=True)
-        actionable = [c for c in scored if c.direction is not None]
-        result.signals_by_version[cfg.version] = actionable
+        return cfg.version, scored
 
-        logger.info("Config %s: %d actionable signals (LONG=%d SHORT=%d)",
-                    cfg.version,
-                    len(actionable),
-                    sum(1 for c in actionable if c.direction == "LONG"),
-                    sum(1 for c in actionable if c.direction == "SHORT"))
+    with _cf.ThreadPoolExecutor(max_workers=min(12, len(active_configs))) as _pool:
+        for version, scored in _pool.map(_score_one_config, active_configs):
+            actionable = [c for c in scored if c.direction is not None]
+            result.signals_by_version[version] = actionable
+            logger.info("Config %s: %d actionable signals (LONG=%d SHORT=%d)",
+                        version,
+                        len(actionable),
+                        sum(1 for c in actionable if c.direction == "LONG"),
+                        sum(1 for c in actionable if c.direction == "SHORT"))
 
     # ── Step 4: Log all signals to DB tagged by version ───────────────────
     if log_signals:

@@ -44,6 +44,36 @@ from .scoring_config import (
 )
 from ..integrations.binance_symbols import is_on_binance_futures
 
+# ── Per-process market data cache ─────────────────────────────────────────────
+# The old flow called engine.get_data() once per (config × symbol) — 44 configs
+# × 40 candidates = 1760 fetches per cycle, many of which hit the Binance
+# downloader for symbols missing from the local DB. That made a "5-min" scan
+# take 10+ minutes (exit 124 timeout every cycle, signals only every ~11 min).
+# All configs share the same OHLCV window, so one fetch per symbol per cycle is
+# enough. Cache keyed by (pair, timeframe, lookback_days).
+_MARKET_DATA_CACHE: Dict[tuple, pd.DataFrame] = {}
+_MARKET_DATA_LOCK = __import__("threading").Lock()
+
+
+def _get_market_data_cached(pair: str, timeframe: TimeFrame, lookback_days: int) -> pd.DataFrame:
+    """engine.get_data() with a per-process memo — one fetch per symbol per cycle.
+
+    The lock around the miss-path prevents duplicate concurrent downloads
+    (thread pool in multi_version_scan) hammering the Binance downloader and
+    racing SQLite writes.
+    """
+    key = (pair, timeframe.value, lookback_days)
+    if key in _MARKET_DATA_CACHE:
+        return _MARKET_DATA_CACHE[key]
+    with _MARKET_DATA_LOCK:
+        if key in _MARKET_DATA_CACHE:  # double-checked: another thread fetched it
+            return _MARKET_DATA_CACHE[key]
+        end_date = datetime.now(timezone.utc)
+        start_date = end_date - timedelta(days=lookback_days)
+        data = engine.get_data(pair, timeframe, start_date, end_date)
+        _MARKET_DATA_CACHE[key] = data
+        return data
+
 # ── Regime detection cache ─────────────────────────────────────────────────
 _regime_cache: dict = {}
 _regime_cache_time: datetime | None = None
@@ -369,7 +399,7 @@ def score_symbol(
     try:
         end_date = datetime.now(timezone.utc)
         start_date = end_date - timedelta(days=lookback_days)
-        data = engine.get_data(pair, timeframe, start_date, end_date)
+        data = _get_market_data_cached(pair, timeframe, lookback_days)
         if not data.empty:
             last_close = float(data["Close"].iloc[-1])
             scan_result = evaluate_scan(data, "all")
