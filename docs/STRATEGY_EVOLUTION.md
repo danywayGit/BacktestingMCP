@@ -296,7 +296,135 @@ Removed dependency on 5% move triggers. Now uses validated OOS precursors:
 
 ### Known Issues (Updated)
 1. **Stale `.pyc` cache** — After code changes, resolution cron may use old bytecode. Force recompile.
-2. **No market regime detection** — Configs don't adapt to bull/bear/sideways markets
-3. **V1.4 timing still altFINS-dependent** — New OHLCV-based sources help but altFINS trend_score is still the main source
-5. **ATR timeframe mismatch** — 1h ATR used for 1h signals, but 4h ATR may be more stable
-6. **No correlation filter** — Multiple correlated signals (e.g., 2 ETH-related coins) can open simultaneously
+2. **Market regime detection** — Bridge checks BTC EMA20 trend. LONG blocked in downtrend, SHORT blocked in uptrend.
+3. **V1.4 timing still altFINS-dependent** — New OHLCV-based sources help but altFINS trend_score is still the main source.
+4. **ATR timeframe mismatch** — 1h ATR used for 1h signals, but 4h ATR may be more stable.
+5. **No correlation filter** — Multiple correlated signals (e.g., 2 ETH-related coins) can open simultaneously.
+6. **V14.x only trades BTC/ETH** — Whitelist enforced at scoring level, not just bridge.
+7. **Liquidation WS snapshot empty in quiet markets** — Falls back to Binance taker ratio / L/S ratio (always available).
+
+---
+
+## 2026-08-20 to 2026-08-21: Liquidation Overhaul + Bridge Robustness
+
+### Context
+Three parallel workstreams:
+1. New V14.x precursor strategies (BB squeeze, ATR expansion, multi-precursor filter)
+2. New V22.x liquidation-driven strategies (LONG + SHORT)
+3. Replace Coinglass (paid, "upgrade required") with free Binance liquidation data
+4. Fix bridge bugs (SHORT never sent, stale entry prices, scan failure orphaned signals)
+
+### V14.x Precursor Strategy — Complete
+
+| Feature | Weight | What it detects |
+|---------|:------:|-----------------|
+| BB Squeeze | 2.0 | Low vol → explosion (BB width < 20th percentile + expanding) |
+| ATR Expansion | 1.5 | Volatility acceleration (current vs 60-period avg) |
+| Volume Divergence | 2.0-3.0 | Price/volume disagreement |
+| BB Position | 0.5-1.0 | Close near band extremes |
+| Liquidation Pressure | 1.5-2.0 | Squeeze risk from positioning |
+| Multi-precursor filter | — | min_precursors=2 (reduce false positives) |
+| Dynamic ATR | — | Relaxes min_atr_pct 30% in low-vol regimes |
+
+**Two variants:**
+- **V14.0** — LONG bias, 7.0 bridge threshold, BTC/ETH whitelist
+- **V14.1** — SHORT bias, 7.0 bridge threshold, BTC/ETH whitelist
+
+### Historical Validation (2021-2026, hourly)
+
+| Config | BTC hit rate (≥3%) | ETH hit rate (≥3%) | Avg score |
+|--------|:-----------------:|:-----------------:|:---------:|
+| V14.0 | 26% | **41%** | 5.4 |
+| V14.1 | 26% | **39%** | 5.7 |
+
+**Best year:** 2021 — 71% on ETH, 59% on BTC. Bull market = textbook precursors.
+
+### V22.x Liquidation-Driven Strategy
+
+| Aspect | V22.0 LONG | V22.1 SHORT |
+|--------|-----------|------------|
+| Triggers when | Long/Short ratio < 0.7 (short-heavy) | Long/Short ratio > 1.5 (long-heavy) |
+| Liq weight | 5.0x (primary driver) | 5.0x (primary driver) |
+| Confirmation | Volume spike (3.0x) | ATR expansion (1.5x) |
+| Symbol scope | **All symbols** (no whitelist) | **All symbols** (no whitelist) |
+| Stop loss | 3.0 ATR | 3.5 ATR |
+
+### Liquidation Data Source Migration
+
+| Period | Source | Cost | Data |
+|--------|--------|:----:|------|
+| Before Aug 21 | Coinglass API (open-api-v4.coinglass.com) | Upgrade required | Empty |
+| **After Aug 21** 🆕 | **Binance !forceOrder@arr WS** | **Free** | Real liquidation events |
+| **After Aug 21** 🆕 | **Binance takerlongshortRatio** | **Free** | Orderflow buy/sell ratio |
+| **After Aug 21** 🆕 | **Binance globalLongShortAccountRatio** | **Free** | L/S positioning proxy |
+
+**Architecture:**
+1. WS daemon (persistent, auto-restart every 5 min by cron) listens to `!forceOrder@arr`
+2. Accumulates events in rolling 1h window, writes JSON snapshot to `data/liquidation_snapshot.json`
+3. Scanner reads snapshot → taker ratio → L/S ratio (fallback chain)
+4. All endpoints public — **no API key needed**
+5. Removed: `coinglass_liquidations.py`, `binance_liquidations.py`. Added: `binance_liq_ws.py`
+
+### Bridge Bugs Fixed
+
+| Bug | Root Cause | Fix |
+|-----|-----------|-----|
+| **No SHORT signals ever sent** | SQL used `composite_score >= ?` — SHORT scores are negative | Changed to `ABS(composite_score)` — 344 SHORT signals now eligible |
+| **Signals sent hours late** | Scan failed → script `exit 1` before bridge ran | Bridge always runs, even on partial scan. Script always exits 0. |
+| **Target ≤ entry for LONG** | Target/stop computed from last_close, entry from live price | Target/stop computed from same live price as entry |
+| **Degraded trades executed** | No check for effective R:R at send time | Live mark price check: reject if eff_RR < 0.8 or setup already completed |
+| **Transient HTTP failures** | No retry on timeout/503 | 3 retries with exponential backoff |
+| **Coinglass slowed scan** | ~100 HTTP calls per run, all "upgrade required" | Circuit-breaker after first reply. Then replaced entirely. |
+| **Price cache missing** | Each of 8 signals fetched its own live price (8 API calls) | 5-second price cache per symbol |
+
+### Cron Schedule Changes
+
+| Job | Before | After | Why |
+|-----|--------|-------|-----|
+| edge-scan | Every 15 min | **Every 5 min** | Faster detection → narrower price gap |
+| webhook-bridge | Every 30 min | **Every 5 min** | Backup failsafe if scan bridge fails |
+| liq-daemon-ensure | — | **Every 5 min** | New: restart WS daemon if it dies |
+
+### Edge Scan Script Hardened
+
+```bash
+# Before: scan failed → exit 1 → bridge NEVER ran
+if [ $EXIT_CODE -ne 0 ]; then
+  echo "FAILED"
+  exit 1  # ← bridge never reached
+fi
+
+# After: bridge ALWAYS runs, even on partial failure
+OUTPUT=$(timeout 300 python -m src.cli.main edge scan 2>&1)
+# ...bridge runs regardless of EXIT_CODE...
+if [ $EXIT_CODE -eq 0 ]; then
+  exit 0
+else
+  echo "partial failure"
+  exit 0  # ← always clean exit
+fi
+```
+
+### Key Gains
+
+| Metric | Before | After |
+|--------|--------|-------|
+| Signal → send gap | Up to **117 min** | **~0-5 min** |
+| SHORT signals sent | **0** (all silently blocked) | Now eligible via ABS(score) |
+| Degraded trades | Sent blindly | Rejected if effective R:R < 0.8 |
+| Scan failure impact | Signals orphaned for hours | Bridge runs anyway |
+| Liquidation data cost | $? (Coinglass plan upgrade) | **Free** (Binance public) |
+| Liquidation coverage | BTC/ETH only | All symbols |
+| API key required? | Yes (Coinglass) | **No** (Binance) |
+
+### Disabled Configs (Unchanged from Aug 17)
+V1.0 (38.2% WR), V2.0, V3.0 (43.8%), V3.6 (0% WR), V6.3 (14.3% WR), V7.0, V7.7
+
+### New Configs (Aug 20-21)
+
+| Config | Created | Bridge Level | Purpose |
+|--------|:------:|:------------:|---------|
+| V14.0 | Aug 17 | 7.0 (Tier 2) | Precursor-based LONG, BTC/ETH |
+| V14.1 | Aug 21 | 7.0 (Tier 2) | Precursor-based SHORT, BTC/ETH |
+| V22.0 | Aug 21 | 7.0 (Tier 4) | Liquidation-driven LONG, all symbols |
+| V22.1 | Aug 21 | 7.0 (Tier 4) | Liquidation-driven SHORT, all symbols |
