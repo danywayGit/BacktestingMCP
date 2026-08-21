@@ -134,19 +134,14 @@ def is_on_binance_futures(symbol: str) -> bool:
 
 def is_futures_symbol_tradable(symbol: str) -> bool:
     """Check if a symbol is actively TRADING (not PENDING_TRADING) on Binance Futures.
-    Some symbols exist in exchange info but are not yet tradable.
+
+    Uses the cached futures symbol set (ccxt load_markets, per-process cache).
+    Previously this fired a fresh exchangeInfo HTTP GET per candidate — the
+    bridge checked every candidate, so an 8-signal batch × 40 configs caused
+    hundreds of redundant API calls per cycle (a major scan slowdown).
     """
     try:
-        import httpx
-        sym = symbol.upper() + "USDT" if not symbol.upper().endswith("USDT") else symbol.upper()
-        resp = httpx.get("https://fapi.binance.com/fapi/v1/exchangeInfo", timeout=5)
-        if resp.status_code != 200:
-            return True
-        info = resp.json()
-        for s in info.get('symbols', []):
-            if s['symbol'] == sym:
-                return s.get('status', '') == 'TRADING'
-        return False
+        return symbol.upper() in get_binance_futures_symbols()
     except Exception:
         return True  # Fallback: allow if check fails
 

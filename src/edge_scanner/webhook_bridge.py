@@ -102,15 +102,27 @@ def ensure_webhook_column():
         db.close()
 
 
-def get_pending_signals_for_config(version: str, min_score: float) -> List[Dict]:
+def get_pending_signals_for_config(version: str, min_score: float,
+                                   cooldown_symbols: Optional[set] = None) -> List[Dict]:
     """Fetch pending signals for a config version — supports both LONG and SHORT.
-    
+
     SHORT scores are negative (e.g., -11.3). We use ABS() so that
     |score| >= min_score works for both directions. Direction filtering
     is handled by the caller via the priority config's score sign.
+
+    LIMIT is 50 (was 10) because open-position symbols are filtered in SQL
+    (cooldown_symbols) — with LIMIT 10, LONGs always filled the top-10 and
+    SHORTs (like MAGMA/GRASS -7.3) never got considered → direction
+    starvation. Now open-position symbols are excluded BEFORE the limit.
     """
     db = get_db()
-    rows = db.execute("""
+    params: list = [version, min_score]
+    cooldown_clause = ""
+    if cooldown_symbols:
+        placeholders = ",".join("?" for _ in cooldown_symbols)
+        cooldown_clause = f"AND symbol NOT IN ({placeholders})"
+        params.extend(cooldown_symbols)
+    rows = db.execute(f"""
         SELECT id, symbol, direction, entry_price, stop_price, target_price,
                composite_score, config_version, created_at
         FROM edge_signals
@@ -122,9 +134,10 @@ def get_pending_signals_for_config(version: str, min_score: float) -> List[Dict]
           AND target_price > 0
           AND webhook_sent_at IS NULL
           AND created_at > datetime('now', '-2 hours')
+          {cooldown_clause}
         ORDER BY ABS(composite_score) DESC
-        LIMIT 10
-    """, (version, min_score)).fetchall()
+        LIMIT 50
+    """, params).fetchall()
     db.close()
     return [dict(r) for r in rows]
 
@@ -217,6 +230,14 @@ def _check_effective_rr(sig: Dict) -> Tuple[bool, str, Optional[float]]:
     return True, f"ok (live=${live:.4f}, eff_RR={eff_rr:.2f})", eff_rr
 
 
+# Cache the BTC regime trend once per bridge run — 8 configs × up to 8
+# candidates each would otherwise create a fresh BacktestingEngine and load
+# 10 days of H4 BTC data per candidate check (~50 redundant DB fetches).
+_REGIME_CACHE: dict = {}
+# Cache the TestNet symbol set once per bridge run.
+_TESTNET_SYMBOLS: Optional[set] = None
+
+
 def _check_market_regime(direction: str, market: str = "BTC") -> Tuple[bool, str]:
     from datetime import datetime, timezone, timedelta
     from src.core.backtesting_engine import BacktestingEngine
@@ -224,20 +245,26 @@ def _check_market_regime(direction: str, market: str = "BTC") -> Tuple[bool, str
     import pandas as pd
     pair = f"{market}USDT"
     try:
-        engine = BacktestingEngine()
-        end = datetime.now(timezone.utc)
-        start = end - timedelta(days=10)
-        df = engine.get_data(pair, TimeFrame.H4, start, end)
-        if df.empty or len(df) < 20:
+        trend = _REGIME_CACHE.get(pair)
+        if trend is None:
+            engine = BacktestingEngine()
+            end = datetime.now(timezone.utc)
+            start = end - timedelta(days=10)
+            df = engine.get_data(pair, TimeFrame.H4, start, end)
+            if df.empty or len(df) < 20:
+                _REGIME_CACHE[pair] = "UNKNOWN"
+                return True, f"no data for {pair}"
+            close = df['Close'].values
+            last = float(close[-1])
+            ema20 = float(pd.Series(close).ewm(span=20).mean().iloc[-1])
+            trend = "UP" if last > ema20 else "DOWN"
+            _REGIME_CACHE[pair] = trend
+        if trend == "UNKNOWN":
             return True, f"no data for {pair}"
-        close = df['Close'].values
-        last = float(close[-1])
-        ema20 = float(pd.Series(close).ewm(span=20).mean().iloc[-1])
-        trend = "UP" if last > ema20 else "DOWN"
         if direction == "LONG" and trend == "DOWN":
-            return False, f"{market} downtrend (price {last:.0f} < EMA20 {ema20:.0f}) — LONG blocked"
+            return False, f"{market} downtrend — LONG blocked"
         elif direction == "SHORT" and trend == "UP":
-            return False, f"{market} uptrend (price {last:.0f} > EMA20 {ema20:.0f}) — SHORT blocked"
+            return False, f"{market} uptrend — SHORT blocked"
         return True, ""
     except Exception as e:
         logger.warning("Regime check failed: %s", e)
@@ -257,7 +284,7 @@ def select_signals() -> List[Dict]:
     for version, min_score, label in CONFIG_PRIORITY:
         if sent_count >= MAX_SIGNALS_PER_BATCH:
             break
-        signals = get_pending_signals_for_config(version, min_score)
+        signals = get_pending_signals_for_config(version, min_score, cooldown_symbols)
         if not signals:
             continue
         for sig in signals:
@@ -265,8 +292,6 @@ def select_signals() -> List[Dict]:
                 break
             sym = sig["symbol"]
             if sym in selected_symbols:
-                continue
-            if sym in cooldown_symbols:
                 continue
             valid, reason = _validate_signal(sig)
             if not valid:
@@ -306,15 +331,22 @@ def select_signals() -> List[Dict]:
                 logger.info("  %s: SKIPPED %s %s — not TRADING", label, sig["direction"], sym)
                 continue
             if testnet_check:
-                try:
-                    resp = httpx.get("https://testnet.binancefuture.com/fapi/v1/exchangeInfo", timeout=5)
-                    if resp.status_code == 200:
-                        testnet_syms = {s["symbol"][:-4] for s in resp.json()["symbols"]}
-                        if sym not in testnet_syms:
-                            logger.info("  %s: SKIPPED %s %s — not on TestNet", label, sig["direction"], sym)
-                            continue
-                except Exception:
-                    pass
+                # Cache the TestNet symbol set once per bridge run (was fetched
+                # per candidate — 8+ HTTP calls per cycle).
+                global _TESTNET_SYMBOLS
+                testnet_syms = _TESTNET_SYMBOLS
+                if testnet_syms is None:
+                    testnet_syms = set()
+                    try:
+                        resp = httpx.get("https://testnet.binancefuture.com/fapi/v1/exchangeInfo", timeout=5)
+                        if resp.status_code == 200:
+                            testnet_syms = {s["symbol"][:-4] for s in resp.json()["symbols"]}
+                    except Exception:
+                        pass
+                    _TESTNET_SYMBOLS = testnet_syms
+                if sym not in testnet_syms:
+                    logger.info("  %s: SKIPPED %s %s — not on TestNet", label, sig["direction"], sym)
+                    continue
             if version in selected_configs:
                 continue
             sig["_priority_label"] = label
