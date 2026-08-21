@@ -115,10 +115,6 @@ def log_signals(scores: List[CandidateScore], timeframe: TimeFrame, horizon_hour
             # Fallback to sensible defaults if config version not found
             atr_stop_mult = 1.5
             rr_ratio = 2.0
-        target_price, stop_price = _compute_atr_stop_target(
-            score.symbol, score.direction, score.last_close, timeframe,
-            atr_stop_mult, rr_ratio,
-        )
 
         # Fetch current Binance Futures price for accurate entry
         current_price = score.last_close  # fallback
@@ -129,6 +125,15 @@ def log_signals(scores: List[CandidateScore], timeframe: TimeFrame, horizon_hour
                 current_price = float(resp.json()["price"])
         except Exception:
             pass  # fallback to candle close
+
+        # Compute ATR-based stop and target prices using the LIVE price so
+        # entry/target/stop are consistent. Previously target/stop were computed
+        # from last_close while entry used the live price — causing impossible
+        # LONG signals where target <= entry when price had rallied.
+        target_price, stop_price = _compute_atr_stop_target(
+            score.symbol, score.direction, current_price, timeframe,
+            atr_stop_mult, rr_ratio,
+        )
 
         # Dedup per config-version: same symbol+direction+config = update, not insert
         existing = db.get_pending_edge_signal(score.symbol, score.direction, score.config_version)
