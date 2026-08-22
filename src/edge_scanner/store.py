@@ -190,6 +190,17 @@ def log_signals(scores: List[CandidateScore], timeframe: TimeFrame, horizon_hour
         # Dedup per config-version: same symbol+direction+config = update, not insert
         existing = db.get_pending_edge_signal(score.symbol, score.direction, score.config_version)
         if existing is not None:
+            # CRITICAL: NEVER mutate a signal that was already SENT to the
+            # execution bot. Once webhook_sent_at is set, the bot holds a
+            # position with the ORIGINAL entry/stop/target — overwriting
+            # entry_price here (while freezing stop/target) corrupts the
+            # geometry and poisons resolution stats (target below entry →
+            # false FLATs). Sent rows are immutable; only their outcome is
+            # written later by resolve_due_signals().
+            if existing.get("webhook_sent_at") is not None:
+                # Skip the update entirely — do not touch entry/score of a
+                # live position's signal.
+                continue
             db.update_edge_signal(
                 signal_id=existing["id"],
                 # Score convention: ALWAYS positive (direction is its own column).
@@ -355,22 +366,24 @@ def resolve_due_signals() -> int:
         entry_price = signal["entry_price"]
         direction = signal["direction"]
 
-        # Guard: impossible setup — target on the wrong side of entry.
-        # E.g. LONG with target <= entry (pre-Aug-21-fix signals). These
-        # would resolve as WIN with a NEGATIVE return (window_high >= target
-        # is trivially true at entry). Resolve FLAT immediately so stats stay
-        # honest AND the symbol slot is freed for fresh signals (the dedup
-        # blocks symbols with sent-but-unresolved signals).
-        if target_price is not None:
-            if direction == "LONG" and target_price <= entry_price:
-                logger.warning("Impossible LONG setup id=%s %s (target %.4f <= entry %.4f) → FLAT",
-                               signal["id"], signal["symbol"], target_price, entry_price)
+        # Guard: impossible setup — target or stop on the wrong side of entry.
+        # LONG must have stop < entry < target; SHORT must have stop > entry > target.
+        # Corrupted rows (pre-Aug-21 fix, or the entry-mutation bug where a
+        # SENT signal's entry got overwritten while stop/target froze) would
+        # resolve as WIN with NEGATIVE return or LOSS with the wrong side.
+        # Resolve FLAT immediately so stats stay honest AND the symbol slot is
+        # freed for fresh signals (the dedup blocks symbols with
+        # sent-but-unresolved signals).
+        if target_price is not None and stop_price is not None:
+            if direction == "LONG" and (target_price <= entry_price or stop_price >= entry_price):
+                logger.warning("Impossible LONG setup id=%s %s (entry %.4f stop %.4f tgt %.4f) → FLAT",
+                               signal["id"], signal["symbol"], entry_price, stop_price, target_price)
                 db.resolve_edge_signal(signal["id"], 0.0, 0.0, "FLAT", time_to_resolve_hours=24.0)
                 resolved += 1
                 continue
-            if direction == "SHORT" and target_price >= entry_price:
-                logger.warning("Impossible SHORT setup id=%s %s (target %.4f >= entry %.4f) → FLAT",
-                               signal["id"], signal["symbol"], target_price, entry_price)
+            if direction == "SHORT" and (target_price >= entry_price or stop_price <= entry_price):
+                logger.warning("Impossible SHORT setup id=%s %s (entry %.4f stop %.4f tgt %.4f) → FLAT",
+                               signal["id"], signal["symbol"], entry_price, stop_price, target_price)
                 db.resolve_edge_signal(signal["id"], 0.0, 0.0, "FLAT", time_to_resolve_hours=24.0)
                 resolved += 1
                 continue
