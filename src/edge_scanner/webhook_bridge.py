@@ -309,6 +309,15 @@ def select_signals() -> List[Dict]:
             _cfg = ALL_CONFIGS.get(version)
             if _cfg and _cfg.status == "disabled":
                 continue
+            # Hard direction restriction (belt & suspenders on top of the
+            # scoring-stage check): a config like V14.1 (SHORT-only) must
+            # never send a LONG even if a pre-existing/legacy signal sneaks
+            # through the SQL window.
+            if _cfg and _cfg.allowed_directions and \
+               sig["direction"].upper() not in {d.upper() for d in _cfg.allowed_directions}:
+                logger.info("  %s: DIRECTION BLOCKED %s %s (config allows %s)",
+                            label, sig["direction"], sym, _cfg.allowed_directions)
+                continue
             if _cfg and _cfg.symbol_whitelist and sym not in _cfg.symbol_whitelist:
                 continue
             if _cfg and _cfg.market_regime_filter != "OFF":

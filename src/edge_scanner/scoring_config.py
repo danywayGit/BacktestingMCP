@@ -284,6 +284,15 @@ class ScoringConfig:
     TR/ATR > 1.5 signals a breakout candle. Score = (tr_vs_atr - 1) * weight."""
 
     # ── Entry thresholds ──────────────────────────────────────────────────
+    allowed_directions: List[str] = field(default_factory=lambda: ["LONG", "SHORT"])
+    """Direction restriction for this config. Options: ["LONG"], ["SHORT"], or
+    both (default). Enforced at direction assignment in composite.py — a config
+    with ["LONG"] never produces SHORT signals even if the composite score is
+    strongly negative (and vice versa). Use for direction-specialized configs
+    like V14.1 / V22.1 (SHORT-only) and V14.0 / V22.0 (LONG-only).
+    NOTE: this is a HARD restriction at the scoring stage — it does not just
+    bias the score, it zeroes the opposite direction entirely."""
+
     min_abs_score: float = 3.0
     """Minimum |composite_score| to log a signal for tracking."""
 
@@ -1339,6 +1348,10 @@ CONFIG_V14_0 = ScoringConfig(
     version="14.0",
     description="Precursor Pattern: Validated ATR expansion + volume spike + BB squeeze before moves. BTC/ETH only. Uses market_data OHLCV precursors (not 5% move triggers).",
     status="enabled",
+    # Precursor research validated BULLISH setups (ATR expansion + volume spike
+    # + BB squeeze → UP move). Hard-restrict to LONG so bearish precursors
+    # never mint SHORT signals from this config.
+    allowed_directions=["LONG"],
     # Weights from validated precursors
     trend_weight=0.2,
     volume_relative_weight=3.0,  # Volume ratio >1.1x is key predictor (validated)
@@ -1384,6 +1397,9 @@ CONFIG_V14_1 = ScoringConfig(
     version="14.1",
     description="Precursor Pattern SHORT: ATR expansion + volume spike + BB squeeze for bearish BTC/ETH. Same precursors as V14.0 but biased for SHORT setups.",
     status="enabled",
+    # Designed as the SHORT counterpart of V14.0 — hard-restrict so bullish
+    # precursors never mint LONG signals from this config.
+    allowed_directions=["SHORT"],
     # Weights — lower trend weight, favor volume divergence for bearish detection
     trend_weight=0.2,
     volume_relative_weight=3.0,
@@ -1543,6 +1559,9 @@ CONFIG_V22_0 = ScoringConfig(
     version="22.0",
     description="Liquidation LONG: Short squeeze detection via extreme long/short ratio + volume spike + BB squeeze. BTC/ETH only.",
     status="enabled",
+    # Liquidation LONG — fires on SHORT-liquidations (short squeeze → UP).
+    # Hard-restrict to LONG so long-squeeze readings never mint SHORTs here.
+    allowed_directions=["LONG"],
     # Very low trend weight — liquidation is the primary signal
     trend_weight=0.1,
     volume_relative_weight=3.0,  # Volume confirms smart money moving
@@ -1589,6 +1608,9 @@ CONFIG_V22_1 = ScoringConfig(
     version="22.1",
     description="Liquidation SHORT: Long squeeze detection via extreme long/short ratio + ATR expansion + BB overextension. BTC/ETH only.",
     status="enabled",
+    # Liquidation SHORT — fires on LONG-liquidations (long squeeze → DOWN).
+    # Hard-restrict to SHORT so short-squeeze readings never mint LONGs here.
+    allowed_directions=["SHORT"],
     # Low trend weight — liquidation is the primary signal
     trend_weight=0.1,
     volume_relative_weight=3.0,  # Volume confirms panic
