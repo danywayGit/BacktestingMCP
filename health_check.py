@@ -1,303 +1,225 @@
 #!/usr/bin/env python3
-"""Edge scanner health check - run from BacktestingMCP dir."""
-import sqlite3
-from datetime import datetime, timezone
+"""Edge scanner health check — run from BacktestingMCP dir.
 
-db_path = "data/crypto.db"
-conn = sqlite3.connect(db_path)
-conn.row_factory = sqlite3.Row
-cur = conn.cursor()
+Checks (mirrors the system-health-check cron prompt):
+  1. edge-scan cron freshness (last run output mtime)
+  2. Config flat rates > 90% with > 50 resolved signals (from live outcomes)
+  3. funding_history freshness (< 1h)
+  4. V8.0 signal accumulation
+  5. V7.x win rates (>= 50% with >= 10 non-flat trades)
+  6. System memory usage (> 80%)
+
+Exit code 0 = healthy (or "---ALL_HEALTHY---"), 1 = issues found.
+Run:  python3 health_check.py
+"""
+import json
+import os
+import sqlite3
+import sys
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
+
+DB_PATH = "data/crypto.db"
+CRON_OUT = Path.home() / ".hermes" / "cron" / "output" / "7fb16f3b1d9a"  # edge-scan
+MEM_THRESHOLD_PCT = 80
+FLAT_THRESHOLD_PCT = 90
+FLAT_MIN_SIGNALS = 50
+WR_THRESHOLD_PCT = 50
+WR_MIN_NONFLAT = 10
 
 issues = []
+notes = []
 
-# === 2. CONFIGS WITH CRITICAL FLAT RATES ===
-# scoring_configs has is_active (int), not status
-# Checking if flat_rate info exists in config_json or elsewhere
-# The schema doesn't have flat_rate or total_signals columns directly
-# Let me check what's in config_json
-cur.execute("""
-    SELECT id, version, description, is_active, config_json
-    FROM scoring_configs
-    WHERE is_active = 1
-    ORDER BY version
-""")
-active_configs = cur.fetchall()
-print(f"=== ACTIVE SCORING CONFIGS: {len(active_configs)} ===")
-for cfg in active_configs:
-    # Try to parse config_json for flat_rate info
-    import json
+
+def _fmt_ts(ts):
+    if isinstance(ts, str):
+        try:
+            return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    return ts
+
+
+def check_edge_scan_freshness():
+    """1. edge-scan cron: any output in last 15 min = healthy."""
     try:
-        j = json.loads(cfg["config_json"])
-        flat_rate = j.get("flat_rate", j.get("flatRate", "N/A"))
-        total_signals = j.get("total_signals", j.get("totalSignals", "N/A"))
-        # Also check at top-level or nested
-        if flat_rate == "N/A":
-            for k, v in j.items():
-                if isinstance(v, dict):
-                    fr = v.get("flat_rate", v.get("flatRate", None))
-                    if fr is not None:
-                        flat_rate = fr
-        if total_signals == "N/A":
-            for k, v in j.items():
-                if isinstance(v, dict):
-                    ts = v.get("total_signals", v.get("totalSignals", None))
-                    if ts is not None:
-                        total_signals = ts
-        print(f"  {cfg['version']}: {cfg['description'][:50] if cfg['description'] else 'N/A'} | flat_rate={flat_rate} | signals={total_signals}")
-        if flat_rate != "N/A" and total_signals != "N/A":
-            try:
-                fr_val = float(flat_rate)
-                ts_val = int(total_signals)
-                if fr_val >= 90 and ts_val > 50:
-                    msg = f"CRITICAL: {cfg['version']} flat_rate={fr_val}% with {ts_val} signals"
-                    print(f"    ⚠️  {msg}")
-                    issues.append(("flat_rate", msg))
-            except (ValueError, TypeError):
-                pass
-    except json.JSONDecodeError:
-        print(f"  {cfg['version']}: config_json invalid")
-
-print()
-
-# === 3. FUNDING HISTORY FRESHNESS ===
-# funding_history has fetched_at (text), not timestamp
-cur.execute("SELECT COUNT(*) as cnt, MAX(fetched_at) as last_ts FROM funding_history")
-fh = cur.fetchone()
-cnt = fh["cnt"]
-last_ts = fh["last_ts"]
-print(f"=== FUNDING HISTORY ===")
-print(f"Total rows: {cnt}")
-print(f"Last fetched_at: {last_ts}")
-if last_ts:
-    try:
-        last_dt = datetime.fromisoformat(last_ts.replace("Z","+00:00"))
-        age_min = (datetime.now(timezone.utc) - last_dt).total_seconds() / 60
-        print(f"Age: {age_min:.1f} min")
-        if age_min > 60:
-            issues.append(("funding_history", f"Funding history is {age_min:.0f}m old (>60m threshold)"))
+        if not CRON_OUT.exists():
+            issues.append(f"EDGE_SCAN_NO_OUTPUT: {CRON_OUT} missing")
+            return
+        mds = sorted(CRON_OUT.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if not mds:
+            issues.append("EDGE_SCAN_NO_OUTPUT: no cron output files")
+            return
+        latest = mds[0]
+        age_min = (datetime.now().timestamp() - latest.stat().st_mtime) / 60
+        if age_min > 15:
+            issues.append(f"EDGE_SCAN_STALE: last edge-scan output {age_min:.0f} min ago ({latest.name})")
         else:
-            print("✅ Fresh (<1h old)")
+            notes.append(f"edge-scan OK (last {age_min:.0f} min ago)")
+        # Also flag a FAILED marker in the two most recent outputs
+        for p in mds[:2]:
+            if "FAILED" in p.read_text(errors="replace")[:2000]:
+                issues.append(f"EDGE_SCAN_FAILED: {p.name} contains FAILED marker")
     except Exception as e:
-        print(f"Parse error: {e}")
-else:
-    issues.append(("funding_history", "Funding history table is empty"))
-print()
+        issues.append(f"EDGE_SCAN_ERROR: {e}")
 
-# === 4. V8.0 SIGNALS ===
-# edge_signals has config_version (text), not version - check both "8.0" and "V8.0"
-cur.execute("SELECT COUNT(*) as cnt FROM edge_signals WHERE config_version LIKE '%8.0%'")
-v8_cnt = cur.fetchone()["cnt"]
-print(f"=== V8.0 SIGNALS (config_version LIKE '%8.0%') ===")
-print(f"Total: {v8_cnt}")
-if v8_cnt > 0:
-    cur.execute("SELECT symbol, direction, composite_score, created_at FROM edge_signals WHERE config_version LIKE '%8.0%' ORDER BY created_at DESC LIMIT 5")
-    for r in cur.fetchall():
-        print(f"  {r['symbol']} {r['direction']} score={r['composite_score']:.1f} @ {r['created_at']}")
-else:
-    print("No signals yet - still accumulating")
-print()
 
-# === 5. V7.0 WIN RATE ===
-# Check trades table - let's see what columns it has
-cur.execute("PRAGMA table_info(trades)")
-trades_cols = [r[1] for r in cur.fetchall()]
-print(f"=== TRADES TABLE COLUMNS ===")
-print(f"  {trades_cols}")
+def _enabled_config_versions():
+    """Return the set of enabled config versions (real source of truth = code)."""
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from src.edge_scanner.scoring_config import ALL_CONFIGS
+        return {v for v, c in ALL_CONFIGS.items() if c.status != "disabled"}
+    except Exception:
+        return None  # cannot determine → don't filter
 
-# Try different column names for version
-version_col = "version" if "version" in trades_cols else "config_version" if "config_version" in trades_cols else None
-outcome_col = "outcome" if "outcome" in trades_cols else None
 
-if version_col and outcome_col:
-    cur.execute(f"""
-        SELECT {version_col} as v, COUNT(*) as total,
-               SUM(CASE WHEN {outcome_col}='win' THEN 1 ELSE 0 END) as wins,
-               ROUND(100.0 * SUM(CASE WHEN {outcome_col}='win' THEN 1 ELSE 0 END) / NULLIF(COUNT(*),0), 1) as wr
-        FROM trades WHERE {version_col} LIKE '%V7.0%'
-        GROUP BY {version_col}
-    """)
-    v7 = cur.fetchall()
-    print(f"=== V7.0 WIN RATE ===")
-    if v7:
-        for r in v7:
-            wr = r["wr"]
-            print(f"  {r['v']}: WR={wr}% ({r['wins']}/{r['total']})")
-            if wr is not None and wr < 50:
-                issues.append(("v7_wr", f"V7.0 win rate is {wr}% (below 50% threshold)"))
-            else:
-                print("  ✅ 50% or better")
-    else:
-        print("  No V7.0 trades found")
-        # Check what V7* versions exist
-        cur.execute(f"SELECT DISTINCT {version_col} FROM trades WHERE {version_col} LIKE '%V7%'")
-        v7_versions = [r[0] for r in cur.fetchall()]
-        print(f"  V7* versions in trades: {v7_versions}")
-else:
-    print("Cannot determine version/outcome columns in trades")
-    # Dump first row
-    cur.execute("SELECT * FROM trades LIMIT 1")
-    if (row := cur.fetchone()):
-        print(f"  Sample row: {dict(row)}")
-print()
+def check_flat_rates(cur, enabled=None):
+    """2. Configs with >90% FLAT and >50 resolved signals (enabled configs only)."""
+    try:
+        rows = cur.execute("""
+            SELECT config_version,
+                   COUNT(*) as total,
+                   SUM(CASE WHEN outcome='WIN' THEN 1 ELSE 0 END) as wins,
+                   SUM(CASE WHEN outcome='LOSS' THEN 1 ELSE 0 END) as losses,
+                   SUM(CASE WHEN outcome='FLAT' THEN 1 ELSE 0 END) as flats
+            FROM edge_signals
+            WHERE status='RESOLVED'
+            GROUP BY config_version
+            ORDER BY total DESC
+        """).fetchall()
+        flagged = 0
+        for r in rows:
+            cv, total, wins, losses, flats = r
+            # Skip disabled/retired configs — their historical flats are noise.
+            if enabled is not None and cv not in enabled:
+                continue
+            if total > FLAT_MIN_SIGNALS:
+                flat_pct = round((flats or 0) / total * 100, 1)
+                if flat_pct > FLAT_THRESHOLD_PCT:
+                    issues.append(f"HIGH_FLAT: {cv} has {flat_pct}% flat rate ({flats}/{total} signals)")
+                    flagged += 1
+        if flagged == 0:
+            notes.append("no enabled configs with critical flat rates")
+    except Exception as e:
+        issues.append(f"CONFIG_ERROR: {e}")
 
-# === V7.x WIN RATE from edge_signals outcomes ===
-# Check if any V7.x signals have outcomes
-cur.execute("""
-    SELECT config_version, outcome, COUNT(*) as cnt
-    FROM edge_signals 
-    WHERE config_version LIKE '%7.%' AND outcome IS NOT NULL
-    GROUP BY config_version, outcome
-    ORDER BY config_version
-""")
-v7_outcomes = cur.fetchall()
-print("=== V7.x OUTCOMES ===")
-v7_has_real_outcomes = False
-if v7_outcomes:
-    # Check if any outcomes are actually win/loss (not null)
-    for r in v7_outcomes:
-        if r["outcome"] in ("win", "loss", "WIN", "LOSS"):
-            v7_has_real_outcomes = True
-    # Group by config_version
-    v7_data = {}
-    for r in v7_outcomes:
-        cv = r["config_version"]
-        if cv not in v7_data:
-            v7_data[cv] = {"wins": 0, "losses": 0, "flats": 0, "total": 0}
-        outcome = r["outcome"].upper() if r["outcome"] else ""
-        if outcome == "WIN":
-            v7_data[cv]["wins"] += r["cnt"]
-        elif outcome == "LOSS":
-            v7_data[cv]["losses"] += r["cnt"]
-        elif outcome == "FLAT":
-            v7_data[cv]["flats"] += r["cnt"]
-        v7_data[cv]["total"] += r["cnt"]
-    
-    for cv, d in sorted(v7_data.items()):
-        total_wl = d["wins"] + d["losses"]
-        if total_wl > 0:
-            wr = round(100.0 * d["wins"] / total_wl, 1)
-            print(f"  {cv}: WR={wr}% ({d['wins']}/{total_wl}) | flats={d['flats']} | total={d['total']}")
-            if wr < 50 and total_wl >= 5:  # Only flag if >= 5 trades
-                issues.append(("v7_wr", f"{cv} win rate is {wr}% ({d['wins']}/{total_wl}) - below 50%"))
-            elif wr < 50:
-                print(f"    (too few samples: {total_wl} trades)")
-            else:
-                print(f"    ✅ >= 50%")
+
+def check_funding_freshness(cur):
+    """3. funding_history < 1h old."""
+    try:
+        row = cur.execute("SELECT MAX(fetched_at) FROM funding_history").fetchone()
+        if not row or not row[0]:
+            issues.append("FUNDING_NO_DATA: funding_history table is empty")
+            return
+        fetched = _fmt_ts(row[0])
+        if fetched is None:
+            issues.append(f"FUNDING_PARSE: cannot parse fetched_at {row[0]}")
+            return
+        age_min = (datetime.now(timezone.utc) - fetched).total_seconds() / 60
+        if age_min > 60:
+            issues.append(f"FUNDING_STALE: last funding poll was {age_min:.0f} min ago ({row[0]})")
         else:
-            print(f"  {cv}: no win/loss outcomes (flats={d['flats']})")
-else:
-    print("  No V7.x signals with outcomes yet")
-    print("  ℹ️ This is normal — signals are resolved as time-expired without hitting targets.")
-    
-    # Check what outcomes exist at all
-    cur.execute("SELECT DISTINCT outcome FROM edge_signals WHERE outcome IS NOT NULL")
-    all_outcomes_mapping = [r[0] for r in cur.fetchall()]
-    print(f"  Distinct outcome values in DB: {all_outcomes_mapping}")
-    
-    # Check if V7.x signals have outcome=null or not
-    cur.execute("SELECT COUNT(*) FROM edge_signals WHERE config_version LIKE '%7.%' AND outcome IS NULL")
-    v7_null_outcome = cur.fetchone()[0]
-    cur.execute("SELECT COUNT(*) FROM edge_signals WHERE config_version LIKE '%7.%'")
-    v7_total = cur.fetchone()[0]
-    print(f"  V7.x: {v7_null_outcome}/{v7_total} have NULL outcome")
-    
-    # Check what status means for V7.x
-    cur.execute("SELECT status, COUNT(*) as cnt FROM edge_signals WHERE config_version LIKE '%7.%' GROUP BY status")
-    for r in cur.fetchall():
-        print(f"  V7.x status: {r[0]}={r[1]}")
-    
-    # This is expected — V7.x signals are all RESOLVED with NULL outcome
-    # (resolved by time expiry, not by hitting target/stop).
-    # No win rate data available yet for V7.x.
-    if v7_null_outcome == v7_total and v7_total > 0:
-        print("  ℹ️ All V7.x signals resolved without outcome (time-expired). No win rate data yet.")
+            notes.append(f"funding fresh ({age_min:.0f} min)")
+    except Exception as e:
+        issues.append(f"FUNDING_ERROR: {e}")
 
-# Also check what the V7.0/7.0.x signal counts look like by status
-cur.execute("""
-    SELECT config_version, status, COUNT(*) as cnt 
-    FROM edge_signals 
-    WHERE config_version LIKE '%7.%'
-    GROUP BY config_version, status 
-    ORDER BY config_version
-""")
-print()
-print("=== V7.x by status ===")
-for r in cur.fetchall():
-    print(f"  {r[0]}: {r[1]}={r[2]}")
 
-print()
-cur.execute("PRAGMA table_info(performance_metrics)")
-pm_cols = [r[1] for r in cur.fetchall()]
-print(f"=== performance_metrics columns: {pm_cols} ===")
+def check_v8_accumulation(cur):
+    """4. V8.0 has accumulated signals."""
+    try:
+        cnt = cur.execute("SELECT COUNT(*) FROM edge_signals WHERE config_version='8.0'").fetchone()[0]
+        if cnt == 0:
+            issues.append("V80_NO_SIGNALS: V8.0 has accumulated zero signals")
+        else:
+            notes.append(f"V8.0 has {cnt} signals")
+    except Exception as e:
+        issues.append(f"V80_ERROR: {e}")
 
-# Check if there's a version/win rate table
-# Check backtest_results
-cur.execute("PRAGMA table_info(backtest_results)")
-bt_cols = [r[1] for r in cur.fetchall()]
-print(f"=== backtest_results columns: {bt_cols} ===")
 
-# Try strategy_parameters
-cur.execute("PRAGMA table_info(strategy_parameters)")
-sp_cols = [r[1] for r in cur.fetchall()]
-print(f"=== strategy_parameters columns: {sp_cols} ===")
+def check_v7_win_rates(cur, enabled=None):
+    """5. V7.x win rates >= 50% with >= 10 non-flat trades (enabled configs only)."""
+    try:
+        rows = cur.execute("""
+            SELECT config_version,
+                   COUNT(*) as total,
+                   SUM(CASE WHEN outcome='WIN' THEN 1 ELSE 0 END) as wins,
+                   SUM(CASE WHEN outcome='LOSS' THEN 1 ELSE 0 END) as losses,
+                   SUM(CASE WHEN outcome='FLAT' THEN 1 ELSE 0 END) as flats
+            FROM edge_signals
+            WHERE config_version LIKE '7.%' AND status='RESOLVED' AND outcome IS NOT NULL
+            GROUP BY config_version
+            ORDER BY config_version
+        """).fetchall()
+        checked = 0
+        for r in rows:
+            cv, total, wins, losses, flats = r
+            if enabled is not None and cv not in enabled:
+                continue
+            nonflat = (wins or 0) + (losses or 0)
+            if nonflat >= WR_MIN_NONFLAT:
+                wr = round((wins or 0) / nonflat * 100, 1)
+                checked += 1
+                if wr < WR_THRESHOLD_PCT:
+                    issues.append(f"V7_WR_LOW: {cv} win rate is {wr}% ({wins}/{nonflat} non-flat) — below 50%")
+                else:
+                    notes.append(f"{cv} WR {wr}% OK")
+        if checked == 0:
+            notes.append("no enabled V7.x config has >= 10 non-flat trades yet")
+    except Exception as e:
+        issues.append(f"V7_ERROR: {e}")
 
-# Check performance_metrics content
-cur.execute("SELECT * FROM performance_metrics ORDER BY id DESC LIMIT 10")
-pm_rows = cur.fetchall()
-print(f"=== performance_metrics (last 10) ===")
-for r in pm_rows:
-    print(f"  {dict(r)}")
 
-# Check backtest_results content
-cur.execute("SELECT * FROM backtest_results ORDER BY id DESC LIMIT 10")
-bt_rows = cur.fetchall()
-print(f"=== backtest_results (last 10) ===")
-for r in bt_rows:
-    print(f"  {dict(r)}")
+def check_memory():
+    """6. System memory usage > 80%."""
+    try:
+        with open("/proc/meminfo") as f:
+            mem = {}
+            for line in f:
+                k, v = line.split(":")
+                mem[k] = int(v.strip().split()[0])  # kB
+        total = mem["MemTotal"]
+        available = mem["MemAvailable"]
+        used_pct = round((total - available) / total * 100, 1)
+        if used_pct > MEM_THRESHOLD_PCT:
+            issues.append(f"MEM_HIGH: memory usage {used_pct}% (> {MEM_THRESHOLD_PCT}%)")
+        else:
+            notes.append(f"memory {used_pct}% used")
+    except Exception as e:
+        issues.append(f"MEM_ERROR: {e}")
 
-# Check strategy_parameters content
-cur.execute("SELECT * FROM strategy_parameters ORDER BY id DESC LIMIT 10")
-sp_rows = cur.fetchall()
-print(f"=== strategy_parameters (last 10) ===")
-for r in sp_rows:
-    print(f"  {dict(r)}")
 
-# Check edge_signals for V7.0
-cur.execute("SELECT COUNT(*) FROM edge_signals WHERE config_version LIKE '%V7.0%'")
-v7sig = cur.fetchone()[0]
-print(f"=== V7.0 edge_signals: {v7sig} ===")
+def main():
+    if not os.path.exists(DB_PATH):
+        print("---ISSUES---")
+        print(f"DB_MISSING: {DB_PATH} not found (run from BacktestingMCP dir)")
+        return 1
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
 
-# Also check V7.x versions
-cur.execute("SELECT config_version, COUNT(*) as cnt FROM edge_signals GROUP BY config_version ORDER BY config_version")
-all_versions = cur.fetchall()
-print("=== All config versions in edge_signals ===")
-for r in all_versions:
-    print(f"  {r[0]}: {r[1]}")
+    enabled = _enabled_config_versions()
+    if enabled is not None:
+        notes.append(f"enabled configs: {len(enabled)}")
 
-# Check active versions in edge_signals (recent)
-cur.execute("""
-    SELECT config_version, COUNT(*) as cnt, 
-           ROUND(AVG(composite_score), 2) as avg_score,
-           MAX(created_at) as last_signal
-    FROM edge_signals 
-    WHERE created_at > datetime('now', '-7 days')
-    GROUP BY config_version
-    ORDER BY cnt DESC
-""")
-recent = cur.fetchall()
-print("=== Config versions with signals in last 7 days ===")
-for r in recent:
-    print(f"  {r['config_version']}: {r['cnt']} signals, avg_score={r['avg_score']}, last={r['last_signal']}")
+    check_edge_scan_freshness()
+    check_flat_rates(cur, enabled)
+    check_funding_freshness(cur)
+    check_v8_accumulation(cur)
+    check_v7_win_rates(cur, enabled)
+    check_memory()
 
-print()
+    conn.close()
 
-# === SUMMARY ===
-print("=" * 40)
-if issues:
-    print(f"ISSUES FOUND: {len(issues)}")
-    for category, msg in issues:
-        print(f"  [{category}] {msg}")
-else:
-    print("✅ ALL CHECKS PASSED - SYSTEM HEALTHY")
+    for n in notes:
+        print(f"OK: {n}")
+    if issues:
+        print("---ISSUES---")
+        for i in issues:
+            print(f"ISSUE: {i}")
+        return 1
+    print("---ALL_HEALTHY---")
+    return 0
 
-conn.close()
+
+if __name__ == "__main__":
+    sys.exit(main())
