@@ -288,17 +288,27 @@ def register_config_as_code(config: Dict[str, Any], version_str: str = "7.3") ->
     if all_configs_line == -1:
         all_configs_line = content.find("ALL_CONFIGS = {")
     if all_configs_line != -1:
-        # Find the closing bracket of the innermost list inside the dict value
-        # Pattern: {c.version: c for c in [..., CONFIG_V8_0, ]}
+        # Find the inner list inside the dict comprehension: {c.version: c for c in [..., ]}
         prefix = f"{const_name},\n"
-        # Simple approach: find the first standalone `]` after the dict body opener
+        # Find the innermost closing `]` in the dict body
         body_start = content.find("{", all_configs_line)
         if body_start != -1:
-            # Find the LAST `]` before the closing `}`
-            # Crawl forward to find the closing braces structure
-            inner_list_end = content.rfind("]", body_start, content.rfind("}"))
-            if inner_list_end != -1:
-                content = content[:inner_list_end] + "\n        " + prefix + content[inner_list_end:]
+            # Find the dict's own closing `}` by scanning for matching braces
+            depth = 0
+            dict_end = -1
+            for i in range(body_start, len(content)):
+                if content[i] == "{":
+                    depth += 1
+                elif content[i] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        dict_end = i
+                        break
+            if dict_end != -1:
+                # Now find the last `]` before dict_end (the inner list close)
+                inner_list_end = content.rfind("]", body_start, dict_end)
+                if inner_list_end != -1:
+                    content = content[:inner_list_end] + "\n        " + prefix + content[inner_list_end:]
 
     try:
         with open(filepath, "w") as f:
