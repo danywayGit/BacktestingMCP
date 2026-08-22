@@ -192,7 +192,10 @@ def log_signals(scores: List[CandidateScore], timeframe: TimeFrame, horizon_hour
         if existing is not None:
             db.update_edge_signal(
                 signal_id=existing["id"],
-                composite_score=score.composite_score,
+                # Score convention: ALWAYS positive (direction is its own column).
+                # SHORTs were historically stored negative; the webhook/bot now
+                # expects positive Score + explicit Direction field.
+                composite_score=abs(score.composite_score),
                 entry_price=current_price,
                 components=score.components,
             )
@@ -204,7 +207,7 @@ def log_signals(scores: List[CandidateScore], timeframe: TimeFrame, horizon_hour
             pair=score.pair,
             timeframe=timeframe.value,
             direction=score.direction,
-            composite_score=score.composite_score,
+            composite_score=abs(score.composite_score),
             components=score.components,
             entry_price=current_price,
             horizon_hours=horizon_hours,

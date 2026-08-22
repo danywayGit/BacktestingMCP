@@ -34,6 +34,36 @@ ALERT_MULTI_SOURCE = True
 ALERT_COOLDOWN_HOURS = 24  # Only alert once per signal per day
 # Persistent cache across process restarts (file-backed, JSON)
 _ALERT_CACHE_FILE = os.path.join(os.path.dirname(__file__), "../../data/alerted_cache.json")
+_alerted_cache = {}  # In-memory cache; load from file on process start
+
+# Load persistent cache from disk on import
+import json
+_cache_dir = os.path.dirname(_ALERT_CACHE_FILE)
+if os.path.isdir(_cache_dir) and os.path.exists(_ALERT_CACHE_FILE):
+    try:
+        with open(_ALERT_CACHE_FILE) as f:
+            raw = json.load(f)
+        for k, v in raw.items():
+            try:
+                _alerted_cache[tuple(k.split("|"))] = datetime.fromisoformat(v)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+def _save_alerted_cache():
+    """Persist alert dedup cache to disk."""
+    try:
+        data = {
+            "|".join(k): v.isoformat()
+            for k, v in _alerted_cache.items()
+        }
+        with open(_ALERT_CACHE_FILE, "w") as f:
+            json.dump(data, f)
+    except Exception:
+        pass
+
 
 # Default risk parameters (only used when actual ATR data exists)
 RR_RATIO = 2.0        # risk 1 → reward 2
@@ -264,7 +294,7 @@ def _format_alert(c: CandidateScore) -> str:
         f"├ 🎯 Tgt: `{target_str}`  R:R `{rr_str}`",
         f"├ Position Risk: {risk_pct_str}% {sizing_icon}{sizing_note}",
         f"└ Time:  `{timeframe_label}` · Type: `{coin_type}`",
-        f"Score: `{c.composite_score:+.2f}`  |  {sources_str}",
+        f"Score: `{abs(c.composite_score):+.2f}`  |  {sources_str}",
         f"Resolved: {wr_str}",
     ]
     return "\n".join(lines)
@@ -306,6 +336,7 @@ def send_alerts(candidates: List[CandidateScore], dry_run: bool = False) -> int:
         except Exception:
             pass
         _alerted_cache[key] = now
+        _save_alerted_cache()
         deduped.append(c)
     triggered = deduped
 

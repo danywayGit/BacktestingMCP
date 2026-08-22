@@ -115,8 +115,9 @@ HTTP_RETRY_DELAY = 1.0          # Base backoff in seconds
 | 8 | Score capped at MAX_SCORE_CAP | "score capped" |
 | 9 | On Binance Futures | "not on Binance Futures" |
 | 10 | Actively TRADING (not PENDING_TRADING) | "not actively TRADING" |
-| 11 | On TestNet (if ACCOUNT_TYPE=TestNet) | "not on TestNet" |
+| 11 | On TestNet (if mode=testnet) | "not on TestNet" |
 | 12 | Config diversity (not already selected) | "config already contributed" |
+| 13 | Direction allowed by config (allowed_directions) | "DIRECTION BLOCKED" |
 
 ## SHORT Signal Support
 
@@ -125,6 +126,30 @@ Previously, the bridge SQL used `composite_score >= ?` which **excluded** SHORT 
 - LONG: score >= min_score
 - SHORT: abs(score) >= min_score
 - Direction is preserved and validated correctly (stop < entry < target for LONG, inverted for SHORT)
+
+## Score Convention (Aug 2026): ALWAYS POSITIVE + explicit Direction
+
+**Scores are stored and sent as positive values. Direction is explicit.**
+
+- `composite_score` in the DB is stored as `abs()` — SHORTs are no longer negative.
+- The `direction` column (LONG/SHORT) is the source of truth for direction.
+- Webhook message carries `Direction: LONG|SHORT` explicitly (in addition to Action/Side).
+- The bot clamps out-of-range scores — a negative Score would silently corrupt sizing, so the bridge normalizes `Score: {abs(...)}` before sending.
+- The bridge SQL `ABS(composite_score) >= ?` is now belt-and-suspenders (scores are already positive).
+
+## Execution Modes (Aug 2026)
+
+The bridge routes to any of 5 execution modes via `WEBHOOK_EXECUTION_MODE` env var (default `testnet`). Each maps to a bot-valid AccountType + MarketType:
+
+| Mode | AccountType (bot-valid) | MarketType | Meaning |
+|------|------------------------|------------|---------|
+| `testnet` | TestNet | Futures | TestNet futures (default) |
+| `copytrading_futures` | CopyTrading | Futures | Copy-trading futures |
+| `copytrading_spot` | CopyTrading | Spot | Copy-trading spot |
+| `futures_prod` | Standard | Futures | Production futures |
+| `spot_prod` | Standard | Spot | Production spot |
+
+The message includes `MarketType:` so the bot knows Futures vs Spot execution. `TESTNET_MODE` (TestNet symbol validation) only applies in `testnet` mode. Set via `.env` or `edge_scan.sh`: `WEBHOOK_EXECUTION_MODE=futures_prod`.
 
 ## Live Effective R:R Validation
 
