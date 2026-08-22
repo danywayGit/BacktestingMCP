@@ -1,127 +1,127 @@
 {
-  "SHIB": {
-    "outlook": "Bearish",
-    "pattern": "Overbought at Resistance",
-    "stage": "Emerging"
-  },
-  "ATOM": {
-    "outlook": "Bearish",
-    "pattern": "Approaching Resistance",
-    "stage": "Emerging"
-  },
-  "XTZ": {
-    "outlook": "Bearish",
-    "pattern": "Approaching Support",
-    "stage": "Emerging"
-  },
   "TRX": {
     "outlook": "Bullish",
     "pattern": "Approaching Support",
     "stage": "Emerging"
   },
   "TON": {
+    "outlook": "Bullish",
+    "pattern": "Falling Wedge",
+    "stage": "Breakout"
+  },
+  "SHIB": {
+    "outlook": "Neutral",
+    "pattern": "Channel Down",
+    "stage": "Breakout"
+  },
+  "LDO": {
+    "outlook": "Bullish",
+    "pattern": "Resistance Breakout",
+    "stage": "Breakout"
+  },
+  "INJ": {
+    "outlook": "Bullish",
+    "pattern": "Pullback in Uptrend",
+    "stage": "Emerging"
+  },
+  "ICP": {
+    "outlook": "Neutral",
+    "pattern": "Approaching Resistance",
+    "stage": "Emerging"
+  },
+  "FLR": {
     "outlook": "Bearish",
+    "pattern": "Overbought at Resistance",
+    "stage": "Emerging"
+  },
+  "FIL": {
+    "outlook": "Bearish",
+    "pattern": "Approaching Resistance",
+    "stage": "Emerging"
+  },
+  "FET": {
+    "outlook": "Bullish",
+    "pattern": "Falling Wedge",
+    "stage": "Breakout"
+  },
+  "DOGE": {
+    "outlook": "Bearish",
+    "pattern": "Overbought at Resistance",
+    "stage": "Emerging"
+  },
+  "AAVE": {
+    "outlook": "Bullish",
+    "pattern": "Resistance Breakout",
+    "stage": "Breakout"
+  },
+  "WLD": {
+    "outlook": "Bullish",
+    "pattern": "Resistance Breakout",
+    "stage": "Breakout"
+  },
+  "UNI": {
+    "outlook": "Bullish",
+    "pattern": "Resistance Breakout",
+    "stage": "Breakout"
+  },
+  "TIA": {
+    "outlook": "Neutral",
+    "pattern": "Symmetrical Triangle",
+    "stage": "Emerging"
+  },
+  "TAO": {
+    "outlook": "Neutral",
     "pattern": "Channel Down",
     "stage": "Emerging"
   },
+  "SUI": {
+    "outlook": "Neutral",
+    "pattern": "Sideways Channel",
+    "stage": "Emerging"
+  },
+  "SOL": {
+    "outlook": "Neutral",
+    "pattern": "Overbought at Resistance",
+    "stage": "Emerging"
+  },
+  "SKY": {
+    "outlook": "Neutral",
+    "pattern": "Overbought at Resistance",
+    "stage": "Emerging"
+  },
+  "SEI": {
+    "outlook": "Bearish",
+    "pattern": "Approaching Resistance",
+    "stage": "Emerging"
+  },
+  "RENDER": {
+    "outlook": "Neutral",
+    "pattern": "Approaching Resistance",
+    "stage": "Emerging"
+  },
+  "QNT": {
+    "outlook": "Bullish",
+    "pattern": "Falling Wedge",
+    "stage": "Breakout"
+  },
   "PEPE": {
     "outlook": "Bearish",
-    "pattern": "Channel Down",
+    "pattern": "Overbought at Resistance",
+    "stage": "Emerging"
+  },
+  "ONDO": {
+    "outlook": "Bullish",
+    "pattern": "Bullish Flag",
     "stage": "Emerging"
   },
   "NEAR": {
     "outlook": "Bullish",
     "pattern": "Falling Wedge",
-    "stage": "Emerging"
+    "stage": "Breakout"
   },
   "MNT": {
     "outlook": "Bullish",
     "pattern": "Channel Down",
     "stage": "Breakout"
-  },
-  "LTC": {
-    "outlook": "Neutral",
-    "pattern": "Double Bottom",
-    "stage": "Breakout"
-  },
-  "INJ": {
-    "outlook": "Bullish",
-    "pattern": "Bullish Flag",
-    "stage": "Breakout"
-  },
-  "HYPE": {
-    "outlook": "Bullish",
-    "pattern": "Pullback in Uptrend",
-    "stage": "Emerging"
-  },
-  "ETH": {
-    "outlook": "Bullish",
-    "pattern": "Resistance Breakout",
-    "stage": "Breakout"
-  },
-  "ALGO": {
-    "outlook": "Bearish",
-    "pattern": "Approaching Support",
-    "stage": "Emerging"
-  },
-  "WLD": {
-    "outlook": "Bearish",
-    "pattern": "Approaching Resistance",
-    "stage": "Emerging"
-  },
-  "UNI": {
-    "outlook": "Bullish",
-    "pattern": "Approaching Resistance",
-    "stage": "Emerging"
-  },
-  "TIA": {
-    "outlook": "Bearish",
-    "pattern": "Approaching Support",
-    "stage": "Emerging"
-  },
-  "LDO": {
-    "outlook": "Neutral",
-    "pattern": "Approaching Support",
-    "stage": "Emerging"
-  },
-  "FLR": {
-    "outlook": "Neutral",
-    "pattern": "Falling Wedge",
-    "stage": "Emerging"
-  },
-  "FET": {
-    "outlook": "Neutral",
-    "pattern": "Approaching Support",
-    "stage": "Emerging"
-  },
-  "ENA": {
-    "outlook": "Bullish",
-    "pattern": "Channel Down",
-    "stage": "Breakout"
-  },
-  "DOT": {
-    "outlook": "Bearish",
-    "pattern": "Approaching Resistance",
-    "stage": "Emerging"
-  },
-  "BTC": {
-    "outlook": "Neutral",
-    "pattern": "Approaching Resistance",
-    "stage": "Emerging"
-  },
-  "BNB": {
-    "outlook": "Bearish",
-    "pattern": "Approaching Resistance",
-    "stage": "Emerging"
-  },
-  "BGB": {
-    "outlook": "Bearish",
-    "pattern": "Falling Wedge",
-    "stage": "Emerging"
-  },
-  "AAVE": {
-    "outlook": "Neutral",
-    "pattern": "Ascending Triangle",
-    "stage": "Emerging"
   }
 }
