@@ -1010,7 +1010,7 @@ def edge_scan(timeframe, lookback_days, per_side, horizon_hours, log, multi, ver
             if s.direction is None:
                 continue
             click.echo(
-                f"{s.symbol:<8} {s.direction:<6} score={s.composite_score:>6.2f} "
+                f"{s.symbol:<8} {s.direction:<6} score={abs(s.composite_score):>6.2f} "
                 f"close={s.last_close if s.last_close is not None else float('nan'):.4f} "
                 f"{s.components}"
             )
@@ -1043,7 +1043,7 @@ def edge_scan(timeframe, lookback_days, per_side, horizon_hours, log, multi, ver
             longs  = sum(1 for s in sigs if s.direction == "LONG")
             shorts = sum(1 for s in sigs if s.direction == "SHORT")
             top = sigs[0] if sigs else None
-            top_str = f"{top.symbol} {top.direction} {top.composite_score:+.2f}" if top else "—"
+            top_str = f"{top.symbol} {top.direction} {abs(top.composite_score):+.2f}" if top else "—"
             active = " ✅" if v == ACTIVE_CONFIG.version else ""
             click.echo(f"{v+active:<10} {longs:>5} {shorts:>6} {len(sigs):>6}  {top_str}")
         click.echo('-' * 70)
