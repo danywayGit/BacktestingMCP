@@ -547,14 +547,26 @@ class CryptoDatabase:
         composite_score: float,
         entry_price: float,
         components: Dict[str, Any],
+        target_price: Optional[float] = None,
+        stop_price: Optional[float] = None,
     ) -> None:
-        """Update an existing PENDING signal with latest score/price (keeps entry_time + config_version)."""
+        """Update an existing PENDING signal with latest score/price (keeps entry_time + config_version).
+
+        target_price/stop_price are recomputed by the caller from the NEW entry
+        price — without this, a pending signal whose entry is bumped to the live
+        price keeps stale stop/target anchored to the old price, producing
+        impossible geometry (target <= entry / stop >= entry for LONGs) that
+        later resolves FLAT via the resolution guard.
+        """
         with self.get_connection() as conn:
             conn.execute("""
                 UPDATE edge_signals
-                SET composite_score = ?, entry_price = ?, components = ?
+                SET composite_score = ?, entry_price = ?, components = ?,
+                    target_price = COALESCE(?, target_price),
+                    stop_price   = COALESCE(?, stop_price)
                 WHERE id = ? AND status = 'PENDING'
-            """, (composite_score, entry_price, json.dumps(components), signal_id))
+            """, (composite_score, entry_price, json.dumps(components),
+                  target_price, stop_price, signal_id))
 
     def resolve_edge_signal(
         self,
