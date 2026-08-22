@@ -17,10 +17,38 @@ logger = logging.getLogger(__name__)
 # ── Config ──
 WEBHOOK_URL = "http://109.123.229.200/webhook"
 WEBHOOK_KEY = "6XO7toihtxsSW7s9OgetPwVwjMCNhb4O"
-ACCOUNT_TYPE = "TestNet"
 EXCHANGE = "Binance"
 STRATEGY = "EdgeScanner"
 DB_PATH = "/home/hermes/BacktestingMCP/data/crypto.db"
+
+# ── Execution mode (account type + market) ──────────────────────────────────
+# The edge scanner can route signals to any of 5 execution modes. Each mode
+# maps to the bot-valid AccountType (Standard | CopyTrading | Demo | TestNet)
+# plus a MarketType (Futures | Spot) so the bot knows where to execute.
+#
+#   mode               AccountType    MarketType   Meaning
+#   testnet            TestNet        Futures      TestNet futures (default)
+#   copytrading_futures CopyTrading   Futures      Copy-trading futures account
+#   copytrading_spot    CopyTrading   Spot         Copy-trading spot account
+#   futures_prod        Standard      Futures      Production futures account
+#   spot_prod           Standard      Spot         Production spot account
+#
+# Override with env var WEBHOOK_EXECUTION_MODE (e.g. in .env or edge_scan.sh).
+EXECUTION_MODES = {
+    "testnet":               {"account_type": "TestNet",     "market_type": "Futures"},
+    "copytrading_futures":   {"account_type": "CopyTrading", "market_type": "Futures"},
+    "copytrading_spot":      {"account_type": "CopyTrading", "market_type": "Spot"},
+    "futures_prod":          {"account_type": "Standard",    "market_type": "Futures"},
+    "spot_prod":             {"account_type": "Standard",    "market_type": "Spot"},
+}
+import os as _os
+_EXECUTION_MODE = _os.getenv("WEBHOOK_EXECUTION_MODE", "testnet").strip().lower()
+_EXEC_MODE_CFG = EXECUTION_MODES.get(_EXECUTION_MODE, EXECUTION_MODES["testnet"])
+ACCOUNT_TYPE = _EXEC_MODE_CFG["account_type"]     # bot-valid AccountType
+MARKET_TYPE = _EXEC_MODE_CFG["market_type"]        # Futures | Spot
+# TestNet symbol validation only applies in testnet mode (the testnet
+# exchangeInfo symbol list differs from prod).
+TESTNET_MODE = (ACCOUNT_TYPE == "TestNet")
 
 CONFIG_PRIORITY = [
     ("3.1", 7.0, "V3.1 ADX Trend"),         ("4.1", 7.0, "V4.1 Breakout+Vol"),
@@ -274,7 +302,7 @@ def _check_market_regime(direction: str, market: str = "BTC") -> Tuple[bool, str
 # ── Selection ──
 def select_signals() -> List[Dict]:
     from src.integrations.binance_symbols import is_on_binance_futures, is_futures_symbol_tradable
-    testnet_check = ACCOUNT_TYPE == "TestNet"
+    testnet_check = TESTNET_MODE
     cooldown_symbols = get_open_position_symbols()
     selected = []
     selected_symbols = set()
@@ -332,7 +360,11 @@ def select_signals() -> List[Dict]:
                     continue
             if sym in EXCLUDED_SYMBOLS:
                 continue
-            sig["composite_score"] = min(sig["composite_score"], MAX_SCORE_CAP)
+            # Normalize score to positive + cap. The score convention is now
+            # ALWAYS positive (direction is carried separately in the DB and
+            # webhook Direction field). abs() also protects against any legacy
+            # negative rows still in the 2h window.
+            sig["composite_score"] = min(abs(sig["composite_score"]), MAX_SCORE_CAP)
             if not is_on_binance_futures(sym):
                 logger.info("  %s: SKIPPED %s %s — not on Binance Futures", label, sig["direction"], sym)
                 continue
@@ -410,12 +442,17 @@ def _compute_tier_multiplier(signal: Dict) -> float:
 def format_webhook_msg(signal: Dict) -> str:
     action = "OpenLong" if signal["direction"].upper() == "LONG" else "OpenShort"
     side = "BUY" if signal["direction"].upper() == "LONG" else "SELL"
+    # Score is ALWAYS positive; direction is explicit via Action/Side/Direction.
+    # Negative scores (old convention) are normalized so the bot never sees
+    # a negative Score (bot clamps out-of-range scores → silently wrong sizing).
+    score = abs(signal["composite_score"])
     lines = [
-        f"Username: Danyway", f"AccountType: {ACCOUNT_TYPE}", f"Exchange: {EXCHANGE}",
-        f"Strategy: {STRATEGY}", f"Action: {action}", f"Side: {side}",
+        f"Username: Danyway", f"AccountType: {ACCOUNT_TYPE}", f"MarketType: {MARKET_TYPE}",
+        f"Exchange: {EXCHANGE}", f"Strategy: {STRATEGY}", f"Action: {action}", f"Side: {side}",
+        f"Direction: {signal['direction'].upper()}",
         f"Symbol: {signal['symbol']}USDT", f"Entry: {signal['entry_price']}",
         f"StopLoss: {signal['stop_price']}", f"TakeProfit: {signal['target_price']}",
-        f"Score: {signal['composite_score']}", f"ConfigVersion: {signal['config_version']}",
+        f"Score: {score}", f"ConfigVersion: {signal['config_version']}",
         f"TierMultiplier: {_compute_tier_multiplier(signal)}",
     ]
     return "\n".join(lines)
@@ -456,8 +493,9 @@ def send_signal_to_webhook(signal: Dict) -> bool:
 def run_bridge(dry_run: bool = False) -> int:
     ensure_webhook_column()
     logger.info("=== Webhook Bridge ===")
-    logger.info("Configs: %d | Max batch: %d | Min eff R:R: %.1f | Retries: %d",
-                len(CONFIG_PRIORITY), MAX_SIGNALS_PER_BATCH, MIN_EFFECTIVE_RR, HTTP_RETRIES)
+    logger.info("Configs: %d | Max batch: %d | Min eff R:R: %.1f | Retries: %d | Mode: %s (%s/%s)",
+                len(CONFIG_PRIORITY), MAX_SIGNALS_PER_BATCH, MIN_EFFECTIVE_RR, HTTP_RETRIES,
+                _EXECUTION_MODE, ACCOUNT_TYPE, MARKET_TYPE)
 
     selected = select_signals()
     if not selected:
