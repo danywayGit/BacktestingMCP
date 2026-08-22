@@ -681,11 +681,22 @@ def score_symbol(
             components["failed_confirmation"] = "no non-trend source confirms"
 
     # Direction assignment with separate SHORT threshold
+    # Hard direction restriction: configs like V14.0/V22.0 (LONG-only) and
+    # V14.1/V22.1 (SHORT-only) must NEVER produce the opposite direction,
+    # even when the composite score strongly favors it. If the raw score
+    # would fire the disallowed direction, we zero it (no signal) rather
+    # than flip it — the config simply doesn't trade that way.
     short_min = cfg.short_min_abs_score if cfg.short_min_abs_score is not None else cfg.min_abs_score
-    if score >= cfg.min_abs_score:
+    allowed = set(cfg.allowed_directions or ["LONG", "SHORT"])
+    if "LONG" in allowed and score >= cfg.min_abs_score:
         direction = "LONG"
-    elif score <= -short_min:
+    elif "SHORT" in allowed and score <= -short_min:
         direction = "SHORT"
+    else:
+        # Score fired the disallowed direction (or was too weak) → no signal.
+        components["direction_blocked"] = (
+            f"score {score:+.1f} not in allowed_directions {sorted(allowed)}"
+        )
 
     # ── Regime-aware direction bias ──────────────────────────────────────
     # In BEAR_TRENDING, SHORT signals get a bonus and LONG signals get a penalty
