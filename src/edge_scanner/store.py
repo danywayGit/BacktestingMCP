@@ -209,6 +209,12 @@ def log_signals(scores: List[CandidateScore], timeframe: TimeFrame, horizon_hour
                 composite_score=abs(score.composite_score),
                 entry_price=current_price,
                 components=score.components,
+                # Recompute stop/target from the NEW entry price so the pending
+                # signal keeps valid geometry (LONG: stop < entry < target).
+                # Without this, entry bumped to live price while stop/target
+                # stay anchored to the old price → impossible setup → false FLAT.
+                target_price=target_price,
+                stop_price=stop_price,
             )
             updated += 1
             continue
