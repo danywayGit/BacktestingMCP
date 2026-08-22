@@ -35,3 +35,7 @@ reoptimize_swing*.py
 # Test/temp files
 /tmp/
 *.tmp
+# Runtime caches (generated)
+data/alerted_cache.json
+data/liquidation_snapshot.json
+data/liquidation_rest_cache.json
