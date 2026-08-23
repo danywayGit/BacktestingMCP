@@ -100,22 +100,113 @@ No explanation, no markdown — just the JSON object.
 
 
 def parse_llm_response(response: str) -> Optional[Dict[str, Any]]:
-    """Extract JSON config from LLM response, handling markdown code blocks."""
-    # Try to find a JSON block
-    json_match = re.search(r"```(?:json)?\s*\n?({.*?})\s*\n?```", response, re.DOTALL)
-    if json_match:
-        response = json_match.group(1)
-    else:
-        # Try raw JSON parse
-        json_match = re.search(r"({.*})", response, re.DOTALL)
-        if json_match:
-            response = json_match.group(1)
+    """Extract JSON config from LLM response, handling markdown code blocks
+    and prose/trailing garbage robustly.
 
-    try:
-        config = json.loads(response)
-    except json.JSONDecodeError:
+    The naive regex ``re.search(r"({.*})", response)`` is greedy and fails when
+    the LLM appends prose containing ``}`` (e.g. "Thats all {see docs}") or
+    when a string value embeds braces/quotes. This tries:
+      1. A JSON fenced code block (```json ... ```).
+      2. A top-level balanced-brace extraction that scans the string and finds
+         the largest substring that is valid JSON, trying increasingly shorter
+         suffix windows so trailing prose after the JSON doesn't corrupt it.
+      3. We strip any keys not present in CONFIG_SCHEMA before returning, so
+         stray fields never leak into scoring_config.py."""
+    candidates = []
+
+    # 1) Fenced JSON block (preferred)
+    m = re.search(r"```(?:json)?\s*\n?(.*?)```", response, re.DOTALL)
+    if m:
+        candidates.append(m.group(1).strip())
+
+    # 2) Quote-aware balanced-brace scan. Tracks whether we're inside a
+    #    "..." string so that braces inside string VALUES (e.g. description
+    #    "see {docs}") don't corrupt the depth count. Records every balanced
+    #    top-level slice, and also descends into nested balanced regions in
+    #    case the LLM wrapped a valid object inside extra braces.
+    def _balanced_slices(text):
+        slices = []
+        depth = 0
+        start = -1
+        in_str = False
+        esc = False
+        for i, ch in enumerate(text):
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    in_str = False
+                continue
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                if depth == 0:
+                    start = i
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0 and start >= 0:
+                    slices.append(text[start:i + 1])
+                    start = -1
+        return slices
+
+    top_slices = _balanced_slices(response)
+    candidates.extend(top_slices)
+    # Descend one level: inner slices of each top-level slice (handles a naked
+    # object wrapped in extra braces, e.g. prose { {"a":1} } more).
+    for s in top_slices:
+        inner_slices = _balanced_slices(s[1:-1])
+        for inner in inner_slices:
+            candidates.append(inner.strip())
+
+    # Also fall back to every {…}-delimited substring attempt as a last resort.
+    if not candidates:
+        m = re.search(r"\{", response)
+        if m:
+            candidates.append(response[m.start():])
+
+    config = None
+    # Dedupe candidates preserving order.
+    seen = set()
+    for cand in candidates:
+        cand = cand.strip()
+        if not cand or cand in seen:
+            continue
+        seen.add(cand)
+        try:
+            parsed = json.loads(cand)
+            if isinstance(parsed, dict):
+                config = parsed
+                break
+        except json.JSONDecodeError:
+            # Try progressively trimming trailing prose inside the candidate.
+            cand2 = cand
+            for _ in range(5):
+                rbrace = cand2.rfind("}")
+                if rbrace < 0:
+                    break
+                cand2 = cand2[:rbrace + 1]
+                try:
+                    parsed = json.loads(cand2)
+                    if isinstance(parsed, dict):
+                        config = parsed
+                        break
+                except json.JSONDecodeError:
+                    continue
+            if config is not None:
+                break
+
+    if config is None:
         logger.error("Could not parse LLM response as JSON: %s", response[:200])
         return None
+
+    # Strip keys not in the schema — stray/unknown fields from the LLM must
+    # never be written into scoring_config.py (would crash ScoringConfig).
+    for key in [k for k in config if k not in CONFIG_SCHEMA and k not in ("version", "description")]:
+        logger.warning("Dropping unknown LLM key %s (not in schema)", key)
+        config.pop(key)
 
     # Validate all required keys exist and are in range
     for key, schema in CONFIG_SCHEMA.items():
@@ -125,6 +216,10 @@ def parse_llm_response(response: str) -> Optional[Dict[str, Any]]:
         else:
             val = config[key]
             rmin, rmax = schema["range"]
+            if not isinstance(val, (int, float)):
+                logger.warning("Key %s not numeric (%r), using default", key, val)
+                config[key] = schema["default"]
+                continue
             if val < rmin:
                 logger.warning("Clamping %s from %.2f to %.2f", key, val, rmin)
                 config[key] = rmin
@@ -135,10 +230,10 @@ def parse_llm_response(response: str) -> Optional[Dict[str, Any]]:
     # Ensure weights sum to 1.0
     weight_keys = ["trend_weight", "volume_relative_weight", "signal_feed_weight", "onchain_netflow_weight"]
     weight_sum = sum(config.get(k, 0) for k in weight_keys)
-    if abs(weight_sum - 1.0) > 0.01:
+    if weight_sum > 0 and abs(weight_sum - 1.0) > 0.01:
         # Normalize
         for k in weight_keys:
-            config[k] = config.get(k, 0) / weight_sum if weight_sum > 0 else 0.25
+            config[k] = config.get(k, 0) / weight_sum
         logger.info("Normalized weights to sum to 1.0 (was %.2f)", weight_sum)
 
     return config
