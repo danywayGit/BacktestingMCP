@@ -68,26 +68,60 @@ def _save_rest_cache(cache: dict) -> None:
         pass
 
 
+# ── REST rate-limit guard (Aug 2026) ──
+# Binance Futures limit: 2,400 weight/min per IP. The liquidation REST
+# endpoints cost 40wt each. We cap REST calls at REST_CALL_CAP per minute so
+# even a worst-case WS-daemon-down scan stays under the limit with margin.
+REST_CALL_CAP = 40          # max REST calls per minute (40×40wt = 1,600wt, < 2,400)
+_REST_CALLS_MINUTE: List[float] = []  # timestamps of REST calls this minute
+
+
+def _rest_rate_ok() -> bool:
+    """True if we're under the REST call cap for this minute."""
+    now = time.time()
+    # Drop timestamps older than 60s
+    while _REST_CALLS_MINUTE and _REST_CALLS_MINUTE[0] < now - 60:
+        _REST_CALLS_MINUTE.pop(0)
+    return len(_REST_CALLS_MINUTE) < REST_CALL_CAP
+
+
 def _cached_get(url: str, params: dict, cache_key: str) -> Optional[list]:
     """GET with disk-persisted cache so data survives process restarts.
 
     Returns the JSON list payload, or None on miss/error.
+    Rate-limited: at most REST_CALL_CAP live REST calls per minute (token
+    bucket), so the WS-daemon-down fallback can't exceed the Binance limit.
     """
     cache = _load_rest_cache()
     now = time.time()
     entry = cache.get(cache_key)
     if entry and now - entry.get("t", 0) < REST_CACHE_TTL:
         return entry.get("data")
+    if not _rest_rate_ok():
+        # Over the per-minute cap — serve stale cache if available, else None.
+        if entry:
+            return entry.get("data")
+        return None
     try:
+        _REST_CALLS_MINUTE.append(time.time())
         resp = httpx.get(url, params=params, timeout=10)
         if resp.status_code == 200:
             data = resp.json()
-            cache[cache_key] = {"t": now, "data": data}
+            cache[cache_key] = {"t": time.time(), "data": data}
             _save_rest_cache(cache)
             return data
     except Exception:
         pass
     return None
+
+
+def _ws_daemon_alive() -> bool:
+    """True if the WS liquidation daemon has written a fresh heartbeat
+    (snapshot mtime < 5 min). Used to decide whether REST fallback is safe."""
+    try:
+        return time.time() - os.path.getmtime(_SNAPSHOT_PATH) < 300
+    except Exception:
+        return False
 
 
 def read_snapshot() -> List[dict]:
@@ -123,12 +157,19 @@ def get_liquidation_score(symbol: str) -> Tuple[float, dict]:
     """Liquidation score from best available source.
 
     Priority:
-    1. WebSocket snapshot (real liquidations, if daemon is running)
-    2. Taker buy/sell ratio + L/S account ratio (free REST, always works)
+    1. WebSocket snapshot (real liquidations, if daemon is running) — FREE
+    2. Taker buy/sell ratio + L/S account ratio (REST, 40wt each — BAN RISK)
+
+    ⚠️ RATE-LIMIT GUARD (Aug 2026): the WS daemon is the authoritative source.
+    If the snapshot is FRESH (daemon alive, < 5 min), we NEVER fall through to
+    per-symbol REST — a calm market (no liq events) would otherwise burn
+    80 weight/symbol (taker 40 + global 40) × 119 symbols = 9,520 weight in
+    one cold cycle, ~397% of the 2,400/min limit → ban. REST is used ONLY
+    when the WS daemon is DEAD (stale snapshot).
     """
     clean = symbol.replace("USDT", "").upper()
 
-    # 1. Try WS snapshot first (real liquidation events)
+    # 1. Try WS snapshot first (real liquidation events) — free
     events = read_snapshot()
     sym_events = [e for e in events if e["s"].upper() == f"{clean}USDT" or e["s"].upper() == symbol.upper()]
     if sym_events:
@@ -149,7 +190,18 @@ def get_liquidation_score(symbol: str) -> Tuple[float, dict]:
                 "liq_pressure_score": round(score, 3),
             }
 
-    # 2. Fallback: taker buy/sell ratio (orderflow proxy for liquidation pressure)
+    # 2. RATE-LIMIT GUARD: WS daemon alive but no events for this symbol →
+    #    return zero (no pressure) instead of burning 40-80wt on REST.
+    #    Only fall to REST when the daemon is DEAD (stale snapshot).
+    if _ws_daemon_alive():
+        return 0.0, {
+            "liq_data_source": "binance_ws",
+            "liq_events": 0,
+            "liq_pressure_score": 0.0,
+            "liq_guard": "ws_alive_no_events_no_rest",
+        }
+
+    # 3. Fallback: taker buy/sell ratio (orderflow proxy) — WS daemon DEAD only
     try:
         data = _cached_get(TAKER_RATIO_URL,
                            {"symbol": f"{clean}USDT", "period": "1h", "limit": 2},
