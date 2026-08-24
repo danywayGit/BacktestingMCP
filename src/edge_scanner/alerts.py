@@ -221,8 +221,21 @@ def _format_alert(c: CandidateScore) -> str:
     confidence_marker = " 🔥" if abs(c.composite_score) >= HIGH_CONFIDENCE_THRESHOLD else ""
     comp = c.components
 
-    # Entry price
-    price_str = f"${c.last_close:.4f}" if c.last_close else "N/A"
+    # Entry price — adaptive precision: penny coins (PEPE 0.00000276) would
+    # round to $0.0000 with .4f, looking like a missing/zero entry.
+    def _fmt_price(v: float) -> str:
+        if not v or v <= 0:
+            return "N/A"
+        av = abs(v)
+        if av >= 1000:
+            return f"${v:,.2f}"
+        if av >= 1:
+            return f"${v:.4f}"
+        if av >= 0.01:
+            return f"${v:.6f}"
+        return f"${v:.8f}"
+
+    price_str = _fmt_price(c.last_close) if c.last_close else "N/A"
 
     # Stop & target — PREFER the stored values in edge_signals (they were
     # computed from the live price at signal creation, matching the entry and
@@ -235,8 +248,8 @@ def _format_alert(c: CandidateScore) -> str:
     stored = _get_stored_stop_target(c.symbol, c.config_version, c.direction) if c.direction else None
     if stored:
         stop, target = stored
-        stop_str = f"${stop:.4f}"
-        target_str = f"${target:.4f}"
+        stop_str = _fmt_price(stop)
+        target_str = _fmt_price(target)
         _rr = c.rr_ratio or RR_RATIO
         rr_str = f"1:{_rr}"
     else:
@@ -250,8 +263,8 @@ def _format_alert(c: CandidateScore) -> str:
             else:
                 stop = c.last_close + stop_distance
                 target = c.last_close - stop_distance * _rr
-            stop_str = f"${stop:.4f}"
-            target_str = f"${target:.4f}"
+            stop_str = _fmt_price(stop)
+            target_str = _fmt_price(target)
             rr_str = f"1:{_rr}"
 
     # Hit rate (resolved signal data — per-config + all-configs)
