@@ -80,7 +80,13 @@ def _funding_lookahead() -> float:
 
 
 def _read_snapshot() -> List[dict]:
-    """Read the liquidation WS snapshot (list of events). Empty if absent/stale."""
+    """Read the liquidation WS snapshot. Returns list of events.
+
+    Handles both formats:
+      - {"ts": ..., "events": [...]}  (binance_liq_ws.py heartbeat format)
+      - [...]                          (plain list fallback)
+    Empty if absent/stale.
+    """
     try:
         if not os.path.exists(_SNAPSHOT_PATH):
             return []
@@ -89,7 +95,12 @@ def _read_snapshot() -> List[dict]:
             return []
         with open(_SNAPSHOT_PATH) as f:
             data = json.load(f)
-            return data if isinstance(data, list) else []
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            events = data.get("events", [])
+            return events if isinstance(events, list) else []
+        return []
     except Exception as exc:
         logger.debug("read_snapshot: %s", exc)
         return []
