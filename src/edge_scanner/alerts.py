@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import logging
 import os
+import sqlite3
 from datetime import datetime, timezone, timedelta
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import httpx
 import pandas as pd
@@ -88,6 +89,33 @@ def _get_atr(symbol: str) -> Optional[float]:
         ], axis=1).max(axis=1)
         atr = tr.rolling(14).mean().iloc[-1]
         return float(atr) if pd.notna(atr) else None
+    except Exception:
+        return None
+
+
+def _get_stored_stop_target(symbol: str, config_version: str, direction: str) -> Optional[Tuple[float, float]]:
+    """Return (stop_price, target_price) from the most recent PENDING signal in
+    edge_signals for this symbol+config+direction, or None.
+
+    These are the levels actually stored at signal creation (computed from the
+    live price, matching the entry, and what the bridge sends to the bot) —
+    they are the ground truth. The alert prefers them over an ATR recompute so
+    symbols with missing market_data OHLCV (e.g. XMR) still show valid levels.
+    """
+    try:
+        db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "crypto.db")
+        conn = sqlite3.connect(db_path)
+        row = conn.execute("""
+            SELECT stop_price, target_price FROM edge_signals
+            WHERE symbol = ? AND config_version = ? AND direction = ?
+              AND stop_price IS NOT NULL AND target_price IS NOT NULL
+              AND stop_price > 0 AND target_price > 0
+            ORDER BY id DESC LIMIT 1
+        """, (symbol, config_version, direction)).fetchone()
+        conn.close()
+        if row:
+            return (float(row[0]), float(row[1]))
+        return None
     except Exception:
         return None
 
@@ -196,24 +224,35 @@ def _format_alert(c: CandidateScore) -> str:
     # Entry price
     price_str = f"${c.last_close:.4f}" if c.last_close else "N/A"
 
-    # ATR stop & target (real OHLCV data if available)
-    atr = _get_atr(c.symbol)
-    if atr and c.last_close and atr > 0:
-        stop_distance = atr * ATR_MULT_STOP
-        _rr = c.rr_ratio or RR_RATIO
-        if c.direction == "LONG":
-            stop = c.last_close - stop_distance
-            target = c.last_close + stop_distance * _rr
-        else:
-            stop = c.last_close + stop_distance
-            target = c.last_close - stop_distance * _rr
+    # Stop & target — PREFER the stored values in edge_signals (they were
+    # computed from the live price at signal creation, matching the entry and
+    # what the bridge sends to the bot). Fall back to ATR-based computation
+    # only when no stored signal exists. Previously the alert recomputed
+    # stop/target from ATR via _get_atr(), which returned N/A whenever the
+    # symbol's OHLCV was missing from market_data (e.g. XMR) — even though
+    # the stored signal had valid levels.
+    stop_str, target_str, rr_str = "N/A", "N/A", "N/A"
+    stored = _get_stored_stop_target(c.symbol, c.config_version, c.direction) if c.direction else None
+    if stored:
+        stop, target = stored
         stop_str = f"${stop:.4f}"
         target_str = f"${target:.4f}"
+        _rr = c.rr_ratio or RR_RATIO
         rr_str = f"1:{_rr}"
     else:
-        stop_str = "N/A"
-        target_str = "N/A"
-        rr_str = "N/A"
+        atr = _get_atr(c.symbol)
+        if atr and c.last_close and atr > 0:
+            stop_distance = atr * ATR_MULT_STOP
+            _rr = c.rr_ratio or RR_RATIO
+            if c.direction == "LONG":
+                stop = c.last_close - stop_distance
+                target = c.last_close + stop_distance * _rr
+            else:
+                stop = c.last_close + stop_distance
+                target = c.last_close - stop_distance * _rr
+            stop_str = f"${stop:.4f}"
+            target_str = f"${target:.4f}"
+            rr_str = f"1:{_rr}"
 
     # Hit rate (resolved signal data — per-config + all-configs)
     wr = _get_winrate(c.symbol, config_version=c.config_version)
