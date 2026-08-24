@@ -1324,17 +1324,34 @@ def edge_fund_rate(poll, show, symbols):
     from ..integrations import binance_funding
 
     if poll:
-        # Poll funding rates for all tradeable symbols
-        sym_list = symbols.split(",") if symbols else [
-            "BTC", "ETH", "SOL", "DOGE", "ADA", "LINK", "AVAX",
-            "DOT", "MATIC", "UNI", "ATOM", "NEAR", "APT", "SUI",
-            "SEI", "TIA", "INJ", "OP", "ARB",
-        ]
+        # Poll funding rates for ALL tradeable USDT-M futures symbols (not a
+        # hardcoded list) so V8.x funding scoring has data for every candidate.
+        # The old hardcoded 19-symbol list (BTC, ETH, SOL, DOGE...) missed
+        # ~84% of the ~119 candidates the scan actually scores.
+        if symbols:
+            sym_list = [s.strip().upper() for s in symbols.split(",") if s.strip()]
+        else:
+            from ..integrations.binance_symbols import get_binance_futures_symbols
+            from ..edge_scanner.scoring_config import is_stablecoin_or_stock
+            all_syms = sorted(get_binance_futures_symbols())
+            sym_list = [s for s in all_syms if not is_stablecoin_or_stock(s)]
         click.echo(f"Polling funding rates for {len(sym_list)} symbols...")
         results = binance_funding.poll_all_funding(sym_list)
-        oi_results = binance_funding.poll_all_open_interest(sym_list)
+        # OI is fetched on-demand per-symbol during scoring (10-min cache in
+        # binance_funding) — bulk OI polling for 788 symbols would be ~788
+        # REST calls per cycle. Only refresh OI for symbols that need it now
+        # (extreme funding → likely candidates).
+        if results:
+            extreme_syms = [s for s, d in results.items() if abs(d.get("funding_rate", 0)) > 0.004]
+            if extreme_syms:
+                click.echo(f"Refreshing OI for {len(extreme_syms)} extreme-funding symbols...")
+                oi_results = binance_funding.poll_all_open_interest(extreme_syms[:50])
+            else:
+                oi_results = {}
+        else:
+            oi_results = {}
         click.echo(f"Funding data: {len(results)}/{len(sym_list)} symbols refreshed")
-        click.echo(f"OI data: {len(oi_results)}/{len(sym_list)} symbols refreshed")
+        click.echo(f"OI data: {len(oi_results)} symbols refreshed")
         if results:
             extremes = {s: d for s, d in results.items() if abs(d.get("funding_rate", 0)) > 0.006}
             if extremes:

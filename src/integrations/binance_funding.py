@@ -79,6 +79,23 @@ def _save_funding_snapshot(symbol: str, data: dict, oi: Optional[float] = None) 
         logger.debug("Failed to save funding snapshot for %s: %s", symbol, exc)
 
 
+def _bulk_save_funding_snapshots(rows: List[tuple]) -> None:
+    """Persist many (symbol, data, oi) tuples in ONE transaction (fast)."""
+    if not rows:
+        return
+    try:
+        db = _get_db()
+        now = datetime.now(timezone.utc).isoformat()
+        db.executemany(
+            "INSERT INTO funding_history (symbol, funding_rate, mark_price, open_interest, fetched_at) VALUES (?, ?, ?, ?, ?)",
+            [(sym, d.get("funding_rate", 0), d.get("mark_price", 0), (oi or 0), now) for sym, d, oi in rows],
+        )
+        db.commit()
+        db.close()
+    except Exception as exc:
+        logger.debug("Failed to bulk save funding snapshots: %s", exc)
+
+
 def fetch_funding_rate(symbol: str, force: bool = False) -> Optional[dict]:
     """Fetch the latest premium index (funding rate) for a symbol.
 
@@ -116,6 +133,40 @@ def get_funding_rate(symbol: str) -> Optional[float]:
     if data is not None:
         return data["funding_rate"]
     return None
+
+
+def fetch_all_funding_rates() -> Dict[str, dict]:
+    """Fetch premiumIndex for ALL symbols in ONE batched call.
+
+    Binance /fapi/v1/premiumIndex returns every symbol when no `symbol` param
+    is given. This replaces ~788 individual REST calls with 1, making full-
+    coverage funding polling feasible. Returns {base_symbol: data_dict} and
+    warms the per-symbol cache.
+    """
+    try:
+        resp = _get_client().get(f"{BASE}/fapi/v1/premiumIndex")
+        resp.raise_for_status()
+        rows = resp.json()
+        now = _time.time()
+        results: Dict[str, dict] = {}
+        for j in rows:
+            sym = str(j.get("symbol", "")).replace("USDT", "").upper()
+            if not sym:
+                continue
+            result = {
+                "funding_rate": float(j.get("lastFundingRate", 0)),
+                "funding_time": j.get("fundingTime", 0),
+                "next_funding_time": j.get("nextFundingTime", 0),
+                "mark_price": float(j.get("markPrice", 0)),
+                "index_price": float(j.get("indexPrice", 0)),
+            }
+            results[sym] = result
+            _FUNDING_CACHE[sym] = (now, result)
+        logger.info("Batched premiumIndex: %d symbols", len(results))
+        return results
+    except Exception as exc:
+        logger.warning("Batched premiumIndex failed: %s", exc)
+        return {}
 
 
 def get_funding_momentum(symbol: str, hours: int = 1) -> Optional[float]:
@@ -245,20 +296,36 @@ def detect_interval_change(symbol: str) -> Optional[dict]:
 # ── Bulk poll for scan cycle ─────────────────────────────────────────────────
 
 def poll_all_funding(symbols: List[str]) -> Dict[str, dict]:
-    """Fetch funding rates for a list of symbols in one batch.
+    """Fetch funding rates for a list of symbols.
 
-    Returns {symbol: funding_data_dict}.
+    Uses the batched premiumIndex endpoint (1 call for ALL symbols) when
+    symbols is None/empty, otherwise batches what it can and fills per-symbol
+    gaps with individual calls. Returns {symbol: funding_data_dict}.
     Also persists each snapshot to the funding_history table.
     Used by the edge-fund-rate CLI command to refresh all cached data before a scan.
     """
     results: Dict[str, dict] = {}
-    for sym in symbols:
-        data = fetch_funding_rate(sym, force=True)
-        if data:
-            results[sym] = data
-            oi = fetch_open_interest(sym)
-            _save_funding_snapshot(sym, data, oi)
-    logger.info("Funding poll: %d/%d symbols refreshed and persisted", len(results), len(symbols))
+    # Batch: fetch everything in one call, then filter to requested symbols.
+    batched = fetch_all_funding_rates()
+    if symbols:
+        sym_set = {s.upper() for s in symbols}
+        results = {s: batched[s] for s in sym_set if s in batched}
+    else:
+        results = dict(batched)
+
+    # Fill any requested symbols the batch missed (rare) with individual calls.
+    if symbols:
+        missing = [s for s in symbols if s.upper() not in results]
+        for sym in missing:
+            data = fetch_funding_rate(sym, force=True)
+            if data:
+                results[sym.upper()] = data
+
+    # Persist funding snapshots in ONE transaction. OI is NOT fetched here —
+    # it's fetched on-demand during scoring per symbol (10-min cache), so a
+    # full 788-symbol poll stays ~1s (batched funding) instead of ~190s.
+    _bulk_save_funding_snapshots([(sym, data, None) for sym, data in results.items()])
+    logger.info("Funding poll: %d/%d symbols refreshed and persisted", len(results), len(symbols) if symbols else len(results))
     return results
 
 
