@@ -8,6 +8,7 @@ Checks (mirrors the system-health-check cron prompt):
   4. V8.0 signal accumulation
   5. V7.x win rates (>= 50% with >= 10 non-flat trades)
   6. System memory usage (> 80%)
+  7. Bot duplicate positions (DB open rows > unique symbols, via SSH)
 
 Exit code 0 = healthy (or "---ALL_HEALTHY---"), 1 = issues found.
 Run:  python3 health_check.py
@@ -189,6 +190,50 @@ def check_memory():
         issues.append(f"MEM_ERROR: {e}")
 
 
+def check_duplicate_positions():
+    """7. Bot DB open rows vs unique symbols (duplicate-position detection).
+
+    Checks the bot's trades.db on the server (via SSH): if the number of
+    IsOpen=1 rows exceeds the number of DISTINCT symbols, the bot is stacking
+    duplicate positions on the same symbol (wasted concurrent slots).
+    See commit ceab5ca (Trading-WebHook-Bot).
+    """
+    try:
+        import subprocess
+        helper = os.path.expanduser("~/.hermes/scripts/ssh_sudo_run.py")
+        if not os.path.exists(helper):
+            notes.append("duplicate-check skipped (no ssh_sudo_run.py)")
+            return
+        # Runs a short python snippet on the server that prints "<rows> <unique>".
+        remote = (
+            "cd /opt/Trading-WebHook-Bot && /opt/Trading-WebHook-Bot/venv-bot/bin/python -c "
+            "\"import sqlite3;c=sqlite3.connect('exchanges/trades.db');"
+            "r=c.execute('SELECT COUNT(*),COUNT(DISTINCT Symbol) FROM Trades WHERE IsOpen=1').fetchone();"
+            "print(r[0],r[1]);c.close()\""
+        )
+        cp = subprocess.run(
+            ["python3", helper, remote], capture_output=True, text=True, timeout=60
+        )
+        # Extract "<rows> <unique>" from combined output.
+        from re import search
+        m = search(r"(\d+)\s+(\d+)", cp.stdout or "")
+        if m:
+            rows, unique = int(m.group(1)), int(m.group(2))
+            if rows > unique:
+                dupes = rows - unique
+                issues.append(
+                    f"DUP_POSITIONS: bot DB has {rows} open rows but only "
+                    f"{unique} unique symbols ({dupes} duplicate positions "
+                    f"stacking the same symbol)"
+                )
+            else:
+                notes.append(f"bot positions: {unique} unique / {rows} DB rows")
+        else:
+            notes.append(f"duplicate-check: unexpected server output (rc={cp.returncode}, out={cp.stdout.strip()[:60]!r})")
+    except Exception as e:
+        notes.append(f"duplicate-check error: {e}")
+
+
 def main():
     if not os.path.exists(DB_PATH):
         print("---ISSUES---")
@@ -207,6 +252,7 @@ def main():
     check_v8_accumulation(cur)
     check_v7_win_rates(cur, enabled)
     check_memory()
+    check_duplicate_positions()
 
     conn.close()
 
