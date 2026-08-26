@@ -77,7 +77,7 @@ MAX_SIGNALS_PER_BATCH = 8
 MAX_SCORE_CAP = 15.0
 EXCLUDED_SYMBOLS = {"BTWUSDT", "EULUSDT", "EIGENUSDT", "MORPHOUSDT", "DGBUSDT"}
 MAX_SLIPPAGE_PCT = 0.5
-MIN_EFFECTIVE_RR = 1.0   # Reject if effective R:R < 1.0 at send time (matches bot's min_risk_reward=1.0)
+MIN_EFFECTIVE_RR = 1.1   # Reject if effective R:R < 1.1 at send time (matches bot's min_risk_reward=1.1)
 HTTP_RETRIES = 3
 HTTP_RETRY_DELAY = 1.0
 
