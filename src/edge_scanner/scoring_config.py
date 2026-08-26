@@ -1119,6 +1119,7 @@ CONFIG_V6_0 = ScoringConfig(
     exclude_coin_types=[],
     # Metadata
     display_types_extra=["MEDIUM_TERM_TREND", "RSI14"],
+    status="disabled",  # DISABLED Aug 2026: measured weak (PF ~1.8 but n=19, WR 40%)
 )
 
 CONFIG_V6_1 = ScoringConfig(
@@ -1140,6 +1141,7 @@ CONFIG_V6_1 = ScoringConfig(
     exclude_coin_types=[],
     # Metadata
     display_types_extra=[],
+    status="disabled",  # DISABLED Aug 2026: measured weak (WR 45%, PF 0.94)
 )
 
 # ── CONFIG_V6_2 — Pullback Strategy (63.6% WR) ──
@@ -1475,6 +1477,7 @@ CONFIG_V16_0 = ScoringConfig(
     min_abs_score=6.0,
     min_atr_pct=0.2,
     display_types_extra=[],
+    status="disabled",  # DISABLED Aug 2026: measured losing (WR 47%, PF 0.72)
 )
 
 # ── CONFIG_V17_0 — Liquidation Proximity ──
@@ -1872,6 +1875,7 @@ CONFIG_V8_0 = ScoringConfig(
     exclude_coin_types=[],
     # Metadata
     display_types_extra=[],
+    status="disabled",  # DISABLED Aug 2026: measured losing (WR 44%, PF 0.58)
 )
 
 # ── CONFIG_V9_0 — Volume Imbalance (Paper 2: Interpretable Hypothesis-Driven Trading) ──
@@ -2178,6 +2182,32 @@ CONFIG_V1_6 = ScoringConfig(
     regime_dir_bull_short_penalty=2.0,
 )
 
+
+
+# ── CONFIG_V1_7 — Auto-generated 2026-08-23 14:01 ──
+CONFIG_V1_7 = ScoringConfig(
+    version="1.7",
+    description="LLM-evolved: win-rate optimized config, tightened filters for higher quality",
+    min_abs_score=7.5,
+    min_adx=25,
+    min_rsi=32,
+    max_rsi=68,
+    min_atr_pct=0.3,
+    atr_stop_mult=1.5,
+    rr_ratio=2.0,
+    trend_weight=0.4,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.3,
+    onchain_netflow_weight=0.1,
+    volume_divergence_weight=3.0,
+    smart_money_index_weight=2.0,
+    low_float_squeeze_weight=1.5,
+    regime_dir_bear_short_bonus=2.0,
+    regime_dir_bear_long_penalty=2.0,
+    regime_dir_bull_long_bonus=2.0,
+    regime_dir_bull_short_penalty=2.0,
+)
+
 ACTIVE_CONFIG = CONFIG_V1_4
 
 ALL_CONFIGS: dict[str, ScoringConfig] = {
@@ -2203,6 +2233,8 @@ ALL_CONFIGS: dict[str, ScoringConfig] = {
         CONFIG_V9_0,
     
         CONFIG_V1_6,
+
+        CONFIG_V1_7,
 ]
 }
 
