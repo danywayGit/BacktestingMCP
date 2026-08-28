@@ -10,7 +10,7 @@ Multi-config priority system with:
 """
 import httpx, json, logging, sqlite3, time
 from datetime import datetime, timezone
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List, Tuple, Set
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +80,16 @@ MAX_SLIPPAGE_PCT = 0.5
 MIN_EFFECTIVE_RR = 1.1   # Reject if effective R:R < 1.1 at send time (matches bot's min_risk_reward=1.1)
 HTTP_RETRIES = 3
 HTTP_RETRY_DELAY = 1.0
+
+# ── Bybit / HyroTrader dual-route (Aug 2026) ─────────────────────────────
+# Binance testnet keeps sending ALL configs (up to 8/batch). The Bybit route
+# sends only the BEST configs (Option A — top 3 by WR) to the HyroTrader
+# 10k challenge (Demo account). Bot-side enforces: 5 concurrent, 0.5%/trade,
+# daily -3% halt, challenge -5% lost, low-cap filter, fail-closed.
+BYBIT_CONFIGS = ["5.1", "1.4", "1.5"]   # top-3 WR configs (V5.1 AI, V1.4 scanner, V1.5 conservative)
+BYBIT_MAX_SIGNALS = 3                    # conservative — matches 5-symbol cap with headroom
+BYBIT_EXCHANGE = "Bybit"                 # routes to trade_bybit adapter
+BYBIT_ACCOUNT_TYPE = "Demo"              # HyroTrader 10k challenge (mainnet demo)
 
 # ── Live price cache ──
 _live_price_cache: Dict[str, float] = {}
@@ -300,7 +310,7 @@ def _check_market_regime(direction: str, market: str = "BTC") -> Tuple[bool, str
 
 
 # ── Selection ──
-def select_signals() -> List[Dict]:
+def select_signals(bybit: bool = False, skip_symbols: Optional[Set[str]] = None) -> List[Dict]:
     from src.integrations.binance_symbols import is_on_binance_futures, is_futures_symbol_tradable
     testnet_check = TESTNET_MODE
     cooldown_symbols = get_open_position_symbols()
@@ -309,14 +319,25 @@ def select_signals() -> List[Dict]:
     selected_configs = set()
     sent_count = 0
 
-    for version, min_score, label in CONFIG_PRIORITY:
-        if sent_count >= MAX_SIGNALS_PER_BATCH:
+    # Bybit route: only the best configs, smaller batch, skip symbols already
+    # sent to Binance this cycle (dual-route keeps accounts independent).
+    priority = CONFIG_PRIORITY
+    max_batch = MAX_SIGNALS_PER_BATCH
+    if bybit:
+        priority = [p for p in CONFIG_PRIORITY if p[0] in BYBIT_CONFIGS]
+        max_batch = BYBIT_MAX_SIGNALS
+        if skip_symbols:
+            cooldown_symbols = set(cooldown_symbols) | set(skip_symbols)
+        logger.info("  [BYBIT ROUTE] configs=%s max_batch=%d", [p[0] for p in priority], max_batch)
+
+    for version, min_score, label in priority:
+        if sent_count >= max_batch:
             break
         signals = get_pending_signals_for_config(version, min_score, cooldown_symbols)
         if not signals:
             continue
         for sig in signals:
-            if sent_count >= MAX_SIGNALS_PER_BATCH:
+            if sent_count >= max_batch:
                 break
             sym = sig["symbol"]
             if sym in selected_symbols:
@@ -371,6 +392,20 @@ def select_signals() -> List[Dict]:
             if not is_futures_symbol_tradable(sym):
                 logger.info("  %s: SKIPPED %s %s — not TRADING", label, sig["direction"], sym)
                 continue
+            # Bybit/HyroTrader LOW-CAP HARD RULE (Aug 2026): no symbol with
+            # mcap < $300M or 24h vol < $1M/day. Fail-closed — unknown symbols
+            # are DENIED. Applies on the Bybit route (and if EXCHANGE is
+            # Bybit/HyroTrader); the Binance path is unchanged.
+            if bybit or EXCHANGE.lower() in ("bybit", "hyrotrader"):
+                try:
+                    from src.edge_scanner.liquidity_filter import is_liquid_for_bybit
+                    liq_ok, liq_reason = is_liquid_for_bybit(sym + "USDT")
+                    if not liq_ok:
+                        logger.info("  %s: SKIPPED %s %s — %s", label, sig["direction"], sym, liq_reason)
+                        continue
+                except Exception as e:
+                    logger.warning("  liquidity_filter error for %s: %s — DENYING (fail-closed)", sym, e)
+                    continue
             if testnet_check:
                 # Cache the TestNet symbol set once per bridge run (was fetched
                 # per candidate — 8+ HTTP calls per cycle).
@@ -439,16 +474,21 @@ def _compute_tier_multiplier(signal: Dict) -> float:
         return 1.0
 
 
-def format_webhook_msg(signal: Dict) -> str:
+def format_webhook_msg(signal: Dict, bybit: bool = False) -> str:
     action = "OpenLong" if signal["direction"].upper() == "LONG" else "OpenShort"
     side = "BUY" if signal["direction"].upper() == "LONG" else "SELL"
     # Score is ALWAYS positive; direction is explicit via Action/Side/Direction.
     # Negative scores (old convention) are normalized so the bot never sees
     # a negative Score (bot clamps out-of-range scores → silently wrong sizing).
     score = abs(signal["composite_score"])
+    # Bybit/HyroTrader route: stamp Exchange=Bybit + AccountType=Demo so the
+    # bot's router executes on the challenge account (activates 5-concurrent,
+    # 0.5% risk, daily -3% / challenge -5% breakers, low-cap filter).
+    exchange = BYBIT_EXCHANGE if bybit else EXCHANGE
+    account_type = BYBIT_ACCOUNT_TYPE if bybit else ACCOUNT_TYPE
     lines = [
-        f"Username: Danyway", f"AccountType: {ACCOUNT_TYPE}", f"MarketType: {MARKET_TYPE}",
-        f"Exchange: {EXCHANGE}", f"Strategy: {STRATEGY}", f"Action: {action}", f"Side: {side}",
+        f"Username: Danyway", f"AccountType: {account_type}", f"MarketType: {MARKET_TYPE}",
+        f"Exchange: {exchange}", f"Strategy: {STRATEGY}", f"Action: {action}", f"Side: {side}",
         f"Direction: {signal['direction'].upper()}",
         f"Symbol: {signal['symbol']}USDT", f"Entry: {signal['entry_price']}",
         f"StopLoss: {signal['stop_price']}", f"TakeProfit: {signal['target_price']}",
@@ -458,8 +498,8 @@ def format_webhook_msg(signal: Dict) -> str:
     return "\n".join(lines)
 
 
-def send_signal_to_webhook(signal: Dict) -> bool:
-    msg_str = format_webhook_msg(signal)
+def send_signal_to_webhook(signal: Dict, bybit: bool = False) -> bool:
+    msg_str = format_webhook_msg(signal, bybit=bybit)
     payload = {"key": WEBHOOK_KEY, "telegram_alert_type": "trading_bot", "msg": msg_str}
     
     last_err = ""
@@ -467,9 +507,10 @@ def send_signal_to_webhook(signal: Dict) -> bool:
         try:
             resp = httpx.post(WEBHOOK_URL, json=payload, timeout=10)
             if resp.status_code == 200:
-                logger.info("  ✅ Sent %s %s @ %.2f (score=%.1f, %s, attempt=%d)",
+                logger.info("  ✅ Sent %s %s @ %.2f (score=%.1f, %s, %s, attempt=%d)",
                             signal["direction"], signal["symbol"], signal["entry_price"],
-                            signal["composite_score"], signal.get("_priority_label", ""), attempt+1)
+                            signal["composite_score"], signal.get("_priority_label", ""),
+                            "Bybit" if bybit else "Binance", attempt+1)
                 mark_signal_sent(signal["id"])
                 return True
             elif resp.status_code == 503:
@@ -497,28 +538,48 @@ def run_bridge(dry_run: bool = False) -> int:
                 len(CONFIG_PRIORITY), MAX_SIGNALS_PER_BATCH, MIN_EFFECTIVE_RR, HTTP_RETRIES,
                 _EXECUTION_MODE, ACCOUNT_TYPE, MARKET_TYPE)
 
-    selected = select_signals()
+    # ── Pass 1: Binance (all configs, existing behavior) ──
+    selected = select_signals(bybit=False)
     if not selected:
-        logger.info("Nothing to send")
-        return 0
-
-    if dry_run:
-        logger.info("=== DRY-RUN — would send %d signals ===", len(selected))
+        logger.info("Nothing to send (Binance)")
+    elif dry_run:
+        logger.info("=== DRY-RUN — would send %d Binance signals ===", len(selected))
         for sig in selected:
             logger.info("  %s %s @ %.2f (score=%.1f, R:R=%.2f, %s)",
                         sig["direction"], sig["symbol"], sig["entry_price"],
                         sig["composite_score"], sig.get("_effective_rr", 0),
                         sig.get("_priority_label", ""))
-        return 0
+    else:
+        sent_count = 0
+        for sig in selected:
+            if send_signal_to_webhook(sig, bybit=False):
+                sent_count += 1
+        logger.info("Sent %d/%d Binance signals", sent_count, len(selected))
 
-    sent_count = 0
-    for sig in selected:
-        ok = send_signal_to_webhook(sig)
-        if ok:
-            sent_count += 1
+    # ── Pass 2: Bybit / HyroTrader (best configs, skips Binance symbols) ──
+    # Runs ALWAYS (parallel to Binance). The bot enforces the prop-firm
+    # risk profile on the Demo challenge account.
+    binance_symbols = {sig["symbol"] for sig in selected}
+    bybit_selected = select_signals(bybit=True, skip_symbols=binance_symbols)
+    if not bybit_selected:
+        logger.info("Nothing to send (Bybit)")
+    elif dry_run:
+        logger.info("=== DRY-RUN — would send %d Bybit signals ===", len(bybit_selected))
+        for sig in bybit_selected:
+            logger.info("  %s %s @ %.2f (score=%.1f, R:R=%.2f, %s) -> Bybit/Demo",
+                        sig["direction"], sig["symbol"], sig["entry_price"],
+                        sig["composite_score"], sig.get("_effective_rr", 0),
+                        sig.get("_priority_label", ""))
+    else:
+        sent_count = 0
+        for sig in bybit_selected:
+            if send_signal_to_webhook(sig, bybit=True):
+                sent_count += 1
+        logger.info("Sent %d/%d Bybit signals", sent_count, len(bybit_selected))
 
-    logger.info("Sent %d/%d signals", sent_count, len(selected))
-    return sent_count
+    if dry_run:
+        return len(selected) + len(bybit_selected)
+    return len(selected) + len(bybit_selected)
 
 
 if __name__ == "__main__":
