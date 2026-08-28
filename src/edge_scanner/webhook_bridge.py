@@ -404,10 +404,16 @@ def select_signals(bybit: bool = False, skip_symbols: Optional[Set[str]] = None)
             # Bybit/HyroTrader); the Binance path is unchanged.
             if bybit or EXCHANGE.lower() in ("bybit", "hyrotrader"):
                 try:
-                    from src.edge_scanner.liquidity_filter import is_liquid_for_bybit
+                    from src.edge_scanner.liquidity_filter import is_liquid_for_bybit, is_on_bybit_demo
                     liq_ok, liq_reason = is_liquid_for_bybit(sym + "USDT")
                     if not liq_ok:
                         logger.info("  %s: SKIPPED %s %s — %s", label, sig["direction"], sym, liq_reason)
+                        continue
+                    # Bybit DEMO universe check — the demo account only trades
+                    # a subset of Bybit pairs. Fail-closed: unknown => deny
+                    # (prevents bot error 110074 'contract not live').
+                    if not is_on_bybit_demo(sym + "USDT"):
+                        logger.info("  %s: SKIPPED %s %s — not in Bybit DEMO universe", label, sig["direction"], sym)
                         continue
                 except Exception as e:
                     logger.warning("  liquidity_filter error for %s: %s — DENYING (fail-closed)", sym, e)
