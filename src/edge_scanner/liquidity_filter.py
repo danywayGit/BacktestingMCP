@@ -37,6 +37,41 @@ def _load() -> dict:
         return _default_cache()
 
 
+# Bybit DEMO linear symbol universe (cached in-memory per process). The demo
+# account only trades a SUBSET of Bybit's pairs — PEPE/SHIB/GNO etc are NOT
+# in the demo universe (confirmed: 844 linear symbols, majors only).
+_BYBIT_DEMO_SYMBOLS: set | None = None
+_BYBIT_DEMO_FETCHED = 0.0
+
+
+def is_on_bybit_demo(symbol_usdt: str, force_refresh: bool = False) -> bool:
+    """True if symbol is a LIVE linear contract on the Bybit DEMO account.
+
+    Fail-closed: if the universe can't be fetched, returns False (deny) so
+    the bot never gets a 'contract not live' error (110074).
+    """
+    global _BYBIT_DEMO_SYMBOLS, _BYBIT_DEMO_FETCHED
+    now = time.time()
+    if _BYBIT_DEMO_SYMBOLS is None or force_refresh or (now - _BYBIT_DEMO_FETCHED) > 6 * 3600:
+        try:
+            resp = httpx.get(
+                "https://api-demo.bybit.com/v5/market/instruments-info",
+                params={"category": "linear", "limit": 1000}, timeout=10,
+            )
+            if resp.status_code == 200:
+                lst = resp.json().get("result", {}).get("list", [])
+                _BYBIT_DEMO_SYMBOLS = {s.get("symbol") for s in lst if s.get("symbol")}
+                _BYBIT_DEMO_FETCHED = now
+        except Exception:
+            _BYBIT_DEMO_SYMBOLS = None
+    if not _BYBIT_DEMO_SYMBOLS:
+        return False  # fail-closed
+    sym = (symbol_usdt or "").upper()
+    if not sym.endswith("USDT"):
+        sym += "USDT"
+    return sym in _BYBIT_DEMO_SYMBOLS
+
+
 def _save(d: dict):
     os.makedirs(os.path.dirname(CACHE_PATH), exist_ok=True)
     tmp = CACHE_PATH + ".tmp"
