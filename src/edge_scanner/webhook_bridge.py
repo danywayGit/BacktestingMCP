@@ -86,6 +86,8 @@ HTTP_RETRY_DELAY = 1.0
 # sends only the BEST configs (Option A — top 3 by WR) to the HyroTrader
 # 10k challenge (Demo account). Bot-side enforces: 5 concurrent, 0.5%/trade,
 # daily -3% halt, challenge -5% lost, low-cap filter, fail-closed.
+# Toggle: set BYBIT_ROUTE=0 in the env to disable the Bybit pass.
+BYBIT_ROUTE = _os.getenv("BYBIT_ROUTE", "1").strip().lower() in ("1", "true", "yes", "on")
 BYBIT_CONFIGS = ["5.1", "1.4", "1.5"]   # top-3 WR configs (V5.1 AI, V1.4 scanner, V1.5 conservative)
 BYBIT_MAX_SIGNALS = 3                    # conservative — matches 5-symbol cap with headroom
 BYBIT_EXCHANGE = "Bybit"                 # routes to trade_bybit adapter
@@ -557,10 +559,14 @@ def run_bridge(dry_run: bool = False) -> int:
         logger.info("Sent %d/%d Binance signals", sent_count, len(selected))
 
     # ── Pass 2: Bybit / HyroTrader (best configs, skips Binance symbols) ──
-    # Runs ALWAYS (parallel to Binance). The bot enforces the prop-firm
-    # risk profile on the Demo challenge account.
+    # Runs ALWAYS (parallel to Binance) unless BYBIT_ROUTE=0. The bot
+    # enforces the prop-firm risk profile on the Demo challenge account.
     binance_symbols = {sig["symbol"] for sig in selected}
-    bybit_selected = select_signals(bybit=True, skip_symbols=binance_symbols)
+    bybit_selected = []
+    if BYBIT_ROUTE:
+        bybit_selected = select_signals(bybit=True, skip_symbols=binance_symbols)
+    else:
+        logger.info("Bybit route DISABLED (BYBIT_ROUTE=0)")
     if not bybit_selected:
         logger.info("Nothing to send (Bybit)")
     elif dry_run:
