@@ -330,6 +330,9 @@ def select_signals(bybit: bool = False, skip_symbols: Optional[Set[str]] = None)
         max_batch = BYBIT_MAX_SIGNALS
         if skip_symbols:
             cooldown_symbols = set(cooldown_symbols) | set(skip_symbols)
+        # Bybit is a MAINNET demo account — the Binance-TESTNET symbol list
+        # is irrelevant and would wrongly reject valid Bybit symbols.
+        testnet_check = False
         logger.info("  [BYBIT ROUTE] configs=%s max_batch=%d", [p[0] for p in priority], max_batch)
 
     for version, min_score, label in priority:
