@@ -388,12 +388,13 @@ def select_signals(bybit: bool = False, skip_symbols: Optional[Set[str]] = None)
             # webhook Direction field). abs() also protects against any legacy
             # negative rows still in the 2h window.
             sig["composite_score"] = min(abs(sig["composite_score"]), MAX_SCORE_CAP)
-            if not is_on_binance_futures(sym):
-                logger.info("  %s: SKIPPED %s %s — not on Binance Futures", label, sig["direction"], sym)
-                continue
-            if not is_futures_symbol_tradable(sym):
-                logger.info("  %s: SKIPPED %s %s — not TRADING", label, sig["direction"], sym)
-                continue
+            if not bybit:
+                if not is_on_binance_futures(sym):
+                    logger.info("  %s: SKIPPED %s %s — not on Binance Futures", label, sig["direction"], sym)
+                    continue
+                if not is_futures_symbol_tradable(sym):
+                    logger.info("  %s: SKIPPED %s %s — not TRADING", label, sig["direction"], sym)
+                    continue
             # Bybit/HyroTrader LOW-CAP HARD RULE (Aug 2026): no symbol with
             # mcap < $300M or 24h vol < $1M/day. Fail-closed — unknown symbols
             # are DENIED. Applies on the Bybit route (and if EXCHANGE is
@@ -540,8 +541,37 @@ def run_bridge(dry_run: bool = False) -> int:
                 len(CONFIG_PRIORITY), MAX_SIGNALS_PER_BATCH, MIN_EFFECTIVE_RR, HTTP_RETRIES,
                 _EXECUTION_MODE, ACCOUNT_TYPE, MARKET_TYPE)
 
-    # ── Pass 1: Binance (all configs, existing behavior) ──
-    selected = select_signals(bybit=False)
+    # ── Pass 1: Bybit / HyroTrader (best configs, first pick) ─────────────
+    # Runs FIRST so the top configs (5.1/1.4/1.5) feed the HyroTrader 10k
+    # challenge. The bot enforces the prop-firm risk profile on Demo.
+    # (Earlier version ran Binance first — it consumed + marked the shared
+    # pending pool, starving Bybit of its own configs' signals. Inverted.)
+    bybit_selected = []
+    if BYBIT_ROUTE:
+        bybit_selected = select_signals(bybit=True)
+        if not bybit_selected:
+            logger.info("Nothing to send (Bybit)")
+        elif dry_run:
+            logger.info("=== DRY-RUN — would send %d Bybit signals ===", len(bybit_selected))
+            for sig in bybit_selected:
+                logger.info("  %s %s @ %.2f (score=%.1f, R:R=%.2f, %s) -> Bybit/Demo",
+                            sig["direction"], sig["symbol"], sig["entry_price"],
+                            sig["composite_score"], sig.get("_effective_rr", 0),
+                            sig.get("_priority_label", ""))
+        else:
+            sent_count = 0
+            for sig in bybit_selected:
+                if send_signal_to_webhook(sig, bybit=True):
+                    sent_count += 1
+            logger.info("Sent %d/%d Bybit signals", sent_count, len(bybit_selected))
+    else:
+        logger.info("Bybit route DISABLED (BYBIT_ROUTE=0)")
+
+    # ── Pass 2: Binance (all configs, skips Bybit's symbols) ──────────────
+    # Runs AFTER Bybit so they never share a symbol (keep-skip rule). The
+    # remaining configs keep flowing to Binance testnet exactly as before.
+    bybit_symbols = {sig["symbol"] for sig in bybit_selected}
+    selected = select_signals(bybit=False, skip_symbols=bybit_symbols)
     if not selected:
         logger.info("Nothing to send (Binance)")
     elif dry_run:
@@ -558,34 +588,9 @@ def run_bridge(dry_run: bool = False) -> int:
                 sent_count += 1
         logger.info("Sent %d/%d Binance signals", sent_count, len(selected))
 
-    # ── Pass 2: Bybit / HyroTrader (best configs, skips Binance symbols) ──
-    # Runs ALWAYS (parallel to Binance) unless BYBIT_ROUTE=0. The bot
-    # enforces the prop-firm risk profile on the Demo challenge account.
-    binance_symbols = {sig["symbol"] for sig in selected}
-    bybit_selected = []
-    if BYBIT_ROUTE:
-        bybit_selected = select_signals(bybit=True, skip_symbols=binance_symbols)
-    else:
-        logger.info("Bybit route DISABLED (BYBIT_ROUTE=0)")
-    if not bybit_selected:
-        logger.info("Nothing to send (Bybit)")
-    elif dry_run:
-        logger.info("=== DRY-RUN — would send %d Bybit signals ===", len(bybit_selected))
-        for sig in bybit_selected:
-            logger.info("  %s %s @ %.2f (score=%.1f, R:R=%.2f, %s) -> Bybit/Demo",
-                        sig["direction"], sig["symbol"], sig["entry_price"],
-                        sig["composite_score"], sig.get("_effective_rr", 0),
-                        sig.get("_priority_label", ""))
-    else:
-        sent_count = 0
-        for sig in bybit_selected:
-            if send_signal_to_webhook(sig, bybit=True):
-                sent_count += 1
-        logger.info("Sent %d/%d Bybit signals", sent_count, len(bybit_selected))
-
     if dry_run:
-        return len(selected) + len(bybit_selected)
-    return len(selected) + len(bybit_selected)
+        return len(bybit_selected) + len(selected)
+    return len(bybit_selected) + len(selected)
 
 
 if __name__ == "__main__":
