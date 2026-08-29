@@ -62,6 +62,68 @@ STABLECOIN_SYMBOLS: frozenset[str] = frozenset({
     "AMPL", "ESD", "BAC",
 })
 
+# ---------------------------------------------------------------------------
+# Global wrapped-coin blocklist — ALWAYS excluded regardless of config version.
+# Wrapped tokens (WBETH, WBTC, WETH, ...) are derivative wrappers of a base
+# asset: their "trend" is just the base asset's price with no independent edge,
+# and many aren't even tradeable on Binance Futures.
+#
+# Generated from CoinGecko (2026-08-29) via scripts/fetch_wrapped_coins.py +
+# scripts/build_wrapped_exclusion.py. Collision-safe: a symbol is only excluded
+# if it never appears as a non-wrapped asset (so BTC/ETH/SOL/LUNC etc. survive
+# even though "Mezo Wrapped BTC" uses symbol BTC on CoinGecko).
+# Refresh with:
+#   python3 scripts/fetch_wrapped_coins.py && python3 scripts/build_wrapped_exclusion.py
+# ---------------------------------------------------------------------------
+WRAPPED_SYMBOLS: frozenset[str] = frozenset({
+    "AXL-WSTETH", "AXLETH", "BGBTC", "BTCVC", "CBADA", "CBBTC", "CBDOGE", "CBETH",
+    "CBLTC", "CBMEGA", "CBTC", "CBXRP", "CDCBTC", "CETH", "DIONE", "ENZOBTC",
+    "ETHC", "EXAWETH", "EXAWSTETH", "FLETH", "FWETH", "FWSTETH", "GSNAKE", "GTBTC",
+    "GTETH", "KKUB", "LIBERTAS", "OWBTC", "QUIL", "RENBTC", "RSERG", "SOBTC",
+    "SOETH", "SVETBTC", "TENSOR", "U1INCH", "UAAVE", "UADA", "UAPE", "UAPT",
+    "UATOM", "UAXS", "UBLUR", "UCHZ", "UCRV", "UDOGE", "UEGLD", "UENS",
+    "UEOS", "UETC", "UFLOKI", "ULINK", "UNEAR", "USEI", "USUI", "UTAO",
+    "UWBTC", "UXRP", "W0G", "W3ULL", "WA7A5", "WAAC", "WAAPLX", "WAARBEZETH",
+    "WAARBGHO", "WAARBUSDCN", "WAARBUSDT", "WAARBWETH", "WAARBWSTETH", "WAAVAAUSD", "WAAVABTC.B", "WAAVASAVAX",
+    "WAAVAUSDC", "WAAVAUSDT", "WAAVAWAVAX", "WABASEURC", "WABASGHO", "WABASUSDC", "WABASWETH", "WABASWSTETH",
+    "WABBVX", "WABTX", "WACE", "WACNX", "WADA", "WAETHLIDOGHO", "WAETHLIDOWETH", "WAETHLIDOWSTETH",
+    "WAETHUSDC", "WAETHUSDT", "WAETHWETH", "WAGNOGNO", "WAGNOWETH", "WAGNOWSTETH", "WAMPL", "WAMZNX",
+    "WAPLAUSDT0", "WAPPX", "WAREA", "WASONUSDC", "WASTR", "WAVAX", "WAVGOX", "WAXL",
+    "WAZNX", "WBACX", "WBAN", "WBASEDOGE", "WBB", "WBCH", "WBCOIN", "WBEAM",
+    "WBERA", "WBESC", "WBETH", "WBFC", "WBLT", "WBMSTR", "WBNB", "WBNVDA",
+    "WBONE", "WBOT", "WBRK.BX", "WBTC", "WBTCN", "WBTC[HTS]", "WBTSLA", "WBTT",
+    "WBUG", "WBUSD", "WCBTC", "WCFX", "WCHZ", "WCMCSAX", "WCOINX", "WCRCLX",
+    "WCRMX", "WCRO", "WCRWDX", "WCSCOX", "WCTC", "WCVXX", "WCYBA", "WDAG",
+    "WDHRX", "WDOG", "WDOR", "WDOT", "WEDU", "WEETH", "WEGAS", "WEGLD",
+    "WEHMND", "WELA", "WELEPHANT", "WETC", "WETH", "WETN", "WEVER", "WFIL",
+    "WFIO", "WFLOW", "WFLR", "WFOGO", "WFON", "WFRAGJTO", "WFRAGSOL", "WFRAX",
+    "WFRXETH", "WFTM", "WFUSE", "WG", "WGBERA", "WGBTC", "WGHO", "WGLMR",
+    "WGLQ", "WGLUE", "WGMEX", "WGNK", "WGOOGLX", "WGRX", "WGSX", "WHBAR",
+    "WHDX", "WHLP", "WHLUSD", "WHONX", "WHOODX", "WHYDRA", "WHYPE", "WIBMX",
+    "WIKAS", "WILC", "WIMX", "WINTCX", "WIOTA", "WIOTX", "WIP", "WITRY",
+    "WJEWEL", "WJNJX", "WJPMX", "WKAS", "WKAVA", "WKCS", "WKLAY", "WKOX",
+    "WKROWN", "WLINX", "WLLYX", "WLUNG", "WLYX", "WMANTRA", "WMAS", "WMAX",
+    "WMC", "WMCDX", "WMDTX", "WMETAX", "WMETIS", "WMINIMA", "WMNT", "WMPC",
+    "WMRKX", "WMRVLX", "WMSFTX", "WMSTRX", "WNAUSD", "WNCG", "WNEAR", "WNEON",
+    "WNFLXX", "WNIBI", "WNLOAZND", "WNRG", "WNUSDC", "WNUSDT0", "WNVDAX", "WNVOX",
+    "WNWMON", "WNXM", "WOAS", "WOASYS", "WOETH", "WOKB", "WONE", "WOPTIDOGE",
+    "WORCLX", "WOUSD", "WPEAQ", "WPEPX", "WPFEX", "WPGX", "WPLS", "WPLTRX",
+    "WPLUME", "WPMX", "WPOKT", "WPOL", "WPROS", "WPSG", "WQ", "WQIE",
+    "WQOM", "WRBNT", "WRBTC", "WRON", "WRSETH", "WS", "WSCCP", "WSDN",
+    "WSEI", "WSHIDO", "WSKHYX", "WSNDKX", "WSOL", "WSOMI", "WSOPH", "WSPCXX",
+    "WSRUSD", "WSTASTR", "WSTEAMX", "WSTETH", "WSTLINK", "WSTPEAQ", "WSTUSDT", "WSUPEROETHB",
+    "WTAC", "WTAO", "WTLOS", "WTMOX", "WTRX", "WTSLAX", "WTT", "WTTON",
+    "WUNHX", "WUNIT0", "WUSDM", "WUSDN", "WVG0", "WVIC", "WVLX", "WVTRU",
+    "WWAN", "WWDOGE", "WWMTX", "WXDC", "WXHOPR", "WXOMX", "WXPL", "WXRP",
+    "WXTM", "WXTZ", "WYLDS", "WZANO", "WZETA", "WZIL", "WZKCRO", "WZRA",
+    "XUSDC", "ZENZEC",
+})
+
+def is_wrapped_coin(symbol: str) -> bool:
+    """Return True if symbol is a CoinGecko-confirmed wrapped token."""
+    return symbol.upper() in WRAPPED_SYMBOLS
+
+
 # Tokenized stocks — not on Binance Futures, produce meaningless signals
 # Pattern: 4+ chars ending in X where base looks like a stock ticker
 _TOKENIZED_STOCK_EXACT: frozenset[str] = frozenset({
@@ -74,11 +136,13 @@ _TOKENIZED_STOCK_EXACT: frozenset[str] = frozenset({
 })
 
 def is_stablecoin_or_stock(symbol: str) -> bool:
-    """Return True if symbol should ALWAYS be excluded (stablecoin or tokenized stock)."""
+    """Return True if symbol should ALWAYS be excluded (stablecoin, tokenized stock, or wrapped token)."""
     s = symbol.upper()
     if s in STABLECOIN_SYMBOLS:
         return True
     if s in _TOKENIZED_STOCK_EXACT:
+        return True
+    if s in WRAPPED_SYMBOLS:
         return True
     # xStock pattern: 4+ chars, ends in X, base is alphabetic (e.g. INTCX, QQQX)
     # Exceptions: legitimate crypto tokens ending in X
