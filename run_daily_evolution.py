@@ -28,17 +28,10 @@ stats = analyze_configs('data/crypto.db')
 active_version = result['active_config']
 active = stats.get(active_version)
 
-# Rank configs (min 20 trades)
+# Rank configs (min 20 trades). rank_configs already excludes disabled configs
+# and unknown/legacy version strings (e.g. 'v6.2' ghosts not in ALL_CONFIGS).
 from src.edge_scanner.evolution import rank_configs, MIN_NON_FLAT_TRADES
 ranked = rank_configs(stats)
-# Filter out the v-prefixed duplicates of the same family
-filtered = []
-seen_scores = set()
-for c in ranked:
-    key = round(c.composite_rank_score, 1)
-    if key not in seen_scores:
-        seen_scores.add(key)
-        filtered.append(c)
 
 # LLM evolution
 llm_result = auto_evolve_with_llm('data/crypto.db', dry_run=True)
@@ -87,7 +80,7 @@ lines.append("<pre>")
 hdr = f"{'Config':<10} {'WR%':>6} {'Flat%':>7} {'Trades':>7} {'Quality':>8} {'PF':>6} {'Score':>7}"
 lines.append(hdr)
 lines.append("-" * len(hdr))
-for cfg in filtered[:10]:
+for cfg in ranked[:10]:
     marker = " ← ACTIVE" if cfg.config_version == active_version else ""
     pf = f"{cfg.profit_factor:.2f}" if cfg.profit_factor != float('inf') else "INF"
     row = f"{cfg.config_version:<10} {cfg.win_rate:>5.1f}% {cfg.flat_rate:>6.1f}% {cfg.non_flat_trades:>3}/{cfg.total_signals:<4} {cfg.signal_quality_score:>7.1f} {pf:>6} {cfg.composite_rank_score:>6.1f}{marker}"
@@ -96,10 +89,15 @@ lines.append("</pre>")
 lines.append(italic("* = active config | Min {0} trades".format(MIN_NON_FLAT_TRADES)))
 lines.append("")
 
-# Notable variants
+# Notable variants — only enabled configs registered in ALL_CONFIGS
+# (disabled configs and legacy ghost versions never appear in reports)
+from src.edge_scanner.scoring_config import ALL_CONFIGS
 lines.append(bold("Notable Variants"))
-notable_variants = ['1.4', '1.0', '1.5', '7.0', '7.2', '7.5', '8.0', '6.0', '3.1', '14.0', 'v6.2']
+notable_variants = ['1.4', '1.0', '1.5', '7.0', '7.2', '7.5', '8.0', '3.1', '14.0']
 for v in notable_variants:
+    cfg_def = ALL_CONFIGS.get(v)
+    if cfg_def is None or cfg_def.status == 'disabled':
+        continue
     c = stats.get(v)
     if c and c.non_flat_trades >= 10:  # show even low-trade configs
         pf = f"{c.profit_factor:.2f}" if c.profit_factor != float('inf') else "INF"

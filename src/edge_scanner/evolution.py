@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 # ── Thresholds ──────────────────────────────────────────────────────────────
 MIN_NON_FLAT_TRADES = 20       # Minimum non-flat trades for statistical significance
 MIN_WIN_RATE_IMPROVEMENT = 0.0  # Replaced by z-test below — kept at 0 for fallback
-MIN_CONFIG_AGE_DAYS = 3         # Days a config must have been active (was 7)
+MIN_CANDIDATE_RECENT_DAYS = 7   # Candidate must have a signal within this window (was dead MIN_CONFIG_AGE_DAYS)
 STATS_CACHE_TTL_HOURS = 6      # How long to cache per-config stats
 SIGNIFICANCE_LEVEL = 0.10       # p-value threshold for promotion (10% = moderate confidence)
 
@@ -237,11 +237,12 @@ def _two_proportion_z_test(wins1: int, n1: int, wins2: int, n2: int) -> tuple:
 
 def rank_configs(stats: Dict[str, ConfigStats], min_trades: int = MIN_NON_FLAT_TRADES) -> List[ConfigStats]:
     """Rank configs by composite score, filtering those with enough data.
-    Excludes disabled configs."""
+    Excludes disabled configs AND unknown version strings (e.g. legacy 'v6.2'
+    buckets that have no entry in ALL_CONFIGS — those are ghosts, not configs)."""
     from src.edge_scanner.scoring_config import ALL_CONFIGS
-    _fallback = ConfigStats._get_fallback()
     eligible = [c for c in stats.values() if c.non_flat_trades >= min_trades
-                and ALL_CONFIGS.get(c.config_version, _fallback).status != 'disabled']
+                and c.config_version in ALL_CONFIGS
+                and ALL_CONFIGS[c.config_version].status != 'disabled']
     eligible.sort(key=lambda c: c.composite_rank_score, reverse=True)
     return eligible
 
@@ -294,11 +295,25 @@ def auto_evolve(db_path: str = 'data/crypto.db', dry_run: bool = True) -> Dict[s
     best = ranked[0]
     active_has_data = active_version in stats and stats[active_version].non_flat_trades >= MIN_NON_FLAT_TRADES
 
+    # Recency guard: a config that hasn't produced a signal recently is stale
+    # (dead code, disabled, or a legacy ghost bucket) — never promote it.
+    now = datetime.now(timezone.utc)
+    best_is_recent = (
+        best.last_signal_time is not None
+        and (now - best.last_signal_time).total_seconds() / 86400.0 <= MIN_CANDIDATE_RECENT_DAYS
+    )
+
     # Check if promotion conditions are met
     can_promote = False
     promotion_reason = ""
 
-    if active_has_data and best.config_version != active_version:
+    if not best_is_recent:
+        last_str = best.last_signal_time.strftime('%Y-%m-%d') if best.last_signal_time else 'never'
+        promotion_reason = (
+            f"{best.config_version} leads but has no signal in the last "
+            f"{MIN_CANDIDATE_RECENT_DAYS} days (last: {last_str}) — stale, no promotion"
+        )
+    elif active_has_data and best.config_version != active_version:
         active_stats = stats[active_version]
         improvement = best.win_rate - active_stats.win_rate
 
@@ -462,8 +477,8 @@ def _build_report(
     lines.append("")
     lines.append("⚙️ *Auto-Promotion Rules*")
     lines.append(f"• Min {MIN_NON_FLAT_TRADES} non-flat trades for ranking")
-    lines.append(f"• Need ≥{MIN_WIN_RATE_IMPROVEMENT}pp win-rate improvement over active")
-    lines.append(f"• Config age ≥{MIN_CONFIG_AGE_DAYS} days")
+    lines.append(f"• Statistical significance: z-test p < {SIGNIFICANCE_LEVEL} vs active")
+    lines.append(f"• Candidate must have a signal within last {MIN_CANDIDATE_RECENT_DAYS} days")
 
     # Next resolution info
     lines.append("")
