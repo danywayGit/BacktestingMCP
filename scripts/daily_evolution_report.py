@@ -20,7 +20,7 @@ if env_path.exists():
 from dotenv import load_dotenv
 load_dotenv()
 
-from src.edge_scanner.evolution import auto_evolve, analyze_configs, rank_configs, MIN_NON_FLAT_TRADES
+from src.edge_scanner.evolution import auto_evolve, analyze_configs, rank_configs, MIN_NON_FLAT_TRADES, SIGNIFICANCE_LEVEL, MIN_CANDIDATE_RECENT_DAYS
 from src.edge_scanner.scoring_config import ACTIVE_CONFIG, ALL_CONFIGS
 from datetime import datetime, timezone
 import sqlite3
@@ -68,7 +68,7 @@ def build_report() -> str:
 
     # Section 1: Active config
     lines.append("\u2501\u2501\u2501\u2501\u2501 *ACTIVE CONFIG* \u2501\u2501\u2501\u2501\u2501")
-    lines.append(f"\U0001f4cc *Config 7.0 \u2014 Quality Gate*")
+    lines.append(f"\U0001f4cc *Config {active_ver} \u2014 {active_desc.split(':')[0]}*")
     lines.append(f"   WR: {active_wr:.1f}% | Trades: {active_trades} | Flat: {active_flat:.1f}%")
     if active_trades < MIN_NON_FLAT_TRADES:
         lines.append(f"   \u26a0\ufe0f  *Insufficient data* ({active_trades}/{MIN_NON_FLAT_TRADES} min)")
@@ -103,21 +103,14 @@ def build_report() -> str:
         if active_trades >= MIN_NON_FLAT_TRADES:
             improvement = best.win_rate - active_wr
             lines.append(f"   Improvement: +{improvement:.1f}pp")
-            if improvement >= 5:
-                lines.append(f"   \u2705 *Exceeds 5pp threshold* \u2014 promotion warranted")
-            else:
-                lines.append(f"   \u2696\ufe0f  Below 5pp threshold \u2014 monitor for more data")
+            lines.append(f"   \u2696\ufe0f  Must pass z-test (p < {SIGNIFICANCE_LEVEL}) vs active \u2014 dry run only")
         else:
-            lines.append(f"   \u26a0\ufe0f  Active config (7.0) has insufficient data for z-test")
+            lines.append(f"   \u26a0\ufe0f  Active config ({active_ver}) has insufficient data for z-test")
             lines.append(f"   \u2705 *Config {best.config_version} has {best.non_flat_trades} trades* \u2014 sufficient")
             lines.append(f"   \U0001f4a1 *Strong candidate for promotion*")
 
         lines.append("")
         lines.append(f"   \U0001f4ca *Config {best.config_version} details:*")
-        if best.config_version == "6.0":
-            lines.append(f"   \u2022 Signal feed weight: 10.0 (heavy)")
-            lines.append(f"   \u2022 Pullback opportunity strategy")
-            lines.append(f"   \u2022 Filters: RSI\u226470, volume\u22651.0x, mcap\u2265$50M")
         lines.append(f"   \u2022 Avg resolve: {best.avg_time_to_resolve_hours:.1f}h")
         lines.append(f"   \u2022 Expectancy per trade: {best.expectancy:+.2f}%")
     else:
@@ -146,7 +139,7 @@ def build_report() -> str:
     lines.append(f"\u23f3 Pending signals: {pending}")
     lines.append(f"📊 Active configs registered: {sum(1 for c in ALL_CONFIGS.values() if c.status != 'disabled')} ({len(ALL_CONFIGS)} total)")
     lines.append(f"\U0001f3c6 Configs with \u2265{MIN_NON_FLAT_TRADES}t data: {len(eligible)}")
-    lines.append(f"\u2699\ufe0f  Min {MIN_NON_FLAT_TRADES} trades | p<0.10 | age\u22653d")
+    lines.append(f"\u2699\ufe0f  Min {MIN_NON_FLAT_TRADES} trades | z-test p<{SIGNIFICANCE_LEVEL} | signal within {MIN_CANDIDATE_RECENT_DAYS}d")
     lines.append("")
     lines.append("\U0001f916 *Edge Scanner \u2014 auto-generated*")
 
