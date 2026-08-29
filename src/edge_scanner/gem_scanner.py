@@ -371,6 +371,7 @@ def scan_gems(pages: int = 5, start_page: int = 3) -> List[GemCandidate]:
     Default: pages 3-7 (ranks ~500-1750).
     """
     from src.integrations.binance_symbols import is_on_binance
+    from src.edge_scanner.scoring_config import is_stablecoin_or_stock
 
     candidates: List[GemCandidate] = []
     total_scanned = 0
@@ -408,7 +409,10 @@ def scan_gems(pages: int = 5, start_page: int = 3) -> List[GemCandidate]:
                 circ_supply = c.get("circulating_supply") or 0
                 fdv = c.get("fully_diluted_valuation")
 
-                # Quick filter: must be on Binance
+                # Quick filter: must be on Binance and never a stablecoin/
+                # tokenized stock/wrapped token
+                if is_stablecoin_or_stock(symbol):
+                    continue
                 if not is_on_binance(symbol):
                     continue
 

@@ -75,7 +75,14 @@ CONFIG_PRIORITY = [
 
 MAX_SIGNALS_PER_BATCH = 8
 MAX_SCORE_CAP = 15.0
-EXCLUDED_SYMBOLS = {"BTWUSDT", "EULUSDT", "EIGENUSDT", "MORPHOUSDT", "DGBUSDT"}
+# Hard exclusions at send time: manual list + ALL CoinGecko-confirmed wrapped
+# tokens (WBETH, WBTC, ...) + stablecoins. Wrapped derivatives and stablecoins
+# never go to the bot.
+from src.edge_scanner.scoring_config import WRAPPED_SYMBOLS, STABLECOIN_SYMBOLS  # noqa: E402
+EXCLUDED_SYMBOLS = (
+    {"BTWUSDT", "EULUSDT", "EIGENUSDT", "MORPHOUSDT", "DGBUSDT"}
+    | set(WRAPPED_SYMBOLS) | set(STABLECOIN_SYMBOLS)
+)
 MAX_SLIPPAGE_PCT = 0.5
 MIN_EFFECTIVE_RR = 1.1   # Reject if effective R:R < 1.1 at send time (matches bot's min_risk_reward=1.1)
 HTTP_RETRIES = 3
