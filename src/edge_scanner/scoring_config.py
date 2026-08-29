@@ -1009,7 +1009,7 @@ CONFIG_V3_0 = ScoringConfig(
 CONFIG_V3_1 = ScoringConfig(
     version="3.1",
     description="Strong ADX filter: Requires ADX >= 40 for strong trend",
-    status="active",
+    status="enabled",
     trend_weight=0.4,
     volume_relative_weight=0.2,
     signal_feed_weight=0.3,
@@ -2314,8 +2314,9 @@ def get_disabled_configs() -> dict[str, ScoringConfig]:
 
 
 def get_active_config() -> ScoringConfig:
-    """Return the currently active config (generates Telegram alerts)."""
-    for c in ALL_CONFIGS.values():
-        if c.is_active:
-            return c
-    return CONFIG_V7_0  # fallback
+    """Return the currently active config (generates Telegram alerts).
+
+    Single source of truth: ACTIVE_CONFIG. Never scan status fields —
+    only ACTIVE_CONFIG is authoritative for alert generation.
+    """
+    return ACTIVE_CONFIG
