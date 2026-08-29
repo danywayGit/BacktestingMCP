@@ -39,3 +39,6 @@ reoptimize_swing*.py
 data/alerted_cache.json
 data/liquidation_snapshot.json
 data/liquidation_rest_cache.json
+data/burn_state.json
+data/liquidity_cache.json
+/crypto.db

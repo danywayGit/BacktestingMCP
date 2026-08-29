@@ -1,0 +1,42 @@
+{
+  "onchain": [
+    {
+      "symbol": "BNB",
+      "chain": "bsc",
+      "rpc": "https://bsc-dataseed.binance.org",
+      "mode": "native",
+      "contract": null,
+      "burn_addr": "0x000000000000000000000000000000000000dEaD",
+      "decimals": 18,
+      "note": "BNB auto-burn (verified 2026-08-27: 16.5M BNB)"
+    },
+    {
+      "symbol": "SHIB",
+      "chain": "eth",
+      "rpc": "https://ethereum.publicnode.com",
+      "mode": "erc20",
+      "contract": "0x95ad61b0a150d79219dcf64e1e6cc01f0b64c4ce",
+      "burn_addr": "0x000000000000000000000000000000000000dEaD",
+      "decimals": 18,
+      "note": "Shiba Inu dead address (verified 2026-08-27)"
+    },
+    {
+      "symbol": "CRO",
+      "chain": "cronos",
+      "rpc": "https://evm.cronos.org",
+      "mode": "native",
+      "contract": null,
+      "burn_addr": "0x000000000000000000000000000000000000dEaD",
+      "decimals": 18,
+      "note": "Cronos native burn address (verified 2026-08-27)"
+    }
+  ],
+  "supply_cmc": [
+    {"symbol": "OKB", "slug": "okb", "note": "OKX burns monthly, supply capped 300M -> 21M"},
+    {"symbol": "LEO", "slug": "unus-sed-leo", "note": "Bitfinex quarterly buyback+burn"},
+    {"symbol": "SHIB", "slug": "shiba-inu", "note": "Cross-check on-chain"},
+    {"symbol": "CRO", "slug": "cronos", "note": "Cross-check on-chain"},
+    {"symbol": "BNB", "slug": "binance-coin", "note": "Cross-check on-chain"},
+    {"symbol": "APT", "slug": "aptos", "note": "APT tokenomics incl. burns"}
+  ]
+}

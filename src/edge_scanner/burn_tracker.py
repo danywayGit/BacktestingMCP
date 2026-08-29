@@ -1,234 +1,319 @@
 """
-Burn event tracker — monitors token buyback & burn events using Tokenomist data.
+Multi-source Burn / Buyback Event Tracker (2026-08-27 rebuild).
 
-Finds coins with active burn programs and increasing burn rates,
-which can be accumulation signals for gems.
+Data layers (all probed live & verified):
+  L1  On-chain ground truth   : balance-delta at verified burn addresses via public RPCs
+                                (native: eth_getBalance / erc20: eth_call balanceOf)
+  L2  CMC supply cross-check  : maxSupply, totalSupply, circulatingSupply deltas
+                                (derived burn for capped coins; total-supply delta over time)
+  L3  Binance announcements   : official burn/buyback announcements (quarterly BNB auto-burn)
+  L4  News RSS                : Cointelegraph / Decrypt / CoinDesk keyword scan (buybacks)
+
+Design principles:
+  - No API keys required (all sources public / free)
+  - Per-entry failure isolation: one dead RPC never kills the report
+  - State file keeps baselines; first run = baseline, second run = deltas
+  - Watchlist entries verified live before being enabled
 """
 
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Dict, List, Optional
+from xml.etree import ElementTree
+
 import httpx
+import json
 import logging
 import re
-import json
-from datetime import datetime, timezone
-from typing import List, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-# Tokenomist API endpoint (appears to have changed/discontinued as of 2026-07)
-TOKENOMIST_URL = "https://api.tokenomist.ai/v1/burns"
+BASE_DIR = Path(__file__).resolve().parents[2]
+CONFIG_PATH = BASE_DIR / "config" / "burn_watchlist.json"
+STATE_PATH = BASE_DIR / "data" / "burn_state.json"
 
-# CoinGecko free endpoints — no API key needed for basic data
-COINGECKO_SEARCH = "https://api.coingecko.com/api/v3/search?query=burn"
-COINGECKO_GLOBAL = "https://api.coingecko.com/api/v3/global"
-COINGECKO_TRENDING = "https://api.coingecko.com/api/v3/search/trending"
-COINGECKO_PRICE = "https://api.coingecko.com/api/v3/simple/price"
+# ---- RPC helpers -----------------------------------------------------------
 
-
-def get_burn_events_from_tokenomist() -> List[Dict]:
-    """Fetch burn events from Tokenomist public API (may be broken)."""
+def rpc_call(rpc: str, method: str, params: List) -> Optional[str]:
+    """Single JSON-RPC call; returns result or None on any failure."""
     try:
-        resp = httpx.get(
-            "https://api.tokenomist.ai/v1/burns",
-            params={"limit": 50, "sortBy": "value", "order": "desc"},
+        resp = httpx.post(
+            rpc,
+            json={"jsonrpc": "2.0", "method": method, "params": params, "id": 1},
             timeout=10,
         )
-        if resp.status_code == 200:
-            data = resp.json()
-            burns = []
-            for item in data.get("data", []):
-                burns.append({
-                    "symbol": item.get("token", item.get("symbol", "")).upper(),
-                    "name": item.get("name", ""),
-                    "value_7d": item.get("value_7d", 0),
-                    "value_30d": item.get("value_30d", 0),
-                    "change_pct": item.get("change_pct", 0),
-                    "type": item.get("type", "burn"),
-                    "source": "tokenomist",
-                })
-            return burns
+        data = resp.json()
+        if "result" in data:
+            return data["result"]
+        logger.debug("RPC %s %s error: %s", rpc, method, data.get("error"))
     except Exception as e:
-        logger.warning("Tokenomist burn API failed: %s", e)
-    return []
+        logger.debug("RPC %s %s failed: %s", rpc, method, e)
+    return None
 
 
-def get_burn_events_from_coingecko() -> List[Dict]:
-    """Check CoinGecko for known burn/buyback tokens via price + trending."""
-    burns = []
-    # 1. Known major burn tokens: BNB (quarterly auto-burn), ETH (EIP-1559)
+def eth_get_balance(rpc: str, addr: str) -> Optional[int]:
+    raw = rpc_call(rpc, "eth_getBalance", [addr, "latest"])
+    return int(raw, 16) if raw else None
+
+
+def erc20_balance_of(rpc: str, contract: str, addr: str) -> Optional[int]:
+    # balanceOf(address) selector: 0x70a08231 + padded address
+    data = "0x70a08231" + addr[2:].lower().rjust(64, "0")
+    raw = rpc_call(rpc, "eth_call", [{"to": contract, "data": data}, "latest"])
+    if not raw or raw == "0x":
+        return None
+    try:
+        return int(raw, 16)
+    except ValueError:
+        return None
+
+
+def normalize_balance(raw: Optional[int], decimals: int) -> Optional[float]:
+    if raw is None:
+        return None
+    return int(raw) / (10 ** int(decimals))
+
+
+# ---- L1: on-chain sampler --------------------------------------------------
+
+def sample_onchain(entry: Dict) -> Optional[float]:
+    """Return current burned balance for a watchlist entry, or None on failure."""
+    if entry.get("mode") == "native":
+        raw = eth_get_balance(entry["rpc"], entry["burn_addr"])
+    else:  # erc20
+        raw = erc20_balance_of(entry["rpc"], entry["contract"], entry["burn_addr"])
+    return normalize_balance(raw, entry.get("decimals", 18))
+
+
+# ---- L2: CMC supply cross-check --------------------------------------------
+
+def fetch_cmc_supply(slug: str) -> Optional[Dict]:
+    """maxSupply / totalSupply / circulatingSupply from CMC web API (no key)."""
     try:
         resp = httpx.get(
-            COINGECKO_PRICE,
-            params={
-                "ids": "binancecoin,ethereum,okb,leo-token,kucoin-shares,cro,crypto-com-chain,near,aptos",
-                "vs_currencies": "usd",
-                "include_24hr_change": "true",
-                "include_7d_change": "true",
-                "include_30d_change": "true",
-            },
-            timeout=15,
+            f"https://api.coinmarketcap.com/data-api/v3/cryptocurrency/detail?slug={slug}",
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=10,
         )
-        if resp.status_code == 200:
-            prices = resp.json()
-            name_map = {
-                "binancecoin": "BNB",
-                "ethereum": "ETH",
-                "okb": "OKB",
-                "leo-token": "LEO",
-                "kucoin-shares": "KCS",
-                "cro": "CRO",
-                "crypto-com-chain": "CRO",
-                "near": "NEAR",
-                "aptos": "APT",
-            }
-            for tid, sym in name_map.items():
-                if tid in prices:
-                    p = prices[tid]
-                    burns.append({
-                        "symbol": sym,
-                        "name": sym,
-                        "price": p.get("usd", 0),
-                        "price_change_7d": p.get("usd_7d_change"),
-                        "price_change_30d": p.get("usd_30d_change"),
-                        "source": "coingecko_price",
+        if resp.status_code != 200:
+            return None
+        stats = resp.json().get("data", {}).get("statistics", {})
+        return {
+            "max": stats.get("maxSupply"),
+            "total": stats.get("totalSupply"),
+            "circ": stats.get("circulatingSupply"),
+        }
+    except Exception as e:
+        logger.debug("CMC %s failed: %s", slug, e)
+        return None
+
+
+# ---- L3: Binance announcements ---------------------------------------------
+
+BINANCE_CMS = "https://www.binance.com/bapi/composite/v1/public/cms/article/list/query"
+BURN_KEYWORDS = ("burn", "buyback", "buy back", "auto-burn")
+
+
+def fetch_binance_announcements() -> List[Dict]:
+    """Scan recent Binance announcement articles for burn/buyback mentions."""
+    hits = []
+    try:
+        for page in (1, 2, 3):
+            resp = httpx.get(
+                BINANCE_CMS,
+                params={"type": 1, "pageNo": page, "pageSize": 30},
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=10,
+            )
+            if resp.status_code != 200:
+                continue
+            data = resp.json()
+            if data.get("code") != "000000":
+                continue
+            for art in data.get("data", {}).get("articles", []):
+                title = art.get("title", "")
+                tl = title.lower()
+                if any(k in tl for k in BURN_KEYWORDS):
+                    hits.append({
+                        "title": title,
+                        "date": art.get("releaseDate", ""),
+                        "url": f"https://www.binance.com/en/support/announcement/{art.get('code', '')}",
                     })
     except Exception as e:
-        logger.warning("CoinGecko price fetch failed: %s", e)
+        logger.debug("Binance CMS failed: %s", e)
+    return hits
 
-    # 2. Trending — often carries burn/buyback narratives
+
+# ---- L4: news RSS -----------------------------------------------------------
+
+NEWS_FEEDS = [
+    ("CoinDesk",  "https://www.coindesk.com/arc/outboundfeeds/rss/"),
+    ("CoinTelegraph", "https://cointelegraph.com/rss"),
+    ("Decrypt",   "https://decrypt.co/feed"),
+]
+
+
+def scan_news_feed(name: str, url: str) -> List[Dict]:
+    hits = []
     try:
-        resp = httpx.get(COINGECKO_TRENDING, timeout=15)
-        if resp.status_code == 200:
-            for c in resp.json().get("coins", []):
-                item = c.get("item", {})
-                burns.append({
-                    "symbol": item.get("symbol", "").upper(),
-                    "name": item.get("name", ""),
-                    "price": item.get("price_btc"),
-                    "price_change_7d": None,
-                    "price_change_30d": None,
-                    "market_cap_rank": item.get("market_cap_rank"),
-                    "source": "coingecko_trending",
-                })
+        resp = httpx.get(url, follow_redirects=True,
+                         headers={"User-Agent": "Mozilla/5.0"}, timeout=12)
+        if resp.status_code != 200:
+            return hits
+        root = ElementTree.fromstring(resp.text)
+        for item in root.iter("item"):
+            title = (item.findtext("title") or "").strip()
+            tl = title.lower()
+            if any(k in tl for k in BURN_KEYWORDS):
+                link = (item.findtext("link") or "").strip()
+                hits.append({"title": title[:160], "url": link, "source": name})
     except Exception as e:
-        logger.warning("CoinGecko trending fetch failed: %s", e)
-
-    return burns
-
-
-def get_current_gem_candidates() -> List[str]:
-    """Get symbols from the current gem scanner top picks (with timeout)."""
-    try:
-        import sys
-        sys.path.insert(0, "/home/hermes/BacktestingMCP")
-        from src.edge_scanner.gem_scanner import scan_gems
-        # Use a very limited scan to avoid hanging
-        candidates = scan_gems(pages=1, start_page=1)
-        return [c.symbol for c in candidates[:30]]
-    except Exception as e:
-        logger.warning("Could not fetch gem candidates: %s", e)
-        return []
+        logger.debug("Feed %s failed: %s", name, e)
+    return hits
 
 
-def check_burns_on_gems() -> List[Dict]:
-    """Check if any of our gem candidates have active burn programs."""
-    gem_symbols = get_current_gem_candidates()
-    if not gem_symbols:
-        return []
+# ---- State handling ---------------------------------------------------------
 
-    # Get burn events
-    burns = get_burn_events_from_tokenomist()
-    if not burns:
-        burns = get_burn_events_from_coingecko()
-
-    # Cross-reference with gem candidates
-    matches = []
-    for burn in burns:
-        if burn.get("symbol") in gem_symbols:
-            matches.append(burn)
-
-    return matches
+def load_state() -> Dict:
+    if STATE_PATH.exists():
+        try:
+            return json.loads(STATE_PATH.read_text())
+        except Exception:
+            pass
+    return {"onchain": {}, "cmc": {}}
 
 
-def format_burn_report(burns: List[Dict], gem_matches: List[Dict]) -> str:
-    """Format burn events for Telegram."""
-    lines = [
-        "🔥 *Burn Event Tracker — {}*".format(datetime.now().strftime("%Y-%m-%d")),
-        "",
-    ]
+def save_state(state: Dict):
+    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    STATE_PATH.write_text(json.dumps(state, indent=2))
 
-    if gem_matches:
-        lines.append("*Active burns on your gem candidates:*")
+
+# ---- Report formatting ------------------------------------------------------
+
+def fmt_num(v: Optional[float]) -> str:
+    if v is None:
+        return "N/A"
+    if abs(v) >= 1e12:
+        return f"{v/1e12:,.2f}T"
+    if abs(v) >= 1e9:
+        return f"{v/1e9:,.2f}B"
+    if abs(v) >= 1e6:
+        return f"{v/1e6:,.2f}M"
+    if abs(v) >= 1e3:
+        return f"{v/1e3:,.2f}K"
+    return f"{v:,.2f}"
+
+
+def derived_burn_str(s: Dict) -> str:
+    """max - total, shown only when the gap is meaningful (>1% of supply)."""
+    if s.get("max") and s.get("total"):
+        gap = s["max"] - s["total"]
+        if gap > 0 and gap > 0.01 * s["total"]:
+            return f" | derived burned {fmt_num(gap)}"
+    return ""
+
+
+def build_report(onchain_rows: List[str], cmc_rows: List[str],
+                 anns: List[Dict], news: List[Dict], first_run: bool) -> str:
+    d = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    lines = [f"🔥 *Burn / Buyback Tracker — {d}*", ""]
+
+    if first_run:
+        lines.append("_Baseline recorded — deltas start next run._")
         lines.append("")
-        for b in gem_matches[:10]:
-            sym = b.get("symbol", "?")
-            val = b.get("value_7d", b.get("price", 0))
-            change = b.get("change_pct", b.get("price_change_7d", 0))
-            val_str = f"${val:,.0f}" if isinstance(val, (int, float)) and val > 0 else "N/A"
-            change_str = f"{change:+.0f}%" if isinstance(change, (int, float)) else ""
-            lines.append(f"  \u2022 {sym} \u2014 {val_str} burned (7d) {change_str}")
+
+    lines.append("📡 *On-chain (exact, since last run):*")
+    lines.extend(onchain_rows or ["  _no data / rpc unreachable_"])
 
     lines.append("")
-    lines.append("*Market Overview:*")
-    lines.append("")
+    lines.append("📊 *Supply cross-check (CMC):*")
+    lines.extend(cmc_rows or ["  _no data_"])
 
-    # Try global data
-    try:
-        resp = httpx.get(COINGECKO_GLOBAL, timeout=10)
-        if resp.status_code == 200:
-            d = resp.json().get("data", {})
-            mcap = d.get("total_market_cap", {}).get("usd", 0)
-            vol = d.get("total_volume", {}).get("usd", 0)
-            btc_dom = d.get("market_cap_percentage", {}).get("btc", 0)
-            eth_dom = d.get("market_cap_percentage", {}).get("eth", 0)
-            lines.append(f"  \u2022 Total MC: ${mcap:,.0f}  |  24h Vol: ${vol:,.0f}")
-            lines.append(f"  \u2022 BTC Dom: {btc_dom:.1f}%  |  ETH Dom: {eth_dom:.1f}%")
-    except Exception:
-        pass
-
-    if burns:
+    if anns:
         lines.append("")
-        lines.append("*Tracked Burn Tokens:*")
+        lines.append("📢 *Official announcements:*")
+        for a in anns[:5]:
+            lines.append(f"  • {a['title'][:80]}")
+            if a.get("url"):
+                lines.append(f"    {a['url']}")
+
+    if news:
         lines.append("")
-        # Group by source for clarity
-        price_based = [b for b in burns if b.get("source") == "coingecko_price"]
-        trending = [b for b in burns if b.get("source") == "coingecko_trending"]
-
-        if price_based:
-            lines.append("_Known burn/buyback tokens:_")
-            for b in price_based:
-                sym = b.get("symbol", "?")
-                price = b.get("price", 0)
-                d7 = b.get("price_change_7d")
-                d30 = b.get("price_change_30d")
-                price_str = f"${price:,.2f}" if isinstance(price, (int, float)) and price > 0 else "N/A"
-                d7s = f"{d7:+.2f}%" if isinstance(d7, (int, float)) else "N/A"
-                d30s = f"{d30:+.2f}%" if isinstance(d30, (int, float)) else "N/A"
-                lines.append(f"  \u2022 {sym:6s} {price_str:>10s}  |  7d: {d7s:>8s}  |  30d: {d30s:>8s}")
-
-        if trending:
-            lines.append("")
-            lines.append("_Trending coins (burn narrative watchlist):_")
-            for b in trending[:10]:
-                sym = b.get("symbol", "?")
-                name = b.get("name", "")
-                rank = b.get("market_cap_rank", "?")
-                lines.append(f"  \u2022 {sym:8s} {name:20s} rank: #{rank}")
-    else:
-        lines.append("No burn data available at this time.")
+        lines.append("📰 *News (burn/buyback):*")
+        for n in news[:6]:
+            lines.append(f"  • [{n['source']}] {n['title']}")
+            if n.get("url"):
+                lines.append(f"    {n['url']}")
 
     lines.append("")
-    lines.append("_Source: CoinGecko API_")
-
+    lines.append("_Sources: on-chain RPCs, CMC, Binance CMS, RSS feeds | weekly_")
     return "\n".join(lines)
 
 
-def run_burn_check() -> str:
-    """Full burn check pipeline."""
-    burns = get_burn_events_from_tokenomist()
-    if not burns:
-        logger.info("Tokenomist failed, falling back to CoinGecko")
-        burns = get_burn_events_from_coingecko()
+# ---- Main pipeline ----------------------------------------------------------
 
-    # Skip gem scanner cross-reference — it triggers CoinGecko rate limits
-    # on individual coin lookups. Tokenomist API is dead anyway.
-    return format_burn_report(burns, [])
+def run_burn_check() -> str:
+    watchlist = json.loads(CONFIG_PATH.read_text())
+    state = load_state()
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    onchain_rows: List[str] = []
+    cmc_rows: List[str] = []
+    new_state = {"onchain": {}, "cmc": {}}
+
+    first_run = not state.get("onchain")
+
+    # L1 on-chain
+    for entry in watchlist.get("onchain", []):
+        sym = entry["symbol"]
+        bal = sample_onchain(entry)
+        prev = state.get("onchain", {}).get(sym, {}).get("balance")
+        if bal is None:
+            onchain_rows.append(f"  ⚠️ {sym}: RPC unreachable (kept baseline)")
+            new_state["onchain"][sym] = {"balance": prev, "date": today}
+            continue
+        new_state["onchain"][sym] = {"balance": bal, "date": today}
+        if prev is not None:
+            delta = bal - prev
+            if delta > 1e-9:
+                onchain_rows.append(
+                    f"  🔥 {sym}: +{fmt_num(delta)} burned since {state['onchain'][sym].get('date', 'last run')} (total {fmt_num(bal)})")
+            else:
+                onchain_rows.append(f"  • {sym}: no change (total {fmt_num(bal)})")
+        else:
+            onchain_rows.append(f"  📌 {sym}: baseline {fmt_num(bal)} (first sample)")
+
+    # L2 CMC supply
+    for entry in watchlist.get("supply_cmc", []):
+        sym = entry["symbol"]
+        s = fetch_cmc_supply(entry["slug"])
+        if not s:
+            cmc_rows.append(f"  ⚠️ {sym}: CMC unavailable")
+            continue
+        prev_total = state.get("cmc", {}).get(sym, {}).get("total")
+        new_state["cmc"][sym] = {"total": s["total"], "max": s["max"], "circ": s["circ"], "date": today}
+        derived = derived_burn_str(s)
+        if prev_total is not None and s["total"] is not None:
+            t_delta = s["total"] - prev_total
+            if t_delta < -1:
+                cmc_rows.append(f"  🔥 {sym}: supply {fmt_num(prev_total)} → {fmt_num(s['total'])} (-{fmt_num(-t_delta)} burned)")
+            else:
+                cmc_rows.append(f"  • {sym}: total {fmt_num(s['total'])}{derived}")
+        else:
+            cmc_rows.append(f"  📌 {sym}: baseline total {fmt_num(s['total'])}{derived}")
+
+    # L3 Binance announcements
+    anns = fetch_binance_announcements()
+
+    # L4 news feeds
+    news: List[Dict] = []
+    for name, url in NEWS_FEEDS:
+        news.extend(scan_news_feed(name, url))
+
+    save_state(new_state)
+    return build_report(onchain_rows, cmc_rows, anns, news, first_run)
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    print(run_burn_check())
