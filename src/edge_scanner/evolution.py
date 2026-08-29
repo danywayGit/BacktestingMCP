@@ -420,6 +420,15 @@ def _do_promote(config_version: str) -> None:
     with open(filepath, 'w') as f:
         f.write(new_content)
 
+    # Sync DB active flag so `edge configs` always reflects ACTIVE_CONFIG
+    try:
+        from src.edge_scanner.scoring_config import ALL_CONFIGS
+        from src.data.database import db
+        db.save_scoring_config(ALL_CONFIGS[config_version])
+        db.activate_scoring_config(config_version)
+    except Exception as e:
+        logger.warning("Could not sync DB active flag after promotion: %s", e)
+
     logger.info("Promoted %s → ACTIVE_CONFIG (%s)", const_name, config_version)
 
 
