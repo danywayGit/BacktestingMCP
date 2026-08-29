@@ -1,55 +1,5 @@
 {
-  "TRX": {
-    "outlook": "Bullish",
-    "pattern": "Approaching Support",
-    "stage": "Emerging"
-  },
-  "TON": {
-    "outlook": "Bullish",
-    "pattern": "Falling Wedge",
-    "stage": "Breakout"
-  },
-  "SHIB": {
-    "outlook": "Neutral",
-    "pattern": "Channel Down",
-    "stage": "Breakout"
-  },
-  "LDO": {
-    "outlook": "Bullish",
-    "pattern": "Resistance Breakout",
-    "stage": "Breakout"
-  },
-  "INJ": {
-    "outlook": "Bullish",
-    "pattern": "Pullback in Uptrend",
-    "stage": "Emerging"
-  },
-  "ICP": {
-    "outlook": "Neutral",
-    "pattern": "Approaching Resistance",
-    "stage": "Emerging"
-  },
-  "FLR": {
-    "outlook": "Bearish",
-    "pattern": "Overbought at Resistance",
-    "stage": "Emerging"
-  },
-  "FIL": {
-    "outlook": "Bearish",
-    "pattern": "Approaching Resistance",
-    "stage": "Emerging"
-  },
-  "FET": {
-    "outlook": "Bullish",
-    "pattern": "Falling Wedge",
-    "stage": "Breakout"
-  },
-  "DOGE": {
-    "outlook": "Bearish",
-    "pattern": "Overbought at Resistance",
-    "stage": "Emerging"
-  },
-  "AAVE": {
+  "XMR": {
     "outlook": "Bullish",
     "pattern": "Resistance Breakout",
     "stage": "Breakout"
@@ -64,29 +14,94 @@
     "pattern": "Resistance Breakout",
     "stage": "Breakout"
   },
-  "TIA": {
-    "outlook": "Neutral",
-    "pattern": "Symmetrical Triangle",
+  "TRX": {
+    "outlook": "Bullish",
+    "pattern": "Approaching Support",
     "stage": "Emerging"
   },
+  "TON": {
+    "outlook": "Bullish",
+    "pattern": "Falling Wedge",
+    "stage": "Breakout"
+  },
   "TAO": {
-    "outlook": "Neutral",
+    "outlook": "Bullish",
     "pattern": "Channel Down",
+    "stage": "Breakout"
+  },
+  "SOL": {
+    "outlook": "Bullish",
+    "pattern": "Resistance Breakout",
+    "stage": "Breakout"
+  },
+  "SHIB": {
+    "outlook": "Bullish",
+    "pattern": "Channel Down",
+    "stage": "Breakout"
+  },
+  "ONDO": {
+    "outlook": "Bullish",
+    "pattern": "Pullback in Uptrend",
+    "stage": "Emerging"
+  },
+  "MNT": {
+    "outlook": "Bullish",
+    "pattern": "Channel Down",
+    "stage": "Breakout"
+  },
+  "LDO": {
+    "outlook": "Bullish",
+    "pattern": "Resistance Breakout",
+    "stage": "Breakout"
+  },
+  "HYPE": {
+    "outlook": "Bullish",
+    "pattern": "Resistance Breakout",
+    "stage": "Breakout"
+  },
+  "FET": {
+    "outlook": "Bullish",
+    "pattern": "Falling Wedge",
+    "stage": "Breakout"
+  },
+  "ZEC": {
+    "outlook": "Neutral",
+    "pattern": "Overbought at Resistance",
+    "stage": "Emerging"
+  },
+  "XTZ": {
+    "outlook": "Bearish",
+    "pattern": "Channel Down",
+    "stage": "Emerging"
+  },
+  "XRP": {
+    "outlook": "Neutral",
+    "pattern": "Overbought at Resistance",
+    "stage": "Emerging"
+  },
+  "XAUT": {
+    "outlook": "Bullish",
+    "pattern": "Resistance Breakout",
+    "stage": "Breakout"
+  },
+  "VET": {
+    "outlook": "Neutral",
+    "pattern": "Resistance Breakout",
+    "stage": "Breakout"
+  },
+  "TIA": {
+    "outlook": "Bullish",
+    "pattern": "Approaching Resistance",
     "stage": "Emerging"
   },
   "SUI": {
     "outlook": "Neutral",
     "pattern": "Sideways Channel",
-    "stage": "Emerging"
-  },
-  "SOL": {
-    "outlook": "Neutral",
-    "pattern": "Overbought at Resistance",
-    "stage": "Emerging"
+    "stage": "Breakout"
   },
   "SKY": {
     "outlook": "Neutral",
-    "pattern": "Overbought at Resistance",
+    "pattern": "Approaching Resistance",
     "stage": "Emerging"
   },
   "SEI": {
@@ -108,20 +123,5 @@
     "outlook": "Bearish",
     "pattern": "Overbought at Resistance",
     "stage": "Emerging"
-  },
-  "ONDO": {
-    "outlook": "Bullish",
-    "pattern": "Bullish Flag",
-    "stage": "Emerging"
-  },
-  "NEAR": {
-    "outlook": "Bullish",
-    "pattern": "Falling Wedge",
-    "stage": "Breakout"
-  },
-  "MNT": {
-    "outlook": "Bullish",
-    "pattern": "Channel Down",
-    "stage": "Breakout"
   }
 }
