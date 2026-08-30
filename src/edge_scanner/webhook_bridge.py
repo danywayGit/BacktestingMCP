@@ -100,6 +100,28 @@ BYBIT_MAX_SIGNALS = 3                    # conservative — matches 5-symbol cap
 BYBIT_EXCHANGE = "Bybit"                 # routes to trade_bybit adapter
 BYBIT_ACCOUNT_TYPE = "Demo"              # HyroTrader 10k challenge (mainnet demo)
 
+# ── Velotrade / DXtrade route (best ALGO fit: full API, no SL mandate, no
+# consistency rule) ─────────────────────────────────────────────────────────
+# OFF by default (VELOTRADE_ROUTE=0). Do NOT enable until:
+#   1. A Velotrade API key is added to the server DB (exchange='Velotrade').
+#   2. The live DXtrade instrument list is verified (symbol mapper below).
+# Routes to the trade_dxtrade adapter via Exchange: Velotrade.
+VELOTRADE_ROUTE = _os.getenv("VELOTRADE_ROUTE", "0").strip().lower() in ("1", "true", "yes", "on")
+VELOTRADE_CONFIGS = ["5.1", "1.4", "1.5"]  # same top-WR configs as Bybit (adjust when Velotrade has its own stat history)
+VELOTRADE_MAX_SIGNALS = 3
+VELOTRADE_EXCHANGE = "Velotrade"           # routes to trade_dxtrade adapter
+VELOTRADE_ACCOUNT_TYPE = "Standard"        # live funded account (or set to Demo for testing)
+# DXtrade crypto instruments are <BASE>USD with NO slash (BTCUSD, SOLUSD,
+# DOGEUSD) — NOT Binance-style baseUSDT and NOT base/USD. Quantities are raw
+# coin units. Verified live on account default:130158525 (Aug 2026).
+def dx_symbol(base_or_baseusdt: str) -> str:
+    b = base_or_baseusdt.upper()
+    if b.endswith("USDT"):
+        b = b[:-4]
+    if b.endswith("USD"):
+        b = b[:-3]
+    return f"{b}USD"
+
 # ── Live price cache ──
 _live_price_cache: Dict[str, float] = {}
 _live_price_cache_time: Optional[datetime] = None
@@ -319,7 +341,14 @@ def _check_market_regime(direction: str, market: str = "BTC") -> Tuple[bool, str
 
 
 # ── Selection ──
-def select_signals(bybit: bool = False, skip_symbols: Optional[Set[str]] = None) -> List[Dict]:
+def select_signals(route: str = "binance", skip_symbols: Optional[Set[str]] = None) -> List[Dict]:
+    """Select pending signals for a route: 'binance' | 'bybit' | 'velotrade'.
+
+    Each route uses its own config subset + batch cap and (for non-Binance)
+    skips symbols already claimed by other routes this cycle, so accounts
+    stay independent (keep-skip rule).
+    """
+    route = (route or "binance").lower()
     from src.integrations.binance_symbols import is_on_binance_futures, is_futures_symbol_tradable
     testnet_check = TESTNET_MODE
     cooldown_symbols = get_open_position_symbols()
@@ -328,19 +357,23 @@ def select_signals(bybit: bool = False, skip_symbols: Optional[Set[str]] = None)
     selected_configs = set()
     sent_count = 0
 
-    # Bybit route: only the best configs, smaller batch, skip symbols already
-    # sent to Binance this cycle (dual-route keeps accounts independent).
+    # Route config: config subset, max batch, mainnet-demo (skip TestNet list).
     priority = CONFIG_PRIORITY
     max_batch = MAX_SIGNALS_PER_BATCH
-    if bybit:
+    route_label = "BINANCE"
+    if route == "bybit":
         priority = [p for p in CONFIG_PRIORITY if p[0] in BYBIT_CONFIGS]
         max_batch = BYBIT_MAX_SIGNALS
-        if skip_symbols:
-            cooldown_symbols = set(cooldown_symbols) | set(skip_symbols)
-        # Bybit is a MAINNET demo account — the Binance-TESTNET symbol list
-        # is irrelevant and would wrongly reject valid Bybit symbols.
+        route_label = "BYBIT"
         testnet_check = False
-        logger.info("  [BYBIT ROUTE] configs=%s max_batch=%d", [p[0] for p in priority], max_batch)
+    elif route == "velotrade":
+        priority = [p for p in CONFIG_PRIORITY if p[0] in VELOTRADE_CONFIGS]
+        max_batch = VELOTRADE_MAX_SIGNALS
+        route_label = "VELOTRADE"
+        testnet_check = False
+    if skip_symbols:
+        cooldown_symbols = set(cooldown_symbols) | set(skip_symbols)
+    logger.info("  [%s ROUTE] configs=%s max_batch=%d", route_label, [p[0] for p in priority], max_batch)
 
     for version, min_score, label in priority:
         if sent_count >= max_batch:
@@ -398,30 +431,32 @@ def select_signals(bybit: bool = False, skip_symbols: Optional[Set[str]] = None)
             # webhook Direction field). abs() also protects against any legacy
             # negative rows still in the 2h window.
             sig["composite_score"] = min(abs(sig["composite_score"]), MAX_SCORE_CAP)
-            if not bybit:
+            if route == "binance":
                 if not is_on_binance_futures(sym):
                     logger.info("  %s: SKIPPED %s %s — not on Binance Futures", label, sig["direction"], sym)
                     continue
                 if not is_futures_symbol_tradable(sym):
                     logger.info("  %s: SKIPPED %s %s — not TRADING", label, sig["direction"], sym)
                     continue
-            # Bybit/HyroTrader LOW-CAP HARD RULE (Aug 2026): no symbol with
-            # mcap < $300M or 24h vol < $1M/day. Fail-closed — unknown symbols
-            # are DENIED. Applies on the Bybit route (and if EXCHANGE is
-            # Bybit/HyroTrader); the Binance path is unchanged.
-            if bybit or EXCHANGE.lower() in ("bybit", "hyrotrader"):
+            # Bybit/HyroTrader + Velotrade LOW-CAP HARD RULE (Aug 2026): no
+            # symbol with mcap < $300M or 24h vol < $1M/day. Fail-closed —
+            # unknown symbols are DENIED. The Binance path is unchanged.
+            if route in ("bybit", "velotrade") or EXCHANGE.lower() in ("bybit", "hyrotrader"):
                 try:
                     from src.edge_scanner.liquidity_filter import is_liquid_for_bybit, is_on_bybit_demo
                     liq_ok, liq_reason = is_liquid_for_bybit(sym + "USDT")
                     if not liq_ok:
                         logger.info("  %s: SKIPPED %s %s — %s", label, sig["direction"], sym, liq_reason)
                         continue
-                    # Bybit DEMO universe check — the demo account only trades
-                    # a subset of Bybit pairs. Fail-closed: unknown => deny
-                    # (prevents bot error 110074 'contract not live').
-                    if not is_on_bybit_demo(sym + "USDT"):
-                        logger.info("  %s: SKIPPED %s %s — not in Bybit DEMO universe", label, sig["direction"], sym)
-                        continue
+                    if route == "bybit":
+                        # Bybit DEMO universe check — the demo account only
+                        # trades a subset of Bybit pairs. Fail-closed: unknown
+                        # => deny (prevents bot error 110074 'contract not
+                        # live'). Velotrade uses the DXtrade instrument list
+                        # instead (checked at the bot, trade_dxtrade).
+                        if not is_on_bybit_demo(sym + "USDT"):
+                            logger.info("  %s: SKIPPED %s %s — not in Bybit DEMO universe", label, sig["direction"], sym)
+                            continue
                 except Exception as e:
                     logger.warning("  liquidity_filter error for %s: %s — DENYING (fail-closed)", sym, e)
                     continue
@@ -493,7 +528,8 @@ def _compute_tier_multiplier(signal: Dict) -> float:
         return 1.0
 
 
-def format_webhook_msg(signal: Dict, bybit: bool = False) -> str:
+def format_webhook_msg(signal: Dict, route: str = "binance") -> str:
+    route = (route or "binance").lower()
     action = "OpenLong" if signal["direction"].upper() == "LONG" else "OpenShort"
     side = "BUY" if signal["direction"].upper() == "LONG" else "SELL"
     # Score is ALWAYS positive; direction is explicit via Action/Side/Direction.
@@ -503,13 +539,22 @@ def format_webhook_msg(signal: Dict, bybit: bool = False) -> str:
     # Bybit/HyroTrader route: stamp Exchange=Bybit + AccountType=Demo so the
     # bot's router executes on the challenge account (activates 5-concurrent,
     # 0.5% risk, daily -3% / challenge -5% breakers, low-cap filter).
-    exchange = BYBIT_EXCHANGE if bybit else EXCHANGE
-    account_type = BYBIT_ACCOUNT_TYPE if bybit else ACCOUNT_TYPE
+    # Velotrade route: stamp Exchange=Velotrade + Standard so the router uses
+    # the trade_dxtrade adapter, and map the symbol to DXtrade's <BASE>/USD.
+    if route == "bybit":
+        exchange, account_type = BYBIT_EXCHANGE, BYBIT_ACCOUNT_TYPE
+        symbol = f"{signal['symbol']}USDT"
+    elif route == "velotrade":
+        exchange, account_type = VELOTRADE_EXCHANGE, VELOTRADE_ACCOUNT_TYPE
+        symbol = dx_symbol(signal["symbol"])
+    else:
+        exchange, account_type = EXCHANGE, ACCOUNT_TYPE
+        symbol = f"{signal['symbol']}USDT"
     lines = [
         f"Username: Danyway", f"AccountType: {account_type}", f"MarketType: {MARKET_TYPE}",
         f"Exchange: {exchange}", f"Strategy: {STRATEGY}", f"Action: {action}", f"Side: {side}",
         f"Direction: {signal['direction'].upper()}",
-        f"Symbol: {signal['symbol']}USDT", f"Entry: {signal['entry_price']}",
+        f"Symbol: {symbol}", f"Entry: {signal['entry_price']}",
         f"StopLoss: {signal['stop_price']}", f"TakeProfit: {signal['target_price']}",
         f"Score: {score}", f"ConfigVersion: {signal['config_version']}",
         f"TierMultiplier: {_compute_tier_multiplier(signal)}",
@@ -517,8 +562,12 @@ def format_webhook_msg(signal: Dict, bybit: bool = False) -> str:
     return "\n".join(lines)
 
 
-def send_signal_to_webhook(signal: Dict, bybit: bool = False) -> bool:
-    msg_str = format_webhook_msg(signal, bybit=bybit)
+_ROUTE_LABEL = {"binance": "Binance", "bybit": "Bybit", "velotrade": "Velotrade"}
+
+
+def send_signal_to_webhook(signal: Dict, route: str = "binance") -> bool:
+    route = (route or "binance").lower()
+    msg_str = format_webhook_msg(signal, route=route)
     payload = {"key": WEBHOOK_KEY, "telegram_alert_type": "trading_bot", "msg": msg_str}
     
     last_err = ""
@@ -529,7 +578,7 @@ def send_signal_to_webhook(signal: Dict, bybit: bool = False) -> bool:
                 logger.info("  ✅ Sent %s %s @ %.2f (score=%.1f, %s, %s, attempt=%d)",
                             signal["direction"], signal["symbol"], signal["entry_price"],
                             signal["composite_score"], signal.get("_priority_label", ""),
-                            "Bybit" if bybit else "Binance", attempt+1)
+                            _ROUTE_LABEL.get(route, route), attempt+1)
                 mark_signal_sent(signal["id"])
                 return True
             elif resp.status_code == 503:
@@ -565,7 +614,7 @@ def run_bridge(dry_run: bool = False) -> int:
     bybit_selected = []
     bybit_sent_symbols = set()
     if BYBIT_ROUTE:
-        bybit_selected = select_signals(bybit=True)
+        bybit_selected = select_signals(route="bybit")
         if not bybit_selected:
             logger.info("Nothing to send (Bybit)")
         elif dry_run:
@@ -579,7 +628,7 @@ def run_bridge(dry_run: bool = False) -> int:
         else:
             sent_count = 0
             for sig in bybit_selected:
-                if send_signal_to_webhook(sig, bybit=True):
+                if send_signal_to_webhook(sig, route="bybit"):
                     sent_count += 1
                     bybit_sent_symbols.add(sig["symbol"])
             logger.info("Sent %d/%d Bybit signals", sent_count, len(bybit_selected))
@@ -591,7 +640,7 @@ def run_bridge(dry_run: bool = False) -> int:
     # symbols Bybit SUCCESSFULLY sent (or would-send in dry-run) are skipped —
     # a FAILED Bybit send (all retries exhausted, webhook_sent_at stays NULL)
     # must NOT burn the symbol for Binance, or the signal is dropped entirely.
-    selected = select_signals(bybit=False, skip_symbols=bybit_sent_symbols)
+    selected = select_signals(route="binance", skip_symbols=bybit_sent_symbols)
     if not selected:
         logger.info("Nothing to send (Binance)")
     elif dry_run:
@@ -604,13 +653,37 @@ def run_bridge(dry_run: bool = False) -> int:
     else:
         sent_count = 0
         for sig in selected:
-            if send_signal_to_webhook(sig, bybit=False):
+            if send_signal_to_webhook(sig, route="binance"):
                 sent_count += 1
         logger.info("Sent %d/%d Binance signals", sent_count, len(selected))
 
-    if dry_run:
-        return len(bybit_selected) + len(selected)
-    return len(bybit_selected) + len(selected)
+    # ── Pass 3: Velotrade / DXtrade (OFF until creds + universe verified) ─
+    # Same keep-skip rule: skips symbols claimed by Bybit and Binance this
+    # cycle. Uses the trade_dxtrade adapter and <BASE>/USD symbols. Default
+    # VELOTRADE_ROUTE=0 so a missing Velotrade key never breaks the bridge.
+    vt_selected = []
+    if VELOTRADE_ROUTE:
+        vt_skip = set(bybit_sent_symbols) | set(s["symbol"] for s in selected)
+        vt_selected = select_signals(route="velotrade", skip_symbols=vt_skip)
+        if not vt_selected:
+            logger.info("Nothing to send (Velotrade)")
+        elif dry_run:
+            logger.info("=== DRY-RUN — would send %d Velotrade signals ===", len(vt_selected))
+            for sig in vt_selected:
+                logger.info("  %s %s -> %s @ %.2f (score=%.1f, R:R=%.2f, %s) -> Velotrade/%s",
+                            sig["direction"], sig["symbol"], dx_symbol(sig["symbol"]),
+                            sig["entry_price"], sig["composite_score"], sig.get("_effective_rr", 0),
+                            sig.get("_priority_label", ""), VELOTRADE_ACCOUNT_TYPE)
+        else:
+            sent_count = 0
+            for sig in vt_selected:
+                if send_signal_to_webhook(sig, route="velotrade"):
+                    sent_count += 1
+            logger.info("Sent %d/%d Velotrade signals", sent_count, len(vt_selected))
+    else:
+        logger.info("Velotrade route DISABLED (VELOTRADE_ROUTE=0)")
+
+    return len(bybit_selected) + len(selected) + len(vt_selected)
 
 
 if __name__ == "__main__":
