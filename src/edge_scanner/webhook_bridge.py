@@ -563,6 +563,7 @@ def run_bridge(dry_run: bool = False) -> int:
     # (Earlier version ran Binance first — it consumed + marked the shared
     # pending pool, starving Bybit of its own configs' signals. Inverted.)
     bybit_selected = []
+    bybit_sent_symbols = set()
     if BYBIT_ROUTE:
         bybit_selected = select_signals(bybit=True)
         if not bybit_selected:
@@ -574,20 +575,23 @@ def run_bridge(dry_run: bool = False) -> int:
                             sig["direction"], sig["symbol"], sig["entry_price"],
                             sig["composite_score"], sig.get("_effective_rr", 0),
                             sig.get("_priority_label", ""))
+                bybit_sent_symbols.add(sig["symbol"])
         else:
             sent_count = 0
             for sig in bybit_selected:
                 if send_signal_to_webhook(sig, bybit=True):
                     sent_count += 1
+                    bybit_sent_symbols.add(sig["symbol"])
             logger.info("Sent %d/%d Bybit signals", sent_count, len(bybit_selected))
     else:
         logger.info("Bybit route DISABLED (BYBIT_ROUTE=0)")
 
     # ── Pass 2: Binance (all configs, skips Bybit's symbols) ──────────────
-    # Runs AFTER Bybit so they never share a symbol (keep-skip rule). The
-    # remaining configs keep flowing to Binance testnet exactly as before.
-    bybit_symbols = {sig["symbol"] for sig in bybit_selected}
-    selected = select_signals(bybit=False, skip_symbols=bybit_symbols)
+    # Runs AFTER Bybit so they never share a symbol (keep-skip rule). Only
+    # symbols Bybit SUCCESSFULLY sent (or would-send in dry-run) are skipped —
+    # a FAILED Bybit send (all retries exhausted, webhook_sent_at stays NULL)
+    # must NOT burn the symbol for Binance, or the signal is dropped entirely.
+    selected = select_signals(bybit=False, skip_symbols=bybit_sent_symbols)
     if not selected:
         logger.info("Nothing to send (Binance)")
     elif dry_run:
