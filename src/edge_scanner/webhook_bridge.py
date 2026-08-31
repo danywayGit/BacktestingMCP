@@ -111,9 +111,8 @@ BYBIT_ACCOUNT_TYPE = "Demo"              # HyroTrader 10k challenge (mainnet dem
 #   2. The live DXtrade instrument list is verified (symbol mapper below).
 # Routes to the trade_dxtrade adapter via Exchange: Velotrade.
 VELOTRADE_ROUTE = _os.getenv("VELOTRADE_ROUTE", "0").strip().lower() in ("1", "true", "yes", "on")
-# Conservative start (Didier, Aug 2026): only V1.5 (low R:R 1.2, higher TP hit
-# rate) until Velotrade shows proven stats. Expand to 5.1/1.4 once proven.
-VELOTRADE_CONFIGS = ["1.5"]  # most conservative config — low R:R, high TP hit rate
+# Conservative start (Didier, Aug 2026): V1.5 + top-WR configs 5.1/1.4.
+VELOTRADE_CONFIGS = ["5.1", "1.4", "1.5"]  # top-3 WR + conservative V1.5
 VELOTRADE_MAX_SIGNALS = 3
 VELOTRADE_EXCHANGE = "Velotrade"           # routes to trade_dxtrade adapter
 VELOTRADE_ACCOUNT_TYPE = "Standard"        # live funded account (or set to Demo for testing)
