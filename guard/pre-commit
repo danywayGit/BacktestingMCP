@@ -1,0 +1,44 @@
+#!/bin/bash
+# Git Secret Guard — pre-commit hook (HARD BLOCK)
+# Blocks any commit that tries to stage secret files or secret content.
+# Works for ANY process/agent that commits, not just Hermes.
+# Install: cp this file to .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+
+# --- Secret FILE patterns (never allowed in a commit) ---
+SECRET_FILES='(\.env(\.[a-zA-Z0-9_-]+)?$|.*secret.*|.*password.*|.*credential.*|.*_tokens?_[0-9]*\.json$|.*api[_-]?key.*\.json$|\.pem$|\.p12$|\.jks$|\.key$|\.ovpn$|id_rsa|\.git-credentials$|.*backup.*\.json$)'
+
+# --- Secret CONTENT patterns (grep staged content) ---
+SECRET_CONTENT='(ALTFINS_PASSWORD|API[_-]?KEY|SECRET[_-]?KEY|PASSWORD[[:space:]]*=|Bearer[[:space:]]+|BEGIN (RSA|OPENSSH|EC|PRIVATE) KEY|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9]{20,}|xox[bap]-[A-Za-z0-9-]{10,})'
+
+FAIL=0
+
+# 1) File-name check on staged files
+while IFS= read -r file; do
+    [ -z "$file" ] && continue
+    if echo "$file" | grep -qiE "$SECRET_FILES"; then
+        echo "❌ GIT-SECRET-GUARD: staged file looks like a secret: '$file'"
+        echo "   Move creds to a gitignored .env or a DB. Do NOT commit this file."
+        FAIL=1
+    fi
+done < <(git diff --cached --name-only)
+
+# 2) Content check on staged diff. Docs (.md/.txt that AREN'T .env) legitimately
+#    name these patterns (e.g. SECURITY.md), so skip documentation files from the
+#    CONTENT scan — the file-name check above still blocks real .env/secret files.
+STAGED_DIFF=$(git diff --cached -- . ':(exclude).gitignore' ':(exclude)*template*' ':(exclude)*.md' ':(exclude)*.txt' ':(exclude)guard/*' 2>/dev/null)
+if [ -n "$STAGED_DIFF" ]; then
+    if echo "$STAGED_DIFF" | grep -nqiE "$SECRET_CONTENT"; then
+        echo "❌ GIT-SECRET-GUARD: staged content contains a likely secret (password/api_key/token):"
+        echo "$STAGED_DIFF" | grep -inE "$SECRET_CONTENT" | head -5
+        echo "   Remove the secret. Store it in a gitignored .env or a DB."
+        FAIL=1
+    fi
+fi
+
+if [ $FAIL -ne 0 ]; then
+    echo ""
+    echo "🚫 Commit BLOCKED by git-secret-guard. Fix the files above then retry."
+    exit 1
+fi
+
+exit 0
