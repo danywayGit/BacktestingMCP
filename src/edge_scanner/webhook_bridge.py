@@ -127,6 +127,23 @@ def dx_symbol(base_or_baseusdt: str) -> str:
         b = b[:-3]
     return f"{b}USD"
 
+# ── Bitfunded / TinyTrader route (15k Stage-1 challenge, UserID 44) ────────
+# OFF by default (BITFUNDED_ROUTE=0). Do NOT enable until:
+#   1. The Bitfunded circuit breaker (risk/bitfunded_risk.py) is DEPLOYED on
+#      the bot server — daily -4% / max -8%, UTC+8 reset, fail-closed.
+#   2. A live dry-run (bridge --dry-run + /api/bitfunded_risk read-only)
+#      confirms balance, keys, and the breaker all resolve.
+# Stamps Exchange=Bitfunded + AccountType=Standard so the bot's router uses
+# the trade_bitfunded adapter on the Danyway_Bitfunded (UserID 44) challenge,
+# whose 5% daily / 10% max / 15% weekly RiskLimits and the breaker protect it.
+BITFUNDED_ROUTE = _os.getenv("BITFUNDED_ROUTE", "0").strip().lower() in ("1", "true", "yes", "on")
+# Conservative start (Didier, Aug 2026): same top-WR set as Velotrade/HyroTrader.
+BITFUNDED_CONFIGS = ["5.1", "1.4", "1.5"]  # top-3 WR + conservative V1.5
+BITFUNDED_MAX_SIGNALS = 3
+BITFUNDED_EXCHANGE = "Bitfunded"          # routes to trade_bitfunded adapter
+BITFUNDED_ACCOUNT_TYPE = "Standard"       # live simulated account (15k Stage 1)
+BITFUNDED_USER_ID = 44                    # Danyway_Bitfunded (risk isolation)
+
 # ── Live price cache ──
 _live_price_cache: Dict[str, float] = {}
 _live_price_cache_time: Optional[datetime] = None
@@ -274,6 +291,21 @@ def get_live_position_symbols(exchange: str = "Binance", user_id: Optional[int] 
             data = resp.json()
             pos = data.get("open_positions") or []
             result = {str(p.get("symbol", "")).replace("USDT", "").upper() for p in pos if p.get("symbol")}
+        elif exchange.lower() == "bitfunded":
+            # Bitfunded/TinyTrader account is user 44 (Danyway_Bitfunded).
+            uid = user_id or 44
+            resp = _get(f"{base}/api/bitfunded_risk",
+                        {"key": WEBHOOK_KEY, "account_type": "Standard", "user_id": uid})
+            if not isinstance(resp, httpx.Response) or resp.status_code != 200:
+                logger.warning("get_live_position_symbols(Bitfunded): no response")
+                return set()
+            data = resp.json()
+            pos = data.get("open_positions") or []
+            result = set()
+            for p in pos:
+                sym = str(p.get("instrument") or p.get("symbol") or "").replace("USDT", "").upper()
+                if sym:
+                    result.add(sym)
         else:
             # Binance
             resp = _get(f"{base}/api/positions", {"key": WEBHOOK_KEY})
@@ -465,8 +497,9 @@ def select_signals(route: str = "binance", skip_symbols: Optional[Set[str]] = No
     from src.integrations.binance_symbols import is_on_binance_futures, is_futures_symbol_tradable
     testnet_check = TESTNET_MODE
     # Route → exchange for live-position dedup: Binance and Velotrade both map
-    # to the Binance bot positions; Bybit maps to the HyroTrader/Demo positions.
-    _exchange = "Bybit" if route == "bybit" else "Binance"
+    # to the Binance bot positions; Bybit maps to the HyroTrader/Demo positions;
+    # Bitfunded maps to the Bitfunded (UserID 44) positions.
+    _exchange = "Bybit" if route == "bybit" else ("Bitfunded" if route == "bitfunded" else "Binance")
     cooldown_symbols = get_open_position_symbols(_exchange)
     selected = []
     selected_symbols = set()
@@ -486,6 +519,11 @@ def select_signals(route: str = "binance", skip_symbols: Optional[Set[str]] = No
         priority = [p for p in CONFIG_PRIORITY if p[0] in VELOTRADE_CONFIGS]
         max_batch = VELOTRADE_MAX_SIGNALS
         route_label = "VELOTRADE"
+        testnet_check = False
+    elif route == "bitfunded":
+        priority = [p for p in CONFIG_PRIORITY if p[0] in BITFUNDED_CONFIGS]
+        max_batch = BITFUNDED_MAX_SIGNALS
+        route_label = "BITFUNDED"
         testnet_check = False
     if skip_symbols:
         cooldown_symbols = set(cooldown_symbols) | set(skip_symbols)
@@ -554,12 +592,13 @@ def select_signals(route: str = "binance", skip_symbols: Optional[Set[str]] = No
                 if not is_futures_symbol_tradable(sym):
                     logger.info("  %s: SKIPPED %s %s — not TRADING", label, sig["direction"], sym)
                     continue
-            # Bybit/HyroTrader + Velotrade LOW-CAP HARD RULE (Aug 2026): no
-            # symbol with mcap < $300M or 24h vol < $1M/day. Fail-closed —
-            # unknown symbols are DENIED. The Binance path is unchanged.
-            if route in ("bybit", "velotrade") or EXCHANGE.lower() in ("bybit", "hyrotrader"):
+            # Bybit/HyroTrader + Velotrade + Bitfunded LOW-CAP HARD RULE (Aug
+            # 2026): no symbol with mcap < $300M or 24h vol < $1M/day.
+            # Fail-closed — unknown symbols are DENIED. The Binance path is
+            # unchanged.
+            if route in ("bybit", "velotrade", "bitfunded") or EXCHANGE.lower() in ("bybit", "hyrotrader", "bitfunded"):
                 try:
-                    from src.edge_scanner.liquidity_filter import is_liquid_for_bybit, is_on_bybit_demo
+                    from src.edge_scanner.liquidity_filter import is_liquid_for_bybit, is_on_bybit_demo, is_on_bitfunded_universe
                     liq_ok, liq_reason = is_liquid_for_bybit(sym + "USDT")
                     if not liq_ok:
                         logger.info("  %s: SKIPPED %s %s — %s", label, sig["direction"], sym, liq_reason)
@@ -572,6 +611,14 @@ def select_signals(route: str = "binance", skip_symbols: Optional[Set[str]] = No
                         # instead (checked at the bot, trade_dxtrade).
                         if not is_on_bybit_demo(sym + "USDT"):
                             logger.info("  %s: SKIPPED %s %s — not in Bybit DEMO universe", label, sig["direction"], sym)
+                            continue
+                    if route == "bitfunded":
+                        # Bitfunded instrument-universe check — only symbols
+                        # the TinyTrader list upstreams are sent. Fail-closed:
+                        # unknown => deny (prevents a trade that Bitfunded
+                        # can't place). Public instruments list, no auth.
+                        if not is_on_bitfunded_universe(sym + "USDT"):
+                            logger.info("  %s: SKIPPED %s %s — not in Bitfunded universe", label, sig["direction"], sym)
                             continue
                 except Exception as e:
                     logger.warning("  liquidity_filter error for %s: %s — DENYING (fail-closed)", sym, e)
@@ -663,6 +710,9 @@ def format_webhook_msg(signal: Dict, route: str = "binance") -> str:
     elif route == "velotrade":
         exchange, account_type = VELOTRADE_EXCHANGE, VELOTRADE_ACCOUNT_TYPE
         symbol = dx_symbol(signal["symbol"])
+    elif route == "bitfunded":
+        exchange, account_type = BITFUNDED_EXCHANGE, BITFUNDED_ACCOUNT_TYPE
+        symbol = f"{signal['symbol']}USDT"
     else:
         exchange, account_type = EXCHANGE, ACCOUNT_TYPE
         symbol = f"{signal['symbol']}USDT"
@@ -690,7 +740,7 @@ def format_webhook_msg(signal: Dict, route: str = "binance") -> str:
     return "\n".join(lines)
 
 
-_ROUTE_LABEL = {"binance": "Binance", "bybit": "Bybit", "velotrade": "Velotrade"}
+_ROUTE_LABEL = {"binance": "Binance", "bybit": "Bybit", "velotrade": "Velotrade", "bitfunded": "Bitfunded"}
 
 
 def send_signal_to_webhook(signal: Dict, route: str = "binance") -> bool:
@@ -811,7 +861,38 @@ def run_bridge(dry_run: bool = False) -> int:
     else:
         logger.info("Velotrade route DISABLED (VELOTRADE_ROUTE=0)")
 
-    return len(bybit_selected) + len(selected) + len(vt_selected)
+    # ── Pass 4: Bitfunded (OFF until breaker deployed + dry-run verified) ─
+    # Same keep-skip rule: skips symbols claimed by Bybit, Binance, and
+    # Velotrade this cycle. Routes to the trade_bitfunded adapter on the
+    # Danyway_Bitfunded (UserID 44) 15k Stage-1 challenge. Default
+    # BITFUNDED_ROUTE=0 so nothing Bitfunded routes until explicitly enabled
+    # (after the circuit breaker is deployed and a dry-run confirms balance,
+    # keys, and drawdown math all resolve).
+    bf_selected = []
+    bf_sent_symbols = set()
+    if BITFUNDED_ROUTE:
+        bf_skip = set(bybit_sent_symbols) | set(s["symbol"] for s in selected) | set(s["symbol"] for s in vt_selected)
+        bf_selected = select_signals(route="bitfunded", skip_symbols=bf_skip)
+        if not bf_selected:
+            logger.info("Nothing to send (Bitfunded)")
+        elif dry_run:
+            logger.info("=== DRY-RUN — would send %d Bitfunded signals ===", len(bf_selected))
+            for sig in bf_selected:
+                logger.info("  %s %s -> %s @ %.2f (score=%.1f, R:R=%.2f, %s) -> Bitfunded/%s",
+                            sig["direction"], sig["symbol"], f"{sig['symbol']}USDT",
+                            sig["entry_price"], sig["composite_score"], sig.get("_effective_rr", 0),
+                            sig.get("_priority_label", ""), BITFUNDED_ACCOUNT_TYPE)
+        else:
+            sent_count = 0
+            for sig in bf_selected:
+                if send_signal_to_webhook(sig, route="bitfunded"):
+                    sent_count += 1
+                    bf_sent_symbols.add(sig["symbol"])
+            logger.info("Sent %d/%d Bitfunded signals", sent_count, len(bf_selected))
+    else:
+        logger.info("Bitfunded route DISABLED (BITFUNDED_ROUTE=0)")
+
+    return len(bybit_selected) + len(selected) + len(vt_selected) + len(bf_selected)
 
 
 if __name__ == "__main__":
