@@ -72,6 +72,41 @@ def is_on_bybit_demo(symbol_usdt: str, force_refresh: bool = False) -> bool:
     return sym in _BYBIT_DEMO_SYMBOLS
 
 
+# Bitfunded / TinyTrader tradable instrument universe (cached in-memory).
+# Uses the PUBLIC instruments endpoint (cb.bitfunded.com/v1/cfd/public/
+# instruments?quote=all) — no auth needed. The instruments list uses
+# base+quote form (e.g. 'btcusdt'); compare against the uppercase SYMUSDT.
+_BITFUNDED_UNIVERSE: set | None = None
+_BITFUNDED_UNIVERSE_FETCHED = 0.0
+
+
+def is_on_bitfunded_universe(symbol_usdt: str, force_refresh: bool = False) -> bool:
+    """True if the symbol is tradable on Bitfunded (public instruments list).
+
+    Fail-closed: if the universe can't be fetched, returns False (deny) so
+    the bot never routes a symbol Bitfunded can't upstream.
+    """
+    global _BITFUNDED_UNIVERSE, _BITFUNDED_UNIVERSE_FETCHED
+    now = time.time()
+    if _BITFUNDED_UNIVERSE is None or force_refresh or (now - _BITFUNDED_UNIVERSE_FETCHED) > 6 * 3600:
+        try:
+            resp = httpx.get(
+                "https://cb.bitfunded.com/v1/cfd/public/instruments", params={"quote": "all"}, timeout=10,
+            )
+            if resp.status_code == 200:
+                lst = resp.json().get("data") or []
+                _BITFUNDED_UNIVERSE = {str(i.get("symbol") or "").upper() for i in lst if i.get("symbol")}
+                _BITFUNDED_UNIVERSE_FETCHED = now
+        except Exception:
+            _BITFUNDED_UNIVERSE = None
+    if not _BITFUNDED_UNIVERSE:
+        return False  # fail-closed
+    sym = (symbol_usdt or "").upper()
+    if not sym.endswith("USDT"):
+        sym += "USDT"
+    return sym in _BITFUNDED_UNIVERSE
+
+
 def _save(d: dict):
     os.makedirs(os.path.dirname(CACHE_PATH), exist_ok=True)
     tmp = CACHE_PATH + ".tmp"
