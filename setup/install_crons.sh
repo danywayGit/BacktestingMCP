@@ -82,7 +82,7 @@ install_cron \
 install_cron \
     "*/30 * * * *" \
     "webhook-bridge" \
-    "cd $REPO_DIR && venv/bin/python -m src.edge_scanner.webhook_bridge 2>&1 | grep -v '^INFO:'"
+    "cd $REPO_DIR && VELOTRADE_ROUTE=1 venv/bin/python -m src.edge_scanner.webhook_bridge 2>&1 | grep -v '^INFO:'"
 
 # ── 9. Funding poll (every 15 min) ────────────────────────────────────────
 install_cron \
