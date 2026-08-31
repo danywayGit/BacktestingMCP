@@ -87,6 +87,10 @@ MAX_SLIPPAGE_PCT = 0.5
 MIN_EFFECTIVE_RR = 1.1   # Reject if effective R:R < 1.1 at send time (matches bot's min_risk_reward=1.1)
 HTTP_RETRIES = 3
 HTTP_RETRY_DELAY = 1.0
+# Short cooldown for symbols with a sent-but-unopened signal (B2). A symbol the
+# bot did NOT open (rejected at execution: concurrency/validation/slippage) only
+# holds its slot for this long, instead of the full 24h tracking horizon.
+SIGNAL_COOLDOWN_HOURS = 2.0
 
 # ── Bybit / HyroTrader dual-route (Aug 2026) ─────────────────────────────
 # Binance testnet keeps sending ALL configs (up to 8/batch). The Bybit route
@@ -213,16 +217,124 @@ def get_pending_signals_for_config(version: str, min_score: float,
     return [dict(r) for r in rows]
 
 
-def get_open_position_symbols() -> set:
+def _bot_base() -> str:
+    """Base URL of the Trading-WebHook-Bot (same host as the webhook)."""
+    return WEBHOOK_URL.rsplit("/", 1)[0] if "/webhook" in WEBHOOK_URL else WEBHOOK_URL
+
+
+# Short-TTL cache for live-position lookups — positions don't change during a
+# single bridge run, and repeated API calls in one run risk a timeout/rate-limit.
+_live_pos_cache: Dict[str, tuple] = {}   # exchange -> (timestamp, set)
+_LIVE_POS_TTL = 30  # seconds
+
+
+def get_live_position_symbols(exchange: str = "Binance", user_id: Optional[int] = None) -> set:
+    """Query the bot for ACTUAL live open positions on the given exchange.
+
+    Binance → GET /api/positions          (list of {Symbol})
+    Bybit   → GET /api/bybit_risk?account_type=Demo&user_id=<hyrotrader uid>
+              (open_positions[{symbol}])
+
+    Per-firm users: Bybit/HyroTrader = UserID 43 (Danyway_HyroTrader). Returns
+    set of BARE symbols (e.g. {'BTC','ETH'}). On any API failure, returns an
+    empty set (fail-open) so a transient bot/network error does not stall the
+    entire signal pipeline — the bot's own risk/ownership checks remain the
+    authoritative guard against duplicate positions.
+    """
+    import httpx, time
+    base = _bot_base()
+    cache_key = f"{exchange}:{user_id or 'default'}"
+    _now = time.time()
+    if cache_key in _live_pos_cache:
+        _ts, _cached = _live_pos_cache[cache_key]
+        if _now - _ts < _LIVE_POS_TTL:
+            return _cached
+
+    def _get(url, params, timeout=15):
+        last = None
+        for attempt in range(2):
+            try:
+                r = httpx.get(url, params=params, timeout=timeout)
+                if r.status_code == 200:
+                    return r
+                last = r
+            except Exception as e:
+                last = e
+            time.sleep(1)
+        return last
+
+    try:
+        if exchange.lower() == "bybit":
+            # Bybit/HyroTrader account is user 43 (Danyway_HyroTrader).
+            uid = user_id or 43
+            resp = _get(f"{base}/api/bybit_risk",
+                        {"key": WEBHOOK_KEY, "account_type": "Demo", "user_id": uid})
+            if not isinstance(resp, httpx.Response) or resp.status_code != 200:
+                logger.warning("get_live_position_symbols(Bybit): no response")
+                return set()
+            data = resp.json()
+            pos = data.get("open_positions") or []
+            result = {str(p.get("symbol", "")).replace("USDT", "").upper() for p in pos if p.get("symbol")}
+        else:
+            # Binance
+            resp = _get(f"{base}/api/positions", {"key": WEBHOOK_KEY})
+            if not isinstance(resp, httpx.Response) or resp.status_code != 200:
+                logger.warning("get_live_position_symbols(Binance): no response")
+                return set()
+            data = resp.json()
+            pos = data.get("positions") or []
+            result = {str(p.get("Symbol", "")).replace("USDT", "").upper() for p in pos if p.get("Symbol")}
+        _live_pos_cache[cache_key] = (_now, result)
+        return result
+    except Exception as e:
+        logger.warning("get_live_position_symbols(%s) failed (fail-open): %s", exchange, e)
+        return set()
+
+
+def get_open_position_symbols(exchange: str = "Binance") -> set:
+    """Symbols to block from re-sending for a given route.
+
+    = LIVE bot positions (B1) UNION recently-sent signals within a short
+    cooldown (B2). This replaces the old behaviour of locking a symbol for the
+    FULL 24h tracking horizon whenever a signal was sent — which over-blocked
+    symbols the bot never actually opened (the root cause of the signal-flow
+    collapse). Signals with no live position only hold the symbol for
+    SIGNAL_COOLDOWN_HOURS, then the slot frees.
+
+    NOTE: webhook_sent_at is stored in ISO-8601 (e.g. '2026-08-31T00:01:09+00:00'),
+    which is NOT comparable to SQLite's `datetime('now',...)` ('YYYY-MM-DD HH:MM:SS')
+    via a string `>` — the format mismatch makes such comparisons lexically wrong.
+    We therefore do the age filter in Python against parsed datetimes.
+    """
+    live = get_live_position_symbols(exchange)
     db = get_db()
-    rows = db.execute("""
-        SELECT DISTINCT symbol FROM edge_signals
-        WHERE webhook_sent_at IS NOT NULL AND outcome IS NULL
-    """).fetchall()
+    rows = db.execute(
+        """
+        SELECT symbol, webhook_sent_at FROM edge_signals
+        WHERE webhook_sent_at IS NOT NULL
+          AND outcome IS NULL
+        """,
+    ).fetchall()
     db.close()
-    open_syms = {r["symbol"] for r in rows}
+    now = datetime.now(timezone.utc)
+    recent = set()
+    for r in rows:
+        sym = r["symbol"]
+        ts = r["webhook_sent_at"]
+        try:
+            sent = datetime.fromisoformat(ts)
+            if sent.tzinfo is None:
+                sent = sent.replace(tzinfo=timezone.utc)
+            age_h = (now - sent).total_seconds() / 3600.0
+        except Exception:
+            # Unparseable timestamp — treat as recent to stay safe (block it).
+            recent.add(sym)
+            continue
+        if age_h <= SIGNAL_COOLDOWN_HOURS:
+            recent.add(sym)
+    open_syms = live | recent
     if open_syms:
-        logger.info("Open positions: %s", ", ".join(sorted(open_syms)))
+        logger.info("Blocked symbols (%s): %s", exchange, ", ".join(sorted(open_syms)))
     return open_syms
 
 
@@ -353,7 +465,10 @@ def select_signals(route: str = "binance", skip_symbols: Optional[Set[str]] = No
     route = (route or "binance").lower()
     from src.integrations.binance_symbols import is_on_binance_futures, is_futures_symbol_tradable
     testnet_check = TESTNET_MODE
-    cooldown_symbols = get_open_position_symbols()
+    # Route → exchange for live-position dedup: Binance and Velotrade both map
+    # to the Binance bot positions; Bybit maps to the HyroTrader/Demo positions.
+    _exchange = "Bybit" if route == "bybit" else "Binance"
+    cooldown_symbols = get_open_position_symbols(_exchange)
     selected = []
     selected_symbols = set()
     selected_configs = set()
