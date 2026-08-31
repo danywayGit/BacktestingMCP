@@ -552,8 +552,20 @@ def format_webhook_msg(signal: Dict, route: str = "binance") -> str:
     else:
         exchange, account_type = EXCHANGE, ACCOUNT_TYPE
         symbol = f"{signal['symbol']}USDT"
+    # Map exchange route -> per-challenge user (per-user risk isolation).
+    # Signals are routed to a dedicated user per prop firm so risk limits,
+    # drawdown baselines, and keys are scoped to that challenge account only.
+    _ROUTE_USER = {
+        "binance": "Danyway",            # UserID 1 — Binance (Standard/TestNet)
+        "bybit": "Danyway_HyroTrader",   # UserID 43 — Bybit Demo 10k
+        "velotrade": "Danyway_Velotrade",# UserID 45 — Velotrade 10k
+        "bitfunded": "Danyway_Bitfunded",# UserID 44 — Bitfunded 15k
+    }
+    route = (route or "binance").lower()
+    route_username = _ROUTE_USER.get(route, "Danyway")
+
     lines = [
-        f"Username: Danyway", f"AccountType: {account_type}", f"MarketType: {MARKET_TYPE}",
+        f"Username: {route_username}", f"AccountType: {account_type}", f"MarketType: {MARKET_TYPE}",
         f"Exchange: {exchange}", f"Strategy: {STRATEGY}", f"Action: {action}", f"Side: {side}",
         f"Direction: {signal['direction'].upper()}",
         f"Symbol: {symbol}", f"Entry: {signal['entry_price']}",
