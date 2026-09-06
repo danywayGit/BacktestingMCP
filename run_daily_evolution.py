@@ -129,7 +129,9 @@ print("\n--- End Report ---", flush=True)
 
 # --- Send to Telegram ---
 bot_token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
-chat_id = -1001482338614
+# Edge Scanner group, "Evolution / Active Strategies" topic (thread 9)
+chat_id = -1004498819562
+message_thread_id = 9
 
 if not bot_token:
     print("ERROR: No TELEGRAM_BOT_TOKEN found")
@@ -138,6 +140,7 @@ if not bot_token:
 url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
 data = json.dumps({
     "chat_id": chat_id,
+    "message_thread_id": message_thread_id,
     "text": report_text,
     "parse_mode": "HTML"
 }).encode('utf-8')
@@ -147,7 +150,7 @@ try:
     with urllib.request.urlopen(req, timeout=10) as resp:
         response_data = json.load(resp)
         if response_data.get('ok'):
-            print("\n[OK] Report sent to Telegram successfully!")
+            print("\n[OK] Report sent to Telegram successfully (Evolution topic)!")
         else:
             print(f"\n[FAIL] Telegram API error: {response_data}")
             sys.exit(1)
@@ -157,6 +160,7 @@ except Exception as e:
     print("  Retrying without parse_mode...")
     data = json.dumps({
         "chat_id": chat_id,
+        "message_thread_id": message_thread_id,
         "text": report_text,
     }).encode('utf-8')
     req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json'})

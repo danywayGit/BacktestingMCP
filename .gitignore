@@ -50,3 +50,6 @@ data/altfins_patterns.json
 .env.altfins
 .env.altfins.local
 .env.*
+*.bak-*
+data/crypto.db-shm
+data/crypto.db-wal
