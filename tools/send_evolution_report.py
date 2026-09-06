@@ -18,7 +18,9 @@ if env_path.exists():
             os.environ[k.strip()] = v.strip().strip('"').strip("'")
 
 bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
-chat_id = '-1001482338614'
+# Edge Scanner group, "Evolution / Active Strategies" topic (thread 9)
+chat_id = '-1004498819562'
+message_thread_id = 9
 
 if not bot_token:
     print('ERROR: No bot token')
@@ -60,6 +62,7 @@ message = report + additional
 url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
 payload = json.dumps({
     "chat_id": chat_id,
+    "message_thread_id": message_thread_id,
     "text": message,
     "parse_mode": "Markdown"
 }).encode('utf-8')

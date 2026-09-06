@@ -148,7 +148,9 @@ def build_report() -> str:
 
 def send_telegram(message):
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
-    chat_id = -1001482338614
+    # Edge Scanner group, "Evolution / Active Strategies" topic (thread 9)
+    chat_id = -1004498819562
+    message_thread_id = 9
 
     if not bot_token:
         print("ERROR: TELEGRAM_BOT_TOKEN not found")
@@ -159,6 +161,7 @@ def send_telegram(message):
     try:
         resp = httpx.post(url, json={
             "chat_id": chat_id,
+            "message_thread_id": message_thread_id,
             "text": message,
             "parse_mode": "Markdown"
         }, timeout=10)

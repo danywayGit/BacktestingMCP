@@ -2302,6 +2302,32 @@ CONFIG_V1_8 = ScoringConfig(
     regime_dir_bull_short_penalty=2.0,
 )
 
+
+
+# ── CONFIG_V1_9 — Auto-generated 2026-09-06 16:00 ──
+CONFIG_V1_9 = ScoringConfig(
+    version="1.9",
+    description="LLM-evolved: win-rate optimized config, tightened filters for higher quality",
+    min_abs_score=8.0,
+    min_adx=25,
+    min_rsi=25,
+    max_rsi=65,
+    min_atr_pct=0.5,
+    atr_stop_mult=2.0,
+    rr_ratio=2.0,
+    trend_weight=0.5,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.2,
+    onchain_netflow_weight=0.1,
+    volume_divergence_weight=4.0,
+    smart_money_index_weight=3.0,
+    low_float_squeeze_weight=2.0,
+    regime_dir_bear_short_bonus=3.0,
+    regime_dir_bear_long_penalty=2.0,
+    regime_dir_bull_long_bonus=3.0,
+    regime_dir_bull_short_penalty=2.0,
+)
+
 ACTIVE_CONFIG = CONFIG_V1_4
 
 ALL_CONFIGS: dict[str, ScoringConfig] = {
@@ -2331,6 +2357,8 @@ ALL_CONFIGS: dict[str, ScoringConfig] = {
         CONFIG_V1_7,
 
         CONFIG_V1_8,
+
+        CONFIG_V1_9,
 ]
 }
 

@@ -7,7 +7,11 @@ click>=8.0
 httpx>=0.28.0
 joblib>=1.5.0
 matplotlib>=3.11.0
-mcp>=1.28.0
+# mcp 2.0.0 is a BREAKING major (renamed streamablehttp_client, removed
+# headers= kwarg, changed Server decorator API in server.py). Pin <2.0.0.
+# altfins_client.py has a version shim that works on both 1.x and 2.0, but
+# src/mcp/server.py is 1.x-only.
+mcp>=1.28.0,<2.0.0
 numpy>=2.4.0
 pandas>=3.0.0
 plotly>=6.8.0

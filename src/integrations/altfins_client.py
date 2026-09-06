@@ -59,18 +59,35 @@ async def _call_tool(tool_name: str, arguments: Dict[str, Any]) -> List[Dict[str
     # Imported lazily so importing this module doesn't require the mcp
     # package unless altFINS is actually queried.
     from mcp import ClientSession
-    from mcp.client.streamable_http import streamablehttp_client
 
     headers = {"X-Api-Key": api_key}
-    async with streamablehttp_client(ALTFINS_MCP_URL, headers=headers) as (
-        read_stream,
-        write_stream,
-        _,
-    ):
+
+    async def _run(read_stream, write_stream) -> List[Dict[str, Any]]:
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
             result = await session.call_tool(tool_name, arguments=arguments)
             return _flatten(_extract_blocks(result))
+
+    # mcp SDK version compatibility (mcp 2.0.0 broke the client API):
+    #   - mcp 1.x: streamablehttp_client(url, headers=...) yields 3-tuple
+    #     (read_stream, write_stream, session_id_getter)
+    #   - mcp 2.0: renamed to streamable_http_client(url, http_client=...)
+    #     yields 2-tuple (read_stream, write_stream); headers must be passed
+    #     via a pre-configured httpx2.AsyncClient
+    # BacktestingMCP venv pins mcp 1.28; the Hermes agent venv has mcp 2.0.
+    try:
+        from mcp.client.streamable_http import streamablehttp_client
+    except ImportError:
+        from mcp.client.streamable_http import streamable_http_client
+        import httpx2
+        async with httpx2.AsyncClient(headers=headers) as http_client:
+            async with streamable_http_client(
+                ALTFINS_MCP_URL, http_client=http_client
+            ) as streams:
+                return await _run(streams[0], streams[1])
+    else:
+        async with streamablehttp_client(ALTFINS_MCP_URL, headers=headers) as streams:
+            return await _run(streams[0], streams[1])
 
 
 def get_screener_data(
