@@ -191,12 +191,15 @@ def check_memory():
 
 
 def check_duplicate_positions():
-    """7. Bot DB open rows vs unique symbols (duplicate-position detection).
+    """7. Bot DB open rows vs distinct position slots (duplicate-position detection).
 
     Checks the bot's trades.db on the server (via SSH): if the number of
-    IsOpen=1 rows exceeds the number of DISTINCT symbols, the bot is stacking
-    duplicate positions on the same symbol (wasted concurrent slots).
-    See commit ceab5ca (Trading-WebHook-Bot).
+    IsOpen=1 rows exceeds the number of DISTINCT position slots, the bot is
+    stacking duplicate positions on the same symbol within the SAME account
+    (wasted concurrent slots). A position slot is keyed by
+    (UserID, ExchangeName, AccountType, Symbol), so the same symbol held by two
+    different exchanges/users (e.g. Binance TestNet AND Bybit Demo) is NOT a
+    duplicate. See commit ceab5ca (Trading-WebHook-Bot).
     """
     try:
         import subprocess
@@ -204,30 +207,33 @@ def check_duplicate_positions():
         if not os.path.exists(helper):
             notes.append("duplicate-check skipped (no ssh_sudo_run.py)")
             return
-        # Runs a short python snippet on the server that prints "<rows> <unique>".
+        # Prints "<rows> <slots>" on the server. Slots are grouped by
+        # (UserID, ExchangeName, AccountType, Symbol) so an identical symbol
+        # open on two different accounts counts as two distinct slots.
         remote = (
             "cd /opt/Trading-WebHook-Bot && /opt/Trading-WebHook-Bot/venv-bot/bin/python -c "
             "\"import sqlite3;c=sqlite3.connect('exchanges/trades.db');"
-            "r=c.execute('SELECT COUNT(*),COUNT(DISTINCT Symbol) FROM Trades WHERE IsOpen=1').fetchone();"
+            "r=c.execute('SELECT (SELECT COUNT(*) FROM Trades WHERE IsOpen=1),"
+            "(SELECT COUNT(*) FROM (SELECT DISTINCT UserID,ExchangeName,AccountType,Symbol FROM Trades WHERE IsOpen=1))').fetchone();"
             "print(r[0],r[1]);c.close()\""
         )
         cp = subprocess.run(
             ["python3", helper, remote], capture_output=True, text=True, timeout=60
         )
-        # Extract "<rows> <unique>" from combined output.
+        # Extract "<rows> <slots>" from combined output.
         from re import search
         m = search(r"(\d+)\s+(\d+)", cp.stdout or "")
         if m:
-            rows, unique = int(m.group(1)), int(m.group(2))
-            if rows > unique:
-                dupes = rows - unique
+            rows, slots = int(m.group(1)), int(m.group(2))
+            if rows > slots:
+                dupes = rows - slots
                 issues.append(
                     f"DUP_POSITIONS: bot DB has {rows} open rows but only "
-                    f"{unique} unique symbols ({dupes} duplicate positions "
-                    f"stacking the same symbol)"
+                    f"{slots} distinct position slots ({dupes} duplicate position "
+                    f"stacked within the same account/symbol)"
                 )
             else:
-                notes.append(f"bot positions: {unique} unique / {rows} DB rows")
+                notes.append(f"bot positions: {slots} slots / {rows} rows")
         else:
             notes.append(f"duplicate-check: unexpected server output (rc={cp.returncode}, out={cp.stdout.strip()[:60]!r})")
     except Exception as e:
