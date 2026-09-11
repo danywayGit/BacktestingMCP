@@ -99,7 +99,7 @@ SIGNAL_COOLDOWN_HOURS = 2.0
 # daily -3% halt, challenge -5% lost, low-cap filter, fail-closed.
 # Toggle: set BYBIT_ROUTE=0 in the env to disable the Bybit pass.
 BYBIT_ROUTE = _os.getenv("BYBIT_ROUTE", "1").strip().lower() in ("1", "true", "yes", "on")
-BYBIT_CONFIGS = ["5.1", "1.4", "1.5"]   # top-3 WR configs (V5.1 AI, V1.4 scanner, V1.5 conservative)
+BYBIT_CONFIGS = ["1.5", "6.0", "22.0"]   # Didier (Sep 2026): V1.5 conservative + V6.0 pullback + V22.0 liquidation-LONG
 BYBIT_MAX_SIGNALS = 3                    # conservative — matches 5-symbol cap with headroom
 BYBIT_EXCHANGE = "Bybit"                 # routes to trade_bybit adapter
 BYBIT_ACCOUNT_TYPE = "Demo"              # HyroTrader 10k challenge (mainnet demo)
@@ -112,7 +112,8 @@ BYBIT_ACCOUNT_TYPE = "Demo"              # HyroTrader 10k challenge (mainnet dem
 # Routes to the trade_dxtrade adapter via Exchange: Velotrade.
 VELOTRADE_ROUTE = _os.getenv("VELOTRADE_ROUTE", "0").strip().lower() in ("1", "true", "yes", "on")
 # Conservative start (Didier, Aug 2026): V1.5 + top-WR configs 5.1/1.4.
-VELOTRADE_CONFIGS = ["5.1", "1.4", "1.5"]  # top-3 WR + conservative V1.5
+# Didier (Sep 2026): → V1.5, V6.0, V22.0 (drop 5.1 weak, swap 1.4→6.0/22.0).
+VELOTRADE_CONFIGS = ["1.5", "6.0", "22.0"]
 VELOTRADE_MAX_SIGNALS = 3
 VELOTRADE_EXCHANGE = "Velotrade"           # routes to trade_dxtrade adapter
 VELOTRADE_ACCOUNT_TYPE = "Standard"        # live funded account (or set to Demo for testing)
@@ -138,7 +139,8 @@ def dx_symbol(base_or_baseusdt: str) -> str:
 # whose 5% daily / 10% max / 15% weekly RiskLimits and the breaker protect it.
 BITFUNDED_ROUTE = _os.getenv("BITFUNDED_ROUTE", "0").strip().lower() in ("1", "true", "yes", "on")
 # Conservative start (Didier, Aug 2026): same top-WR set as Velotrade/HyroTrader.
-BITFUNDED_CONFIGS = ["5.1", "1.4", "1.5"]  # top-3 WR + conservative V1.5
+# Didier (Sep 2026): → V1.5, V6.0, V22.0 (mirror Velotrade/Bybit).
+BITFUNDED_CONFIGS = ["1.5", "6.0", "22.0"]
 BITFUNDED_MAX_SIGNALS = 3
 BITFUNDED_EXCHANGE = "Bitfunded"          # routes to trade_bitfunded adapter
 BITFUNDED_ACCOUNT_TYPE = "Standard"       # live simulated account (15k Stage 1)
