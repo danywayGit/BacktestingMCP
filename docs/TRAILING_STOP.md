@@ -50,6 +50,18 @@ No cross-account hedge risk, no duplicated secrets.
 ## Cron
 - **Trailing engine:** every **3 min** on Hermes (`trailing-stop`, `*/3 * * * *`).
 - Runs `trailing_stop.sh`, quiet unless an SL move occurs.
+- **Position sync (DB reconciliation):** every **30 min** staggered per exchange
+  (`sync_positions.sh` Binance 0,30 / Bybit 5,35 / Velotrade 10,40 / Bitfunded
+  15,45 — was every 3h). Tightened Sep 2026: a 3h gap let positions close on the
+  exchange while the DB still showed them open → the engine refreshed phantom-SL
+  spam. See the PHANTOM-SL section.
+
+## Phantom-SL guard (Sep 2026)
+The engine's no-op guard resolves the current SL **live-first** (`/api/live_sl`,
+authoritative on-exchange value), then compares the proposed move against it —
+if equal, **0 POSTs**. Additionally, if `/api/live_sl` is healthy and a symbol
+has NO live on-exchange SL, it's already closed → the move is skipped entirely
+(no POST, no state write). Trail logic unchanged:
 
 ## Bot-side `MoveStopLoss` safety (already built)
 In `handler.py`:
