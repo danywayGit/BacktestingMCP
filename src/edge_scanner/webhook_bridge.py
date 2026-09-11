@@ -784,41 +784,55 @@ def run_bridge(dry_run: bool = False) -> int:
                 len(CONFIG_PRIORITY), MAX_SIGNALS_PER_BATCH, MIN_EFFECTIVE_RR, HTTP_RETRIES,
                 _EXECUTION_MODE, ACCOUNT_TYPE, MARKET_TYPE)
 
-    # ── Pass 1: Bybit / HyroTrader (best configs, first pick) ─────────────
-    # Runs FIRST so the top configs (5.1/1.4/1.5) feed the HyroTrader 10k
-    # challenge. The bot enforces the prop-firm risk profile on Demo.
-    # (Earlier version ran Binance first — it consumed + marked the shared
-    # pending pool, starving Bybit of its own configs' signals. Inverted.)
-    bybit_selected = []
-    bybit_sent_symbols = set()
-    if BYBIT_ROUTE:
-        bybit_selected = select_signals(route="bybit")
-        if not bybit_selected:
-            logger.info("Nothing to send (Bybit)")
+    # ── Pass 1: Prop-firm MIRROR (Bybit + Velotrade + Bitfunded) ─────────
+    # Select the top prop signals ONCE from the shared pool, then MIRROR that
+    # SAME selection to every ENABLED prop-firm route. Each firm trades its own
+    # separate capital, so the same high-quality setup safely executes on all
+    # of them — and each enforces its own per-firm risk / drawdown / open-position
+    # dedup bot-side. FIXES the prior starvation: Bybit (pass 1) consumed the
+    # 5.1/1.4/1.5 signals so Velotrade (pass 3, after Binance) only saw leftover
+    # symbols → near-zero Velotrade throughput despite a healthy account.
+    prop_routes = []
+    if BYBIT_ROUTE:      prop_routes.append("bybit")
+    if VELOTRADE_ROUTE:  prop_routes.append("velotrade")
+    if BITFUNDED_ROUTE:  prop_routes.append("bitfunded")
+
+    prop_sent_symbols = set()
+    prop_selected = []
+    if prop_routes:
+        # Master selection driven by Bybit's route (top 5.1/1.4/1.5). select_signals
+        # only reads + returns — marking happens per actual send below, so the same
+        # selection can be re-mirrored across all enabled firms.
+        prop_selected = select_signals(route="bybit")
+        if not prop_selected:
+            logger.info("Nothing to send (prop mirror)")
         elif dry_run:
-            logger.info("=== DRY-RUN — would send %d Bybit signals ===", len(bybit_selected))
-            for sig in bybit_selected:
-                logger.info("  %s %s @ %.2f (score=%.1f, R:R=%.2f, %s) -> Bybit/Demo",
+            logger.info("=== DRY-RUN — would MIRROR %d signals to %s ===",
+                        len(prop_selected), ", ".join(r.upper() for r in prop_routes))
+            for sig in prop_selected:
+                logger.info("  %s %s @ %.2f (score=%.1f, R:R=%.2f, %s) -> %s",
                             sig["direction"], sig["symbol"], sig["entry_price"],
                             sig["composite_score"], sig.get("_effective_rr", 0),
-                            sig.get("_priority_label", ""))
-                bybit_sent_symbols.add(sig["symbol"])
+                            sig.get("_priority_label", ""),
+                            ", ".join(r.upper() for r in prop_routes))
+                prop_sent_symbols.add(sig["symbol"])
         else:
-            sent_count = 0
-            for sig in bybit_selected:
-                if send_signal_to_webhook(sig, route="bybit"):
-                    sent_count += 1
-                    bybit_sent_symbols.add(sig["symbol"])
-            logger.info("Sent %d/%d Bybit signals", sent_count, len(bybit_selected))
+            for r in prop_routes:
+                sent_count = 0
+                for sig in prop_selected:
+                    if send_signal_to_webhook(sig, route=r):
+                        sent_count += 1
+                        prop_sent_symbols.add(sig["symbol"])
+                logger.info("Sent %d/%d %s signals (mirrored)", sent_count, len(prop_selected), r.upper())
     else:
-        logger.info("Bybit route DISABLED (BYBIT_ROUTE=0)")
+        logger.info("All prop-firm routes DISABLED")
 
-    # ── Pass 2: Binance (all configs, skips Bybit's symbols) ──────────────
-    # Runs AFTER Bybit so they never share a symbol (keep-skip rule). Only
-    # symbols Bybit SUCCESSFULLY sent (or would-send in dry-run) are skipped —
-    # a FAILED Bybit send (all retries exhausted, webhook_sent_at stays NULL)
-    # must NOT burn the symbol for Binance, or the signal is dropped entirely.
-    selected = select_signals(route="binance", skip_symbols=bybit_sent_symbols)
+    # ── Pass 2: Binance (all configs, skips the prop mirror's symbols) ───
+    # Runs AFTER the prop mirror so the user's own account never duplicates a
+    # symbol already claimed by any prop firm (keep-skip rule). Only symbols
+    # SUCCESSFULLY sent are skipped — a FAILED send (all retries exhausted,
+    # webhook_sent_at stays NULL) must NOT burn the symbol for Binance.
+    selected = select_signals(route="binance", skip_symbols=prop_sent_symbols)
     if not selected:
         logger.info("Nothing to send (Binance)")
     elif dry_run:
@@ -835,64 +849,7 @@ def run_bridge(dry_run: bool = False) -> int:
                 sent_count += 1
         logger.info("Sent %d/%d Binance signals", sent_count, len(selected))
 
-    # ── Pass 3: Velotrade / DXtrade (OFF until creds + universe verified) ─
-    # Same keep-skip rule: skips symbols claimed by Bybit and Binance this
-    # cycle. Uses the trade_dxtrade adapter and <BASE>/USD symbols. Default
-    # VELOTRADE_ROUTE=0 so a missing Velotrade key never breaks the bridge.
-    vt_selected = []
-    if VELOTRADE_ROUTE:
-        vt_skip = set(bybit_sent_symbols) | set(s["symbol"] for s in selected)
-        vt_selected = select_signals(route="velotrade", skip_symbols=vt_skip)
-        if not vt_selected:
-            logger.info("Nothing to send (Velotrade)")
-        elif dry_run:
-            logger.info("=== DRY-RUN — would send %d Velotrade signals ===", len(vt_selected))
-            for sig in vt_selected:
-                logger.info("  %s %s -> %s @ %.2f (score=%.1f, R:R=%.2f, %s) -> Velotrade/%s",
-                            sig["direction"], sig["symbol"], dx_symbol(sig["symbol"]),
-                            sig["entry_price"], sig["composite_score"], sig.get("_effective_rr", 0),
-                            sig.get("_priority_label", ""), VELOTRADE_ACCOUNT_TYPE)
-        else:
-            sent_count = 0
-            for sig in vt_selected:
-                if send_signal_to_webhook(sig, route="velotrade"):
-                    sent_count += 1
-            logger.info("Sent %d/%d Velotrade signals", sent_count, len(vt_selected))
-    else:
-        logger.info("Velotrade route DISABLED (VELOTRADE_ROUTE=0)")
-
-    # ── Pass 4: Bitfunded (OFF until breaker deployed + dry-run verified) ─
-    # Same keep-skip rule: skips symbols claimed by Bybit, Binance, and
-    # Velotrade this cycle. Routes to the trade_bitfunded adapter on the
-    # Danyway_Bitfunded (UserID 44) 15k Stage-1 challenge. Default
-    # BITFUNDED_ROUTE=0 so nothing Bitfunded routes until explicitly enabled
-    # (after the circuit breaker is deployed and a dry-run confirms balance,
-    # keys, and drawdown math all resolve).
-    bf_selected = []
-    bf_sent_symbols = set()
-    if BITFUNDED_ROUTE:
-        bf_skip = set(bybit_sent_symbols) | set(s["symbol"] for s in selected) | set(s["symbol"] for s in vt_selected)
-        bf_selected = select_signals(route="bitfunded", skip_symbols=bf_skip)
-        if not bf_selected:
-            logger.info("Nothing to send (Bitfunded)")
-        elif dry_run:
-            logger.info("=== DRY-RUN — would send %d Bitfunded signals ===", len(bf_selected))
-            for sig in bf_selected:
-                logger.info("  %s %s -> %s @ %.2f (score=%.1f, R:R=%.2f, %s) -> Bitfunded/%s",
-                            sig["direction"], sig["symbol"], f"{sig['symbol']}USDT",
-                            sig["entry_price"], sig["composite_score"], sig.get("_effective_rr", 0),
-                            sig.get("_priority_label", ""), BITFUNDED_ACCOUNT_TYPE)
-        else:
-            sent_count = 0
-            for sig in bf_selected:
-                if send_signal_to_webhook(sig, route="bitfunded"):
-                    sent_count += 1
-                    bf_sent_symbols.add(sig["symbol"])
-            logger.info("Sent %d/%d Bitfunded signals", sent_count, len(bf_selected))
-    else:
-        logger.info("Bitfunded route DISABLED (BITFUNDED_ROUTE=0)")
-
-    return len(bybit_selected) + len(selected) + len(vt_selected) + len(bf_selected)
+    return len(prop_selected) + len(selected)
 
 
 if __name__ == "__main__":
