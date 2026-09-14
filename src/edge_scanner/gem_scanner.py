@@ -491,13 +491,18 @@ def scan_gems(pages: int = 5, start_page: int = 3) -> List[GemCandidate]:
     candidates.sort(key=lambda x: x.score, reverse=True)
     logger.info("Scanned %d Binance coins, found %d gem candidates", total_scanned, len(candidates))
 
-    # Enrich top N candidates with ATL dates AND check exact age
+    # Enrich top N candidates with ATL dates AND check listing age
     import time as _time2
     young_candidates: List[GemCandidate] = []
+    from src.edge_scanner.listing_date import get_top5_exchanges, is_too_old
+    top5_ex = get_top5_exchanges()  # dynamic top-5 from CoinGecko
     for i, gem in enumerate(candidates[:LOAD_HEAVY_AGE_CHECK]):
-        # Quick proxy filter: if 1y data exists with moderate loss, likely >2 years
-        if gem.price_change_1y is not None and gem.price_change_1y > -95:
-            pass
+        # Listing-age gate (first OHLCV bar on ANY top-5 exchange, not the token
+        # genesis/ATL/ATH). Reject coins shareable to the public > 2y.
+        too_old, age_reason = is_too_old(gem.symbol, top5_ex)
+        if too_old:
+            logger.info("Skipping %s: %s", gem.symbol, age_reason)
+            continue
 
         try:
             time.sleep(COINGECKO_INDIVIDUAL_DELAY)  # Rate limit between individual lookups
@@ -534,50 +539,11 @@ def scan_gems(pages: int = 5, start_page: int = 3) -> List[GemCandidate]:
                 gem.homepage = hp[0] if hp else ""
                 gem.twitter_handle = links.get("twitter_screen_name") or ""
 
-                # Determine exact age from genesis_date, ATL date, or ATH date
-                genesis = coin_data.get("genesis_date", "")
-                from datetime import datetime as _dt, timezone as _tz
-                now = _dt.now(_tz.utc)
-                coin_age_days = 9999
-                if genesis:
-                    try:
-                        gd = _dt.strptime(genesis, '%Y-%m-%d').replace(tzinfo=_tz.utc)
-                        coin_age_days = (now - gd).days
-                    except (ValueError, TypeError):
-                        pass
-                if coin_age_days >= 9999 and atl_dt:
-                    try:
-                        ad = _dt.fromisoformat(atl_dt.replace('Z', '+00:00'))
-                        coin_age_days = (now - ad).days
-                    except (ValueError, TypeError):
-                        pass
-                if coin_age_days >= 9999 and ath_dt:
-                    try:
-                        ad = _dt.fromisoformat(ath_dt.replace('Z', '+00:00'))
-                        coin_age_days = (now - ad).days
-                    except (ValueError, TypeError):
-                        pass
-                
-                coin_age_years = coin_age_days / 365.0
-                
-                # Reject coins > 2 years old
-                if coin_age_years > MAX_COIN_AGE_YEARS:
-                    logger.info("Skipping %s: too old (%.1f years)", gem.symbol, coin_age_years)
-                    continue
-
-
                 gem = _score_gem(gem)  # Re-score with better age data
                 young_candidates.append(gem)
         except Exception:
             # If fetch fails, keep the candidate but flag it
             if gem.price_change_1y is None or gem.price_change_1y < -95:
-                young_candidates.append(gem)
-
-    # If we couldn't check ages (rate limits), fall back to proxy filter
-    if not young_candidates:
-        for gem in candidates:
-            # Proxy: no 1y data OR extreme 1y drop = young coin
-            if gem.price_change_1y is None or (gem.price_change_1y and gem.price_change_1y < -95):
                 young_candidates.append(gem)
 
     young_candidates.sort(key=lambda x: x.score, reverse=True)
