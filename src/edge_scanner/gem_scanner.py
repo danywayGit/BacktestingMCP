@@ -376,6 +376,9 @@ def scan_gems(pages: int = 5, start_page: int = 3) -> List[GemCandidate]:
     candidates: List[GemCandidate] = []
     total_scanned = 0
 
+    from src.edge_scanner.listing_date import get_top5_exchanges, is_too_old
+    top5_ex = get_top5_exchanges()  # dynamic top-5 from CoinGecko (fetched once)
+
     for page in range(start_page, start_page + pages):
         logger.info("Scanning CoinGecko page %d...", page)
         try:
@@ -420,6 +423,14 @@ def scan_gems(pages: int = 5, start_page: int = 3) -> List[GemCandidate]:
 
                 # Size filter
                 if mcap < MCAP_MIN or mcap > MCAP_MAX:
+                    continue
+
+                # Listing-age gate (2nd, per Didier: mcap -> age -> other filters).
+                # Reject coins listed >2y on ANY top-5 exchange BEFORE spending
+                # volume/ATH/supply/dilution checks on them.
+                too_old, age_reason = is_too_old(symbol, top5_ex)
+                if too_old:
+                    logger.info("Skipping %s: %s", symbol, age_reason)
                     continue
 
                 # Volume filter
@@ -491,19 +502,10 @@ def scan_gems(pages: int = 5, start_page: int = 3) -> List[GemCandidate]:
     candidates.sort(key=lambda x: x.score, reverse=True)
     logger.info("Scanned %d Binance coins, found %d gem candidates", total_scanned, len(candidates))
 
-    # Enrich top N candidates with ATL dates AND check listing age
+    # Enrich top N candidates with ATL dates / social data
     import time as _time2
     young_candidates: List[GemCandidate] = []
-    from src.edge_scanner.listing_date import get_top5_exchanges, is_too_old
-    top5_ex = get_top5_exchanges()  # dynamic top-5 from CoinGecko
     for i, gem in enumerate(candidates[:LOAD_HEAVY_AGE_CHECK]):
-        # Listing-age gate (first OHLCV bar on ANY top-5 exchange, not the token
-        # genesis/ATL/ATH). Reject coins shareable to the public > 2y.
-        too_old, age_reason = is_too_old(gem.symbol, top5_ex)
-        if too_old:
-            logger.info("Skipping %s: %s", gem.symbol, age_reason)
-            continue
-
         try:
             time.sleep(COINGECKO_INDIVIDUAL_DELAY)  # Rate limit between individual lookups
             resp = _coingecko_get(
