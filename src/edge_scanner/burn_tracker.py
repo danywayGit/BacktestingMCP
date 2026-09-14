@@ -204,12 +204,19 @@ def fmt_num(v: Optional[float]) -> str:
     return f"{v:,.2f}"
 
 
+def burn_pct(burned: Optional[float], circ: Optional[float]) -> str:
+    """Burned tokens as % of circulating supply, or '' when unknown."""
+    if burned is None or circ is None or circ <= 0:
+        return ""
+    return f" = {burned / circ * 100:.4f}% of circ"
+
+
 def derived_burn_str(s: Dict) -> str:
     """max - total, shown only when the gap is meaningful (>1% of supply)."""
     if s.get("max") and s.get("total"):
         gap = s["max"] - s["total"]
         if gap > 0 and gap > 0.01 * s["total"]:
-            return f" | derived burned {fmt_num(gap)}"
+            return f" | derived burned {fmt_num(gap)}{burn_pct(gap, s.get('circ'))}"
     return ""
 
 
@@ -263,30 +270,38 @@ def run_burn_check() -> str:
 
     first_run = not state.get("onchain")
 
+    # Fetch CMC supply once up-front so both L1 (dead-address %) and L2 (derived %) can use it.
+    cmc_data: Dict[str, Optional[Dict]] = {}
+    for entry in watchlist.get("supply_cmc", []):
+        if entry["symbol"] not in cmc_data:
+            cmc_data[entry["symbol"]] = fetch_cmc_supply(entry["slug"])
+
     # L1 on-chain
     for entry in watchlist.get("onchain", []):
         sym = entry["symbol"]
         bal = sample_onchain(entry)
+        circ = (cmc_data.get(sym) or {}).get("circ")
         prev = state.get("onchain", {}).get(sym, {}).get("balance")
         if bal is None:
             onchain_rows.append(f"  ⚠️ {sym}: RPC unreachable (kept baseline)")
             new_state["onchain"][sym] = {"balance": prev, "date": today}
             continue
         new_state["onchain"][sym] = {"balance": bal, "date": today}
+        pct = burn_pct(bal, circ)
         if prev is not None:
             delta = bal - prev
             if delta > 1e-9:
                 onchain_rows.append(
-                    f"  🔥 {sym}: +{fmt_num(delta)} burned since {state['onchain'][sym].get('date', 'last run')} (total {fmt_num(bal)})")
+                    f"  🔥 {sym}: +{fmt_num(delta)} burned since {state['onchain'][sym].get('date', 'last run')} (total {fmt_num(bal)}{pct})")
             else:
-                onchain_rows.append(f"  • {sym}: no change (total {fmt_num(bal)})")
+                onchain_rows.append(f"  • {sym}: no change (total {fmt_num(bal)}{pct})")
         else:
-            onchain_rows.append(f"  📌 {sym}: baseline {fmt_num(bal)} (first sample)")
+            onchain_rows.append(f"  📌 {sym}: baseline {fmt_num(bal)}{pct} (first sample)")
 
     # L2 CMC supply
     for entry in watchlist.get("supply_cmc", []):
         sym = entry["symbol"]
-        s = fetch_cmc_supply(entry["slug"])
+        s = cmc_data.get(sym)
         if not s:
             cmc_rows.append(f"  ⚠️ {sym}: CMC unavailable")
             continue
