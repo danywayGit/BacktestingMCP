@@ -92,6 +92,22 @@ HTTP_RETRY_DELAY = 1.0
 # holds its slot for this long, instead of the full 24h tracking horizon.
 SIGNAL_COOLDOWN_HOURS = 2.0
 
+# ── Prop-route score floor ───────────────────────────────────────────────
+# Prop firms run on smaller (challenge) capital with strict daily drawdown
+# caps (5%). Rising the effective signal-conviction threshold from the default
+# 7.0 to 8.0 filters the low-confidence tail — fewer, higher-conviction trades.
+# Binance testnet keeps the default 7.0 (wider exposure is the point on the
+# sandbox). Applied in _route_min_score() below.
+PROP_ROUTE_MIN_SCORE = 8.0
+
+
+def _route_min_score(base_min_score: float, route: str) -> float:
+    """Raise the score floor for prop routes (Bybit/Velotrade/Bitfunded)."""
+    if route in ("bybit", "velotrade", "bitfunded"):
+        return max(base_min_score, PROP_ROUTE_MIN_SCORE)
+    return base_min_score
+
+
 # ── Bybit / HyroTrader dual-route (Aug 2026) ─────────────────────────────
 # Binance testnet keeps sending ALL configs (up to 8/batch). The Bybit route
 # sends only the BEST configs (Option A — top 3 by WR) to the HyroTrader
@@ -99,8 +115,13 @@ SIGNAL_COOLDOWN_HOURS = 2.0
 # daily -3% halt, challenge -5% lost, low-cap filter, fail-closed.
 # Toggle: set BYBIT_ROUTE=0 in the env to disable the Bybit pass.
 BYBIT_ROUTE = _os.getenv("BYBIT_ROUTE", "1").strip().lower() in ("1", "true", "yes", "on")
-BYBIT_CONFIGS = ["1.5", "6.0", "22.0"]   # Didier (Sep 2026): V1.5 conservative + V6.0 pullback + V22.0 liquidation-LONG
-BYBIT_MAX_SIGNALS = 3                    # conservative — matches 5-symbol cap with headroom
+# Didier (Sep 2026): realized-best high-WR set for the HyroTrader 10k challenge.
+# 2.2 (+$129, 66.7% WR), 1.2 (+$119, 52.6%), 1.3 (+$84, 60%), 1.4 (+$29, 48.8%,
+# largest sample). Dropped 22.0 (realized loser 28.6% WR, -$22) and 6.0/1.5
+# (low sample / marginal). Excluded 1.1: 34% WR big-win profile = drawdown risk
+# against the 5% daily prop cap. Prop routes run a higher score floor (8.0).
+BYBIT_CONFIGS = ["2.2", "1.2", "1.3", "1.4"]
+BYBIT_MAX_SIGNALS = 4                    # matches the 4-config set
 BYBIT_EXCHANGE = "Bybit"                 # routes to trade_bybit adapter
 BYBIT_ACCOUNT_TYPE = "Demo"              # HyroTrader 10k challenge (mainnet demo)
 
@@ -111,10 +132,10 @@ BYBIT_ACCOUNT_TYPE = "Demo"              # HyroTrader 10k challenge (mainnet dem
 #   2. The live DXtrade instrument list is verified (symbol mapper below).
 # Routes to the trade_dxtrade adapter via Exchange: Velotrade.
 VELOTRADE_ROUTE = _os.getenv("VELOTRADE_ROUTE", "0").strip().lower() in ("1", "true", "yes", "on")
-# Conservative start (Didier, Aug 2026): V1.5 + top-WR configs 5.1/1.4.
-# Didier (Sep 2026): → V1.5, V6.0, V22.0 (drop 5.1 weak, swap 1.4→6.0/22.0).
-VELOTRADE_CONFIGS = ["1.5", "6.0", "22.0"]
-VELOTRADE_MAX_SIGNALS = 3
+# Didier (Sep 2026): realized-best high-WR set (mirrors Bybit). Props keep the
+# same proven configs; higher score floor (8.0) filters low-conviction tail.
+VELOTRADE_CONFIGS = ["2.2", "1.2", "1.3", "1.4"]
+VELOTRADE_MAX_SIGNALS = 4
 VELOTRADE_EXCHANGE = "Velotrade"           # routes to trade_dxtrade adapter
 VELOTRADE_ACCOUNT_TYPE = "Standard"        # live funded account (or set to Demo for testing)
 # DXtrade crypto instruments are <BASE>USD with NO slash (BTCUSD, SOLUSD,
@@ -138,10 +159,9 @@ def dx_symbol(base_or_baseusdt: str) -> str:
 # the trade_bitfunded adapter on the Danyway_Bitfunded (UserID 44) challenge,
 # whose 5% daily / 10% max / 15% weekly RiskLimits and the breaker protect it.
 BITFUNDED_ROUTE = _os.getenv("BITFUNDED_ROUTE", "0").strip().lower() in ("1", "true", "yes", "on")
-# Conservative start (Didier, Aug 2026): same top-WR set as Velotrade/HyroTrader.
-# Didier (Sep 2026): → V1.5, V6.0, V22.0 (mirror Velotrade/Bybit).
-BITFUNDED_CONFIGS = ["1.5", "6.0", "22.0"]
-BITFUNDED_MAX_SIGNALS = 3
+# Didier (Sep 2026): realized-best high-WR set (mirrors Bybit/Velotrade).
+BITFUNDED_CONFIGS = ["2.2", "1.2", "1.3", "1.4"]
+BITFUNDED_MAX_SIGNALS = 4
 BITFUNDED_EXCHANGE = "Bitfunded"          # routes to trade_bitfunded adapter
 BITFUNDED_ACCOUNT_TYPE = "Standard"       # live simulated account (15k Stage 1)
 BITFUNDED_USER_ID = 44                    # Danyway_Bitfunded (risk isolation)
@@ -534,7 +554,9 @@ def select_signals(route: str = "binance", skip_symbols: Optional[Set[str]] = No
     for version, min_score, label in priority:
         if sent_count >= max_batch:
             break
-        signals = get_pending_signals_for_config(version, min_score, cooldown_symbols)
+        # Prop routes raise the score floor (8.0) to filter low-conviction tail.
+        eff_min_score = _route_min_score(min_score, route)
+        signals = get_pending_signals_for_config(version, eff_min_score, cooldown_symbols)
         if not signals:
             continue
         for sig in signals:
