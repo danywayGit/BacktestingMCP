@@ -1009,7 +1009,7 @@ CONFIG_V3_0 = ScoringConfig(
 CONFIG_V3_1 = ScoringConfig(
     version="3.1",
     description="Strong ADX filter: Requires ADX >= 40 for strong trend",
-    status="enabled",
+    status="disabled",  # DISABLED Sep 2026 (Didier): realized 40% WR, 0.83 payoff, -$46 since 21 Aug
     trend_weight=0.4,
     volume_relative_weight=0.2,
     signal_feed_weight=0.3,
@@ -1070,6 +1070,7 @@ CONFIG_V3_2 = ScoringConfig(
 CONFIG_V4_0 = ScoringConfig(
     version="4.0",
     description="TR/ATR breakout: Rewards high volatility expansion",
+    status="disabled",  # DISABLED Sep 2026 (Didier): realized 17.6% WR, -$118 since 21 Aug — worst on book
     trend_weight=0.4,
     volume_relative_weight=0.2,
     signal_feed_weight=0.3,
@@ -1271,6 +1272,7 @@ CONFIG_V6_3 = ScoringConfig(
 CONFIG_V6_4 = ScoringConfig(
     version="6.4",
     description="Flat Killer: Tight stop (1.5×ATR) + close target (R:R 1.2) + high vol filter.",
+    status="disabled",  # DISABLED Sep 2026 (Didier): realized -$99 since 21 Aug incl duplicate CRV; R-capture 0 for near-plan RR
     trend_weight=0.35,
     volume_relative_weight=0.25,
     signal_feed_weight=0.20,
@@ -2328,6 +2330,32 @@ CONFIG_V1_9 = ScoringConfig(
     regime_dir_bull_short_penalty=2.0,
 )
 
+
+
+# ── CONFIG_V1_10 — Auto-generated 2026-09-13 16:00 ──
+CONFIG_V1_10 = ScoringConfig(
+    version="1.10",
+    description="LLM-evolved: win-rate optimized config, tightened filters for higher quality",
+    min_abs_score=8.0,
+    min_adx=25,
+    min_rsi=25,
+    max_rsi=65,
+    min_atr_pct=0.5,
+    atr_stop_mult=1.5,
+    rr_ratio=2.0,
+    trend_weight=0.4,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.3,
+    onchain_netflow_weight=0.1,
+    volume_divergence_weight=3.0,
+    smart_money_index_weight=2.0,
+    low_float_squeeze_weight=1.5,
+    regime_dir_bear_short_bonus=2.0,
+    regime_dir_bear_long_penalty=2.0,
+    regime_dir_bull_long_bonus=2.0,
+    regime_dir_bull_short_penalty=2.0,
+)
+
 ACTIVE_CONFIG = CONFIG_V1_4
 
 ALL_CONFIGS: dict[str, ScoringConfig] = {
@@ -2359,6 +2387,8 @@ ALL_CONFIGS: dict[str, ScoringConfig] = {
         CONFIG_V1_8,
 
         CONFIG_V1_9,
+
+        CONFIG_V1_10,
 ]
 }
 
