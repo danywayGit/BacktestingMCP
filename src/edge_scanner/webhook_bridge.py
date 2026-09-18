@@ -667,19 +667,36 @@ def _compute_tier_multiplier(signal: Dict) -> float:
         cv = signal.get("config_version", "")
         sc = signal.get("composite_score", 0)
         tier1 = 1.0
-        wr_row = conn.execute("""
-            SELECT (SUM(CASE WHEN outcome='WIN' THEN 1 ELSE 0 END)*1.0/
-                   NULLIF(SUM(CASE WHEN outcome='WIN' THEN 1 ELSE 0 END)+SUM(CASE WHEN outcome='LOSS' THEN 1 ELSE 0 END), 0)) as wr,
-                   SUM(CASE WHEN outcome='WIN' THEN 1 ELSE 0 END)+SUM(CASE WHEN outcome='LOSS' THEN 1 ELSE 0 END) as n
-            FROM edge_signals WHERE config_version=? AND webhook_sent_at IS NOT NULL AND outcome IN ('WIN','LOSS')
-        """, (cv,)).fetchone()
-        if wr_row and wr_row[1] and wr_row[1] >= 10:
-            wr = wr_row[0]
+
+        # ── Tier 1: use REALIZED bot results first (recent window), fall back
+        # to scanner-theoretical WR. Realized is the honest, money-ready signal
+        # (see realized_config_stats.py / backtest-vs-execution skill). The
+        # bot's closed PnL is pushed here by the nightly realized-stats refresh.
+        wr = n = None
+        try:
+            rr = conn.execute(
+                "SELECT wr, n FROM realized_config_stats WHERE config_version=?", (cv,)
+            ).fetchone()
+            if rr and rr[1] and rr[1] >= 10:
+                wr, n = rr[0], rr[1]
+        except Exception:
+            wr = n = None
+        if wr is None:
+            wr_row = conn.execute("""
+                SELECT (SUM(CASE WHEN outcome='WIN' THEN 1 ELSE 0 END)*1.0/
+                       NULLIF(SUM(CASE WHEN outcome='WIN' THEN 1 ELSE 0 END)+SUM(CASE WHEN outcome='LOSS' THEN 1 ELSE 0 END), 0)) as wr,
+                       SUM(CASE WHEN outcome='WIN' THEN 1 ELSE 0 END)+SUM(CASE WHEN outcome='LOSS' THEN 1 ELSE 0 END) as n
+                FROM edge_signals WHERE config_version=? AND webhook_sent_at IS NOT NULL AND outcome IN ('WIN','LOSS')
+            """, (cv,)).fetchone()
+            if wr_row and wr_row[1] and wr_row[1] >= 10:
+                wr, n = wr_row[0], wr_row[1]
+        if wr is not None and n is not None:
             if wr > 0.60: tier1 = 1.2
             elif wr > 0.40: tier1 = 1.0
             elif wr > 0.20: tier1 = 0.7
             else: tier1 = 0.5
-        else: tier1 = 0.5
+        else:
+            tier1 = 0.5
         tier2 = 1.3 if sc >= 10.0 else 1.0 if sc >= 8.0 else 0.7 if sc >= 5.0 else 0.5
         tier3 = 1.0
         rr_row = conn.execute("SELECT DISTINCT config_json FROM scoring_configs WHERE version=?", (cv,)).fetchone()
