@@ -52,27 +52,44 @@ _SNAPSHOT_PATH = os.path.join(_REPO_ROOT, "data", "liquidation_snapshot.json")
 sys.path.insert(0, _REPO_ROOT)
 
 # ── Thresholds (tunable) ──
-LIQ_VOL_THRESHOLD = 250_000.0      # $ liquidation volume in window to trigger
-LIQ_WINDOW_SEC = 300               # look back 5 min
-DEBOUNCE_SEC = 60                  # min seconds between runs per symbol
-FUNDING_LOOKAHEAD_MIN = 5          # trigger funding scan X min before settlement
-FUNDING_EXTREME_ABS = 0.004        # |funding| > 0.4% considered extreme
+# V22 now targets REAL squeeze cascades (7–30% moves), not routine liquidations.
+# So the trigger demands a large, ONE-SIDED cascade within the window:
+#   * LIQ_VOL_THRESHOLD — minimum $ total liquidation volume per symbol in window
+#     (set at $250k 2026-09-20 after backtest: $1M fired only on BTC/ETH whose
+#     post-squeeze forward move is smallest; $250k brings in SOL/XRP/NEAR/ZEC/
+#     ARB/SUI/AVAX — the symbols that actually deliver 6-30% squeezes).
+#   * MIN_IMBALANCE — minimum |(short_vol - long_vol)/total| to be a genuine
+#     squeeze (lopsided). < this = balanced noise, skip. Imbalance sign also
+#     decides direction: short-heavy (imbalance>0) → short squeeze → LONG setup;
+#     long-heavy (imbalance<0) → long squeeze → SHORT setup.
+LIQ_VOL_THRESHOLD = 250_000.0   # $250k+ liquidation volume in window to fire
+LIQ_MIN_IMBALANCE = 0.30          # ≥30% one-sided to count as a squeeze
+LIQ_WINDOW_SEC = 300              # look back 5 min
+DEBOUNCE_SEC = 60                 # min seconds between runs per symbol
+FUNDING_LOOKAHEAD_MIN = 5         # trigger funding scan X min before settlement
+FUNDING_EXTREME_ABS = 0.004       # |funding| > 0.4% considered extreme
 
-# Event-relevant configs (V22 = liquidation LONG/SHORT, V8 = funding, V14 precursor)
+# Event-relevant configs (V22 = liquidation LONG/SHORT/agg, V8 = funding, V14 precursor)
 LIQ_CONFIGS = ["22.0", "22.1"]
+LIQ_CONFIGS_AGG = ["22.2"]  # direction-agnostic aggressive variant (both dirs)
 FUNDING_CONFIGS = ["8.0"]
-EVENT_CONFIGS = list(dict.fromkeys(LIQ_CONFIGS + FUNDING_CONFIGS))  # dedup, keep order
+EVENT_CONFIGS = list(dict.fromkeys(LIQ_CONFIGS + LIQ_CONFIGS_AGG + FUNDING_CONFIGS))  # dedup, keep order
 
 # Debounce registry: symbol -> last scan timestamp
 _last_scan: Dict[str, float] = {}
 
 # Runtime overrides (set by CLI args, read by trigger functions)
 _LIQ_VOL_THRESHOLD: Optional[float] = None
+_LIQ_MIN_IMBALANCE: Optional[float] = None
 _FUNDING_LOOKAHEAD_MIN: Optional[float] = None
 
 
 def _liq_threshold() -> float:
     return _LIQ_VOL_THRESHOLD if _LIQ_VOL_THRESHOLD is not None else LIQ_VOL_THRESHOLD
+
+
+def _liq_min_imbalance() -> float:
+    return _LIQ_MIN_IMBALANCE if _LIQ_MIN_IMBALANCE is not None else LIQ_MIN_IMBALANCE
 
 
 def _funding_lookahead() -> float:
@@ -106,24 +123,48 @@ def _read_snapshot() -> List[dict]:
         return []
 
 
-def _liq_spike_symbols() -> List[str]:
-    """Return symbols whose liquidation volume in the last LIQ_WINDOW_SEC
-    exceeds LIQ_VOL_THRESHOLD (either direction)."""
+def _liq_spike_symbols() -> Dict[str, float]:
+    """Return {symbol: imbalance} for symbols with a real squeeze cascade.
+
+    A real cascade requires BOTH high liquidation $ volume in the window AND a
+    lopsided imbalance (≥ LIQ_MIN_IMBALANCE):
+      imbalance = (short_vol - long_vol) / total   (positive = shorts squeezed)
+      +imbalance (short-heavy) → short squeeze → price up (LONG setup)
+      -imbalance (long-heavy)  → long squeeze  → price down (SHORT setup)
+    Balanced/high-volume-but-not-one-sided liquidation = noise → skip.
+    """
     events = _read_snapshot()
     if not events:
-        return []
+        return {}
     cutoff = time.time() - LIQ_WINDOW_SEC
-    vol_by_sym: Dict[str, float] = {}
+    vol_by_sym: Dict[str, Dict[str, float]] = {}
     for e in events:
         t = e.get("t", 0)
         if t < cutoff:
             continue
         sym = str(e.get("s", "")).replace("USDT", "").upper()
         v = float(e.get("v", 0) or 0)
-        if sym:
-            vol_by_sym[sym] = vol_by_sym.get(sym, 0) + v
-    spikes = [s for s, v in vol_by_sym.items() if v >= _liq_threshold()]
-    return sorted(spikes, key=lambda s: -vol_by_sym.get(s, 0))
+        side = str(e.get("S", "")).upper()  # SELL=long liq, BUY=short liq
+        if not sym:
+            continue
+        d = vol_by_sym.setdefault(sym, {"long": 0.0, "short": 0.0})
+        if side == "SELL":
+            d["long"] += v
+        elif side == "BUY":
+            d["short"] += v
+        else:
+            d["long"] += v  # unknown side → count toward total
+    spikes: Dict[str, float] = {}
+    for sym, v in vol_by_sym.items():
+        long_v, short_v = v["long"], v["short"]
+        total = long_v + short_v
+        if total < _liq_threshold():
+            continue
+        imbalance = (short_v - long_v) / total
+        if abs(imbalance) < _liq_min_imbalance():
+            continue  # balanced → not a squeeze, skip
+        spikes[sym] = imbalance
+    return dict(sorted(spikes.items(), key=lambda kv: -abs(kv[1])))
 
 
 def _funding_tick_symbols() -> List[str]:
@@ -249,14 +290,26 @@ def run_once() -> dict:
     """One event-watch pass (cron-friendly). Returns what was triggered."""
     triggered = {"liquidation": [], "funding": [], "runs": []}
 
-    # 1) Liquidation spikes → V22.0/V22.1
-    liq_syms = [s for s in _liq_spike_symbols() if _debounced(s)]
-    if liq_syms:
-        logger.info("Liquidation spike: %s", liq_syms)
-        triggered["liquidation"] = liq_syms
-        r = _run_targeted_scan(liq_syms, LIQ_CONFIGS)
-        if r:
-            triggered["runs"].append(r)
+    # 1) Liquidation spikes → V22.0 (LONG / short-squeeze) / V22.1 (SHORT / long-squeeze)
+    spikes = _liq_spike_symbols()          # {symbol: imbalance}
+    long_syms = [s for s, imb in spikes.items() if imb > 0 and _debounced(s)]
+    short_syms = [s for s, imb in spikes.items() if imb < 0 and _debounced(s)]
+    if long_syms or short_syms:
+        triggered["liquidation"] = long_syms + short_syms
+        if long_syms:
+            r = _run_targeted_scan(long_syms, ["22.0"])
+            if r:
+                triggered["runs"].append(r)
+        if short_syms:
+            r = _run_targeted_scan(short_syms, ["22.1"])
+            if r:
+                triggered["runs"].append(r)
+        # Aggressive variant fires on BOTH squeeze directions (A/B)
+        all_spike_syms = long_syms + short_syms
+        if all_spike_syms:
+            r = _run_targeted_scan(all_spike_syms, LIQ_CONFIGS_AGG)
+            if r:
+                triggered["runs"].append(r)
 
     # 2) Funding tick → V8.0
     f_syms = [s for s in _funding_tick_symbols() if _debounced(s)]
@@ -291,12 +344,15 @@ def main():
     parser.add_argument("--interval", type=int, default=15, help="Loop interval seconds")
     parser.add_argument("--liq-threshold", type=float, default=LIQ_VOL_THRESHOLD,
                         help="Liquidation $ volume threshold to trigger")
+    parser.add_argument("--liq-imbalance", type=float, default=LIQ_MIN_IMBALANCE,
+                        help="Min |imbalance| (one-sidedness) to count as a squeeze")
     parser.add_argument("--funding-lookahead", type=int, default=FUNDING_LOOKAHEAD_MIN,
                         help="Trigger funding scan N min before settlement")
     args = parser.parse_args()
 
-    global _LIQ_VOL_THRESHOLD, _FUNDING_LOOKAHEAD_MIN
+    global _LIQ_VOL_THRESHOLD, _LIQ_MIN_IMBALANCE, _FUNDING_LOOKAHEAD_MIN
     _LIQ_VOL_THRESHOLD = args.liq_threshold
+    _LIQ_MIN_IMBALANCE = args.liq_imbalance
     _FUNDING_LOOKAHEAD_MIN = args.funding_lookahead
 
     logging.basicConfig(
