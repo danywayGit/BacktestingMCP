@@ -99,6 +99,44 @@ No explanation, no markdown — just the JSON object.
     return prompt
 
 
+def _repair_truncated_json(text: str) -> Optional[Dict[str, Any]]:
+    """Repair an unterminated JSON object produced by an LLM output cutoff.
+
+    The strict parser fails on mid-object truncation (no closing brace).
+    This tries to salvage the last complete key:value pairs:
+      1. Appending a closing brace (covers cuts right after a complete value).
+      2. Dropping the trailing incomplete key:value pair and re-closing
+         (covers cuts mid-value, e.g. ``..., "key": 0.``).
+    Returns a dict on success, else None. Safe: only ever returns a real
+    JSON object; anything else falls through to the normal failure path
+    (missing keys get filled with their schema defaults downstream).
+    """
+    body = text.lstrip(" \t\r\n")
+    if not body.startswith("{") or body.count("{") <= body.count("}"):
+        return None
+    # 1) Truncation right after a complete value -> just close the object.
+    for closer in ("}",):
+        try:
+            parsed = json.loads(body + closer)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+    # 2) Cut mid-value: drop the trailing incomplete pair, then close.
+    cand = body
+    while True:
+        idx = cand.rfind(",")
+        if idx < 0:
+            return None
+        cand = cand[:idx].rstrip()
+        try:
+            parsed = json.loads(cand + "}")
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            continue
+
+
 def parse_llm_response(response: str) -> Optional[Dict[str, Any]]:
     """Extract JSON config from LLM response, handling markdown code blocks
     and prose/trailing garbage robustly.
@@ -197,6 +235,10 @@ def parse_llm_response(response: str) -> Optional[Dict[str, Any]]:
                     continue
             if config is not None:
                 break
+            # Failed strict + trim parsing — try repair for mid-object cutoff.
+            config = _repair_truncated_json(cand)
+            if config is not None:
+                break
 
     if config is None:
         logger.error("Could not parse LLM response as JSON: %s", response[:200])
@@ -274,6 +316,27 @@ def _get_api_key() -> Optional[str]:
     return None
 
 
+def _call_llm(prompt: str, api_key: str, model: str) -> Optional[str]:
+    """POST the prompt to OpenRouter and return the model's content, or None."""
+    import httpx
+    resp = httpx.post(
+        "https://openrouter.ai/api/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.7,
+            "max_tokens": 4096,  # was 2048 — full 18-key JSON needs room; low budget caused mid-object truncation
+        },
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()["choices"][0]["message"]["content"]
+
+
 def generate_new_config(stats: Dict[str, Any], active_version: str,
                         provider: str = "openrouter", model: str = "deepseek/deepseek-v4-flash") -> Optional[Dict[str, Any]]:
     """Use an LLM to generate a new scoring config based on evolution stats.
@@ -290,28 +353,11 @@ def generate_new_config(stats: Dict[str, Any], active_version: str,
     prompt = build_prompt(stats, active_version)
 
     try:
-        import httpx
         api_key = _get_api_key()
         if not api_key:
             logger.error("OPENROUTER_API_KEY not set")
             return None
-
-        resp = httpx.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.7,
-                "max_tokens": 2048,
-            },
-            timeout=30,
-        )
-        resp.raise_for_status()
-        content = resp.json()["choices"][0]["message"]["content"]
+        content = _call_llm(prompt, api_key, model)
     except Exception as e:
         logger.error("LLM call failed: %s", e)
         return None
@@ -321,6 +367,19 @@ def generate_new_config(stats: Dict[str, Any], active_version: str,
         return None
 
     config = parse_llm_response(content)
+    if config is None:
+        # Robustness guard: single auto-retry only on a parse failure (output
+        # truncation), not on every run — keeps cost to one extra call in the
+        # rare failure case.
+        logger.warning("LLM response failed JSON parse — retrying once (parse/truncation guard)")
+        try:
+            content = _call_llm(prompt, api_key, model)
+        except Exception as e:
+            logger.error("LLM retry call failed: %s", e)
+            return None
+        if content:
+            config = parse_llm_response(content)
+
     if config:
         logger.info("LLM generated new config: %s", json.dumps(config, indent=2))
     return config
