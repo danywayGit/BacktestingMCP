@@ -72,3 +72,16 @@ to re-detect events with updated parameters.
 - Current market is low-volatility regime — may need to expand lookback
 - No control set yet (Phase 3 requirement)
 - No visual chart feature extraction yet (Phase 2b)
+## V14 Weekly Re-Eval — 2026-09-19 07:16 (DRIFT[2/4])
+- **14.0.0** (LONG·BTC, BTCUSDT/UP): ATR ok cfg=0.35 within [0.6,1.0]x p25=0.520 | VOL ok cfg=0.6 within [0.6,1.0]x p25=0.640 | RSI DRIFT median=58.0 (anchor 46, Δ12.0)
+- **14.0.1** (LONG·ETH, ETHUSDT/UP): ATR TOO_LOOSE cfg=0.4 vs fresh p25=0.680 (<0.6x) | VOL ok cfg=0.6 within [0.6,1.0]x p25=0.630 | RSI median=55.4 near anchor 46
+- **14.1.0** (SHORT·BTC, BTCUSDT/DOWN): ATR ok cfg=0.45 within [0.6,1.0]x p25=0.620 | VOL ok cfg=0.55 within [0.6,1.0]x p25=0.550 | RSI median=47.2 near anchor 46
+- **14.1.1** (SHORT·ETH, ETHUSDT/DOWN): ATR ok cfg=0.55 within [0.6,1.0]x p25=0.770 | VOL ok cfg=0.55 within [0.6,1.0]x p25=0.590 | RSI median=46.8 near anchor 46
+
+
+## V14 Weekly Re-Eval — 2026-09-21 06:00 (DRIFT[2/4])
+- **14.0.0** (LONG·BTC, BTCUSDT/UP): ATR ok cfg=0.35 within [0.6,1.0]x p25=0.520 | VOL TOO_STRICT cfg=0.6 vs fresh p25=0.530 | RSI median=54.8 near anchor 46
+- **14.0.1** (LONG·ETH, ETHUSDT/UP): ATR TOO_LOOSE cfg=0.4 vs fresh p25=0.670 (<0.6x) | VOL ok cfg=0.6 within [0.6,1.0]x p25=0.600 | RSI DRIFT median=56.6 (anchor 46, Δ10.6)
+- **14.1.0** (SHORT·BTC, BTCUSDT/DOWN): ATR ok cfg=0.45 within [0.6,1.0]x p25=0.620 | VOL ok cfg=0.55 within [0.6,1.0]x p25=0.550 | RSI median=47.2 near anchor 46
+- **14.1.1** (SHORT·ETH, ETHUSDT/DOWN): ATR ok cfg=0.55 within [0.6,1.0]x p25=0.790 | VOL ok cfg=0.55 within [0.6,1.0]x p25=0.620 | RSI median=46.8 near anchor 46
+

@@ -71,9 +71,9 @@ FUNDING_EXTREME_ABS = 0.004       # |funding| > 0.4% considered extreme
 
 # Event-relevant configs (V22 = liquidation LONG/SHORT/agg, V8 = funding, V14 precursor)
 LIQ_CONFIGS = ["22.0", "22.1"]
-LIQ_CONFIGS_AGG = ["22.2"]  # direction-agnostic aggressive variant (both dirs)
+# LIQ_CONFIGS_AGG (merged both-direction 22.2) removed 2026-09-23 — split into 22.0 LONG + 22.1 SHORT.
 FUNDING_CONFIGS = ["8.0"]
-EVENT_CONFIGS = list(dict.fromkeys(LIQ_CONFIGS + LIQ_CONFIGS_AGG + FUNDING_CONFIGS))  # dedup, keep order
+EVENT_CONFIGS = list(dict.fromkeys(LIQ_CONFIGS + FUNDING_CONFIGS))  # dedup, keep order
 
 # Debounce registry: symbol -> last scan timestamp
 _last_scan: Dict[str, float] = {}
@@ -304,12 +304,9 @@ def run_once() -> dict:
             r = _run_targeted_scan(short_syms, ["22.1"])
             if r:
                 triggered["runs"].append(r)
-        # Aggressive variant fires on BOTH squeeze directions (A/B)
-        all_spike_syms = long_syms + short_syms
-        if all_spike_syms:
-            r = _run_targeted_scan(all_spike_syms, LIQ_CONFIGS_AGG)
-            if r:
-                triggered["runs"].append(r)
+        # Aggressive merged variant (22.2) removed 2026-09-23 per Didier:
+        # LONG/SHORT now trade as separate configs (22.0 LONG, 22.1 SHORT).
+        # No both-direction merged scan on every spike.
 
     # 2) Funding tick → V8.0
     f_syms = [s for s in _funding_tick_symbols() if _debounced(s)]

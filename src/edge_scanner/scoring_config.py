@@ -124,6 +124,13 @@ def is_wrapped_coin(symbol: str) -> bool:
     return symbol.upper() in WRAPPED_SYMBOLS
 
 
+# ── Dynamic majors cache (configs with use_dynamic_majors=True) ──────────
+# Populated lazily from data/major_symbols.json (weekly cron refresh). TTL 5min
+# so a freshly-written list is picked up within the same scan cycle without
+# re-reading the file on every symbol.
+_dynamic_majors_cache: dict = {'t': 0.0, 'syms': None}
+
+
 # Tokenized stocks — not on Binance Futures, produce meaningless signals
 # Pattern: 4+ chars ending in X where base looks like a stock ticker
 _TOKENIZED_STOCK_EXACT: frozenset[str] = frozenset({
@@ -591,6 +598,13 @@ class ScoringConfig:
     """Explicit symbol whitelist. Empty list = no filter (use coin_type_filter).
     Example: ['BTCUSDT', 'ETHUSDT'] = only these symbols."""
 
+    use_dynamic_majors: bool = False
+    """When True, filter to the DYNAMIC major-crypto symbol list written weekly
+    by scripts/update_major_symbols.py → data/major_symbols.json (top-N USDT-M
+    perp majors by 24h quote volume, junk/stocks/exotic excluded). This lets a
+    config self-update its universe weekly without code edits. When the list
+    is unavailable/empty it falls back to symbol_whitelist (or no filter)."""
+
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     notes: str = ""
 
@@ -691,10 +705,37 @@ class ScoringConfig:
         # Symbol whitelist — strip USDT suffix for comparison
         check_symbol = symbol.replace("USDT", "")
         whitelist_clean = [s.replace("USDT", "") for s in (self.symbol_whitelist or [])]
+        if self.use_dynamic_majors:
+            dyn = self._dynamic_majors()
+            if dyn:
+                whitelist_clean = list(dyn)  # dynamic list REPLACES static whitelist
         if whitelist_clean and check_symbol not in whitelist_clean:
             return False, f"symbol {check_symbol} not in whitelist: {whitelist_clean}"
 
         return True, ""
+
+    def _dynamic_majors(self) -> Optional[frozenset]:
+        """Load the dynamic major-crypto symbol set from data/major_symbols.json
+        (written weekly by scripts/update_major_symbols.py). Cached ~5 min.
+        Returns None if unavailable/empty (caller falls back to static whitelist
+        or no filter)."""
+        import json as _json, os as _os, time as _time
+        now = _time.time()
+        if now - _dynamic_majors_cache['t'] < 300:
+            return _dynamic_majors_cache['syms']
+        _dynamic_majors_cache['t'] = now
+        _dynamic_majors_cache['syms'] = None
+        try:
+            p = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)),
+                              '..', '..', 'data', 'major_symbols.json')
+            with open(p) as f:
+                data = _json.load(f)
+            bare = data.get('symbols_bare') or []
+            if bare:
+                _dynamic_majors_cache['syms'] = frozenset(bare)
+        except Exception:
+            pass
+        return _dynamic_majors_cache['syms']
 
     def compute_extended_score(self, additional: dict, base_score: float, direction_hint: float) -> tuple[float, dict]:
         """Compute extended signal contributions beyond the base 5 sources.
@@ -1506,6 +1547,150 @@ CONFIG_V14_1 = ScoringConfig(
     liquidation_weight=2.0,  # Higher weight for SHORT bias (short squeezes = violent upside)
 )
 
+# ── CONFIG_V14_0_0 — Precursor Pattern LONG · BTC (re-eval 2026-09-19) ──
+# Split family 14.D.S: D=0 LONG, D=1 SHORT; S=0 BTC, S=1 ETH. This config = LONG/BTC.
+# Cloned from V14.0 (LONG). Thresholds set to BTC LONG pre-move p25 from
+# pattern_discovery_combined.json (2026-09-14): ATR p25 0.52%, volume p25 0.64.
+# Weights = V14.0 values. CANDIDATE — disabled until OOS validation enables it.
+CONFIG_V14_0_0 = ScoringConfig(
+    version="14.0.0",
+    description="Precursor Pattern LONG·BTC (re-eval 2026-09-19): BTC-only, per-pair thresholds. CANDIDATE — disabled until OOS validation.",
+    status="disabled",
+    allowed_directions=["LONG"],
+    trend_weight=0.2,
+    volume_relative_weight=3.0,
+    signal_feed_weight=0.0,
+    scanner_hit_weight=0.0,
+    volume_divergence_weight=2.0,
+    bb_squeeze_min=20.0,
+    bb_squeeze_weight=2.0,
+    bb_position_weight=0.5,
+    atr_expansion_weight=1.5,
+    atr_stop_mult=3.0,
+    rr_ratio=1.0,
+    min_abs_score=5.0,
+    min_atr_pct=0.35,          # BTC LONG pre-move ATR p25 = 0.52%
+    min_volume_relative=0.60,  # BTC LONG pre-move volume p25 = 0.64
+    require_non_trend_confirmation=False,
+    market_regime_filter="BTC",
+    alert_min_score=5.0,
+    alert_require_multi_source=False,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    display_types_extra=[],
+    symbol_whitelist=["BTCUSDT"],
+    min_precursors=2,
+    liquidation_weight=1.5,
+)
+
+# ── CONFIG_V14_0_1 — Precursor Pattern LONG · ETH (re-eval 2026-09-19) ──
+# LONG/ETH. Cloned from V14.0. Thresholds from ETH LONG pre-move data (2026-09-14):
+# ATR p25 0.68%, volume p25 0.63. CANDIDATE — disabled until OOS validation.
+CONFIG_V14_0_1 = ScoringConfig(
+    version="14.0.1",
+    description="Precursor Pattern LONG·ETH (re-eval 2026-09-19): ETH-only, per-pair thresholds. CANDIDATE — disabled until OOS validation.",
+    status="disabled",
+    allowed_directions=["LONG"],
+    trend_weight=0.2,
+    volume_relative_weight=3.0,
+    signal_feed_weight=0.0,
+    scanner_hit_weight=0.0,
+    volume_divergence_weight=2.0,
+    bb_squeeze_min=20.0,
+    bb_squeeze_weight=2.0,
+    bb_position_weight=0.5,
+    atr_expansion_weight=1.5,
+    atr_stop_mult=3.0,
+    rr_ratio=1.0,
+    min_abs_score=5.0,
+    min_atr_pct=0.40,          # ETH LONG pre-move ATR p25 = 0.68%
+    min_volume_relative=0.60,  # ETH LONG pre-move volume p25 = 0.63
+    require_non_trend_confirmation=False,
+    market_regime_filter="BTC",
+    alert_min_score=5.0,
+    alert_require_multi_source=False,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    display_types_extra=[],
+    symbol_whitelist=["ETHUSDT"],
+    min_precursors=2,
+    liquidation_weight=1.5,
+)
+
+# ── CONFIG_V14_1_0 — Precursor Pattern SHORT · BTC (re-eval 2026-09-19) ──
+# SHORT/BTC. Cloned from V14.1 (SHORT). Thresholds from BTC SHORT pre-move data
+# (2026-09-14): ATR p25 0.62%, volume p25 0.55. CANDIDATE — disabled until OOS.
+CONFIG_V14_1_0 = ScoringConfig(
+    version="14.1.0",
+    description="Precursor Pattern SHORT·BTC (re-eval 2026-09-19): BTC-only, per-pair thresholds. CANDIDATE — disabled until OOS validation.",
+    status="disabled",
+    allowed_directions=["SHORT"],
+    trend_weight=0.2,
+    volume_relative_weight=3.0,
+    signal_feed_weight=0.0,
+    scanner_hit_weight=0.0,
+    volume_divergence_weight=3.0,
+    bb_squeeze_min=20.0,
+    bb_squeeze_weight=2.0,
+    bb_position_weight=1.0,
+    atr_expansion_weight=1.5,
+    atr_stop_mult=3.0,
+    rr_ratio=1.0,
+    min_abs_score=5.0,
+    short_min_abs_score=5.0,
+    min_atr_pct=0.45,          # BTC SHORT pre-move ATR p25 = 0.62%
+    min_volume_relative=0.55,  # BTC SHORT pre-move volume p25 = 0.55
+    require_non_trend_confirmation=False,
+    market_regime_filter="BTC",
+    regime_dir_bear_short_bonus=3.0,
+    regime_dir_bear_long_penalty=5.0,
+    alert_min_score=5.0,
+    alert_require_multi_source=False,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    display_types_extra=[],
+    symbol_whitelist=["BTCUSDT"],
+    min_precursors=2,
+    liquidation_weight=2.0,
+)
+
+# ── CONFIG_V14_1_1 — Precursor Pattern SHORT · ETH (re-eval 2026-09-19) ──
+# SHORT/ETH. Cloned from V14.1. Thresholds from ETH SHORT pre-move data (2026-09-14):
+# ATR p25 0.77%, volume p25 0.59. CANDIDATE — disabled until OOS validation.
+CONFIG_V14_1_1 = ScoringConfig(
+    version="14.1.1",
+    description="Precursor Pattern SHORT·ETH (re-eval 2026-09-19): ETH-only, per-pair thresholds. CANDIDATE — disabled until OOS validation.",
+    status="disabled",
+    allowed_directions=["SHORT"],
+    trend_weight=0.2,
+    volume_relative_weight=3.0,
+    signal_feed_weight=0.0,
+    scanner_hit_weight=0.0,
+    volume_divergence_weight=3.0,
+    bb_squeeze_min=20.0,
+    bb_squeeze_weight=2.0,
+    bb_position_weight=1.0,
+    atr_expansion_weight=1.5,
+    atr_stop_mult=3.0,
+    rr_ratio=1.0,
+    min_abs_score=5.0,
+    short_min_abs_score=5.0,
+    min_atr_pct=0.55,          # ETH SHORT pre-move ATR p25 = 0.77%
+    min_volume_relative=0.55,  # ETH SHORT pre-move volume p25 = 0.59
+    require_non_trend_confirmation=False,
+    market_regime_filter="BTC",
+    regime_dir_bear_short_bonus=3.0,
+    regime_dir_bear_long_penalty=5.0,
+    alert_min_score=5.0,
+    alert_require_multi_source=False,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    display_types_extra=[],
+    symbol_whitelist=["ETHUSDT"],
+    min_precursors=2,
+    liquidation_weight=2.0,
+)
+
 # ── CONFIG_V15_0 — Multi-Timeframe Alignment ──
 # Requires 1h, 4h, and 1d trends to all agree in direction.
 # Catches only the strongest, most confirmed trends.
@@ -1619,103 +1804,139 @@ CONFIG_V20_0 = ScoringConfig(
     display_types_extra=[],
 )
 
-# ── CONFIG_V22_0 — Liquidation Pressure LONG ──
-# Core idea: When SHORT liquidations dominate (long/short ratio < 0.7),
-# shorts are crowded → a short squeeze is likely → price moves UP.
-# Confirmed by volume spike + BB squeeze (low vol → explosion).
-# Designed for BTC/ETH only.
+# ── CONFIG_V22_0 — Liquidation Squeeze LONG (simple redesign 2026-09-19) ──
+# SIMPLE: liquidation is the star, volume confirms, direction restricted LONG.
+# Everything else stripped — no BB squeeze, no ATR expansion, no precursors,
+# no regime gates, no trend. Target = REAL short-squeeze cascades (7–30% moves).
+# Wide 4×ATR stop survives the whip to a far 6.0R target (captures the sizeable
+# squeeze runs you've observed on BTC/ETH/BNB).
 CONFIG_V22_0 = ScoringConfig(
     version="22.0",
-    description="Liquidation LONG: Short squeeze detection via extreme long/short ratio + volume spike + BB squeeze. BTC/ETH only.",
+    description="Liquidation Squeeze LONG (simple): short-squeeze cascade → LONG. Liquidation + volume only. Wide stop, high RR, majors-only.",
     status="enabled",
-    # Liquidation LONG — fires on SHORT-liquidations (short squeeze → UP).
-    # Hard-restrict to LONG so long-squeeze readings never mint SHORTs here.
+    # Short squeeze (SHORT liqs dominate) drives price UP → enter LONG.
+    # Hard-restrict LONG so long-squeeze readings never mint SHORTs here.
     allowed_directions=["LONG"],
-    # Very low trend weight — liquidation is the primary signal
-    trend_weight=0.1,
-    volume_relative_weight=3.0,  # Volume confirms smart money moving
+    # Majors-only universe: dynamic weekly list (data/major_symbols.json).
+    use_dynamic_majors=True,
+    # ══ SIMPLE: liquidation is THE driver, volume confirms. Nothing else ══
+    liquidation_weight=6.0,      # STAR — the squeeze IS the signal
+    volume_relative_weight=2.0,  # panic volume confirms the cascade
+    trend_weight=0.0,
     signal_feed_weight=0.0,
     scanner_hit_weight=0.0,
-    volume_divergence_weight=2.0,  # Bearish divergence = capitulation before squeeze
-    # BB squeeze + position — tight bands before explosion
-    bb_squeeze_min=20.0,
-    bb_squeeze_weight=2.0,
-    bb_position_weight=0.5,  # Near lower band = oversold + squeeze potential
-    # ATR expansion confirms volatility is coming
-    atr_expansion_weight=1.0,
-    # Liquidation is the STAR — high weight
-    liquidation_weight=5.0,  # Primary driver!
-    # Risk management
-    atr_stop_mult=3.0,
+    onchain_netflow_weight=0.0,
+    volume_divergence_weight=0.0,
+    bb_squeeze_weight=0.0,
+    bb_position_weight=0.0,
+    atr_expansion_weight=0.0,
+    chart_pattern_weight=0.0,
+    # ══ Risk (backtest-validated 2026-09-24): TIGHT stop + RR 1.2 ══
+    # Majors-only signal-replay (250 signals): stop 1.5×ATR + RR 1.2 is best
+    # (EV +0.05, WR 48%); RR 1.5 +0.016, RR 3+ strongly negative (whipsaw).
+    atr_stop_mult=1.5,
     rr_ratio=1.2,
     # Filters
     min_abs_score=5.0,
-    min_atr_pct=0.15,  # Very relaxed — squeezes happen in low vol
+    min_atr_pct=0.0,             # no ATR gate — the squeeze event IS the entry
     min_volume_relative=0.5,
     require_non_trend_confirmation=False,
-    market_regime_filter="BTC",
-    # Regime direction bias — LONG favored in bull, but SHORT squeeze works in bear too
-    regime_dir_bull_long_bonus=2.0,
-    regime_dir_bear_long_penalty=2.0,
-    # Alert thresholds
+    market_regime_filter="OFF",
     alert_min_score=5.0,
     alert_require_multi_source=False,
     coin_type_filter=["ANY"],
     exclude_coin_types=[],
     display_types_extra=[],
-    symbol_whitelist=[],  # All symbols — liquidation data works on any Futures pair
-    # Multi-precursor: needs at least 1 other precursor + liquidation
-    min_precursors=1,  # Loose — liquidation is the main condition
+    symbol_whitelist=[],
+    min_precursors=0,            # liquidation alone suffices — no extra gates
 )
 
-# ── CONFIG_V22_1 — Liquidation Pressure SHORT ──
-# Core idea: When LONG liquidations dominate (long/short ratio > 1.5),
-# longs are crowded → a long squeeze is likely → price moves DOWN.
-# Confirmed by ATR expansion + BB near upper band (overextended).
-# Designed for BTC/ETH only.
+# ── CONFIG_V22_1 — Liquidation Squeeze SHORT (simple redesign 2026-09-19) ──
+# SIMPLE mirror of 22.0 for the SHORT side: long-squeeze cascade (LONG liqs
+# dominate) drives price DOWN → SHORT. Liquidation star + volume confirm only.
+# Wide stop + high RR to ride a 7–30% squeeze.
 CONFIG_V22_1 = ScoringConfig(
     version="22.1",
-    description="Liquidation SHORT: Long squeeze detection via extreme long/short ratio + ATR expansion + BB overextension. BTC/ETH only.",
+    description="Liquidation Squeeze SHORT (simple): long-squeeze cascade → SHORT. Liquidation + volume only. Wide stop, high RR, majors-only.",
     status="enabled",
-    # Liquidation SHORT — fires on LONG-liquidations (long squeeze → DOWN).
-    # Hard-restrict to SHORT so short-squeeze readings never mint LONGs here.
+    # Long squeeze (LONG liqs dominate) drives price DOWN → enter SHORT.
+    # Hard-restrict SHORT so short-squeeze readings never mint LONGs here.
     allowed_directions=["SHORT"],
-    # Low trend weight — liquidation is the primary signal
-    trend_weight=0.1,
-    volume_relative_weight=3.0,  # Volume confirms panic
+    # Majors-only universe: dynamic weekly list (data/major_symbols.json).
+    use_dynamic_majors=True,
+    # ══ SIMPLE: liquidation is THE driver, volume confirms. Nothing else ══
+    liquidation_weight=6.0,      # STAR — the squeeze IS the signal
+    volume_relative_weight=2.0,  # panic volume confirms the cascade
+    trend_weight=0.0,
     signal_feed_weight=0.0,
     scanner_hit_weight=0.0,
-    volume_divergence_weight=2.0,  # Bullish divergence = top before dump
-    # BB squeeze + position — near upper band = overextended longs
-    bb_squeeze_min=20.0,
-    bb_squeeze_weight=1.0,
-    bb_position_weight=1.0,  # Near upper band = overextended → liquidation risk
-    # ATR expansion confirms volatility
-    atr_expansion_weight=1.5,
-    # Liquidation is the STAR — high weight
-    liquidation_weight=5.0,  # Primary driver!
-    # Risk management — tighter stops for short squeezes (they can be violent)
-    atr_stop_mult=3.5,
-    rr_ratio=1.2,
+    onchain_netflow_weight=0.0,
+    volume_divergence_weight=0.0,
+    bb_squeeze_weight=0.0,
+    bb_position_weight=0.0,
+    atr_expansion_weight=0.0,
+    chart_pattern_weight=0.0,
+    # ══ Risk (backtest-validated 2026-09-19): TIGHT stop + RR 2.0 ══
+    # Majors-only signal-replay: stop 1.5×ATR + RR 2.0 is best (EV +0.22);
+    # wide stops / extreme RR are strongly negative.
+    atr_stop_mult=1.5,
+    rr_ratio=2.0,
     # Filters
     min_abs_score=5.0,
     short_min_abs_score=5.0,
-    min_atr_pct=0.15,
+    min_atr_pct=0.0,             # no ATR gate — the squeeze event IS the entry
     min_volume_relative=0.5,
     require_non_trend_confirmation=False,
-    market_regime_filter="BTC",
-    # Regime direction bias — SHORT favored in bear, penalized in bull
-    regime_dir_bear_short_bonus=3.0,
-    regime_dir_bull_short_penalty=2.0,
-    # Alert thresholds
+    market_regime_filter="OFF",
     alert_min_score=5.0,
     alert_require_multi_source=False,
     coin_type_filter=["ANY"],
     exclude_coin_types=[],
     display_types_extra=[],
-    symbol_whitelist=[],  # All symbols — liquidation data works on any Futures pair
-    # Multi-precursor: needs at least 1 other precursor + liquidation
-    min_precursors=1,
+    symbol_whitelist=[],
+    min_precursors=0,            # liquidation alone suffices — no extra gates
+)
+
+# ── CONFIG_V22_2 — Liquidation Squeeze (aggressive variant, majors-only) ──
+# Same simple liquidation-driven design as 22.0/22.1 but an even WIDER stop +
+# higher RR, for A/B on the big-move thesis. Direction from imbalance (no hard
+# restriction): lets BOTH squeeze directions through in one config to compare
+# against the two restricted ones. NEW 2026-09-19 — for testnet comparison.
+CONFIG_V22_2 = ScoringConfig(
+    version="22.2",
+    description="Liquidation Squeeze (aggressive): ANY direction, wider 6×ATR stop, rr 8.0, liquidation-driven. Majors-only, testnet A/B. [DISABLED — merged both-direction replaced by separate 22.0 LONG + 22.1 SHORT per Didier; both-direction design dilutes EV]",
+    status="disabled",
+    # Direction comes from the imbalance sign inside the event trigger; allow both.
+    allowed_directions=["LONG", "SHORT"],
+    use_dynamic_majors=True,
+    # ══ SIMPLE: liquidation + volume ══
+    liquidation_weight=6.0,
+    volume_relative_weight=2.0,
+    trend_weight=0.0,
+    signal_feed_weight=0.0,
+    scanner_hit_weight=0.0,
+    onchain_netflow_weight=0.0,
+    volume_divergence_weight=0.0,
+    bb_squeeze_weight=0.0,
+    bb_position_weight=0.0,
+    atr_expansion_weight=0.0,
+    chart_pattern_weight=0.0,
+    # ══ Risk: widest stop, highest RR ══
+    atr_stop_mult=6.0,           # ~3.4–5.6% on majors — maximal whip survivorship
+    rr_ratio=8.0,                # target ≈ 27–45% — the tail-ride thesis
+    min_abs_score=5.0,
+    short_min_abs_score=5.0,
+    min_atr_pct=0.0,
+    min_volume_relative=0.5,
+    require_non_trend_confirmation=False,
+    market_regime_filter="OFF",
+    alert_min_score=5.0,
+    alert_require_multi_source=False,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    display_types_extra=[],
+    symbol_whitelist=[],
+    min_precursors=0,
 )
 
 # Quality Gate configs - NEW in v7.0
@@ -2356,12 +2577,38 @@ CONFIG_V1_10 = ScoringConfig(
     regime_dir_bull_short_penalty=2.0,
 )
 
+
+
+# ── CONFIG_V1_11 — Auto-generated 2026-09-20 16:00 ──
+CONFIG_V1_11 = ScoringConfig(
+    version="1.11",
+    description="LLM-evolved: win-rate optimized config, tightened filters for higher quality",
+    min_abs_score=8.0,
+    min_adx=25,
+    min_rsi=25,
+    max_rsi=75,
+    min_atr_pct=0.5,
+    atr_stop_mult=2.0,
+    rr_ratio=2.0,
+    trend_weight=0.4,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.3,
+    onchain_netflow_weight=0.1,
+    volume_divergence_weight=3.0,
+    smart_money_index_weight=2.0,
+    low_float_squeeze_weight=1.5,
+    regime_dir_bear_short_bonus=2.0,
+    regime_dir_bear_long_penalty=2.0,
+    regime_dir_bull_long_bonus=2.0,
+    regime_dir_bull_short_penalty=2.0,
+)
+
 ACTIVE_CONFIG = CONFIG_V1_4
 
 ALL_CONFIGS: dict[str, ScoringConfig] = {
     c.version: c for c in [
         # Baseline variants
-        CONFIG_V1_0, CONFIG_V1_1, CONFIG_V1_2, CONFIG_V1_3, CONFIG_V1_4, CONFIG_V1_5, CONFIG_V10_0, CONFIG_V11_0, CONFIG_V12_0, CONFIG_V13_0, CONFIG_V14_0, CONFIG_V14_1, CONFIG_V15_0, CONFIG_V16_0, CONFIG_V17_0, CONFIG_V18_0, CONFIG_V19_0, CONFIG_V20_0, CONFIG_V22_0, CONFIG_V22_1,
+        CONFIG_V1_0, CONFIG_V1_1, CONFIG_V1_2, CONFIG_V1_3, CONFIG_V1_4, CONFIG_V1_5, CONFIG_V10_0, CONFIG_V11_0, CONFIG_V12_0, CONFIG_V13_0, CONFIG_V14_0, CONFIG_V14_1, CONFIG_V14_0_0, CONFIG_V14_0_1, CONFIG_V14_1_0, CONFIG_V14_1_1, CONFIG_V15_0, CONFIG_V16_0, CONFIG_V17_0, CONFIG_V18_0, CONFIG_V19_0, CONFIG_V20_0, CONFIG_V22_0, CONFIG_V22_1, CONFIG_V22_2,
         # Multi-timeframe (all kept for records)
         CONFIG_V2_0, CONFIG_V2_1, CONFIG_V2_2,
         # ADX momentum (all kept for records)
@@ -2389,6 +2636,8 @@ ALL_CONFIGS: dict[str, ScoringConfig] = {
         CONFIG_V1_9,
 
         CONFIG_V1_10,
+
+        CONFIG_V1_11,
 ]
 }
 

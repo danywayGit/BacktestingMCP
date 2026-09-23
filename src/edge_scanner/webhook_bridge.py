@@ -64,6 +64,7 @@ CONFIG_PRIORITY = [
     ("16.0", 7.0, "V16.0 Vol Squeeze"),      ("11.0", 7.0, "V11.0 Optimized Pro"),
     ("13.0", 7.0, "V13.0 Auto-Evolved"),
     ("22.0", 7.0, "V22.0 Liquidation LONG"), ("22.1", 7.0, "V22.1 Liquidation SHORT"),
+    ("22.2", 7.0, "V22.2 Liquidation Squeeze (agg)"),
     ("1.1", 7.0, "V1.1 Volume-Weighted"), ("1.2", 7.0, "V1.2 Signal-Focused"), ("1.3", 7.0, "V1.3 On-Chain"),
     ("7.2", 7.0, "V7.2 Filtered Quality"), ("7.5", 7.0, "V7.5 LLM Quality Gate"),
     ("7.6", 7.0, "V7.6 LLM Evolved"), ("7.8", 7.0, "V7.8 LLM Evolved v2"),

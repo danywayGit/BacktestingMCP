@@ -53,3 +53,11 @@ data/altfins_patterns.json
 *.bak-*
 data/crypto.db-shm
 data/crypto.db-wal
+
+# Liquidation proxy / V22 runtime artifacts (generated — not committed)
+data/liq_proxy_history.csv
+data/liq_proxy_history.json
+data/liq_proxy_validation.json
+data/liquidation_history/
+data/major_symbols.json
+src/data/crypto.db

@@ -60,33 +60,32 @@ def detect_events(symbol: str, engine: BacktestingEngine) -> List[Dict]:
         window_low = low[i:i + W_CANDLES].min()
         exit_price = close[i + W_CANDLES - 1]
 
-        up_move = (window_high - entry_price) / entry_price * 100
-        down_move = (entry_price - window_low) / entry_price * 100
+        # GENUINE net move: require the end-of-window return (end - start) to clear
+        # the threshold. Direction comes from the sign of the NET move, not from an
+        # intra-window touch that later recovers.
         actual_return = (exit_price - entry_price) / entry_price * 100
+        max_intra = 0.0
 
-        if up_move >= MOVE_THRESHOLD_PCT:
+        if actual_return >= MOVE_THRESHOLD_PCT:
+            direction = "up"
             max_intra = max(
                 (high[j] - entry_price) / entry_price * 100
                 for j in range(i, i + W_CANDLES)
             )
-            raw_events.append({
-                "start_idx": i,
-                "end_idx": i + W_CANDLES - 1,
-                "direction": "up",
-                "pct_move": round(actual_return, 2),
-                "max_intra_window_pct": round(max_intra, 2),
-                "start_price": entry_price,
-                "end_price": exit_price,
-            })
-        elif down_move >= MOVE_THRESHOLD_PCT:
+        elif actual_return <= -MOVE_THRESHOLD_PCT:
+            direction = "down"
             max_intra = min(
                 (low[j] - entry_price) / entry_price * 100
                 for j in range(i, i + W_CANDLES)
             )
+        else:
+            direction = None
+
+        if direction is not None:
             raw_events.append({
                 "start_idx": i,
                 "end_idx": i + W_CANDLES - 1,
-                "direction": "down",
+                "direction": direction,
                 "pct_move": round(actual_return, 2),
                 "max_intra_window_pct": round(max_intra, 2),
                 "start_price": entry_price,
@@ -170,7 +169,7 @@ def print_summary(all_events: Dict[str, List[Dict]]):
     """Print a summary of detected events."""
     print(f"\n{'='*70}")
     print(f"  EVENT DETECTION SUMMARY")
-    print(f"  Timeframe: {TIMEFRAME.value} | Window: {W_CANDLES}h | Threshold: {MOVE_THRESHOLD_PCT}%")
+    print(f"  Timeframe: {TIMEFRAME.value} | Window: {W_CANDLES} (={int(W_CANDLES*15/60)}h) | Threshold: {MOVE_THRESHOLD_PCT}%")
     print(f"  Lookback: {LOOKBACK_DAYS} days")
     print('='*70)
 
@@ -200,7 +199,7 @@ def print_summary(all_events: Dict[str, List[Dict]]):
 
 if __name__ == "__main__":
     print(f"\n  ── Phase 1: Event Detection ──")
-    print(f"  Parameters: timeframe={TIMEFRAME.value}, W={W_CANDLES}h, threshold={MOVE_THRESHOLD_PCT}%")
+    print(f"  Parameters: timeframe={TIMEFRAME.value}, W={W_CANDLES} (={int(W_CANDLES*15/60)}h), threshold={MOVE_THRESHOLD_PCT}%")
     print()
 
     engine = BacktestingEngine()

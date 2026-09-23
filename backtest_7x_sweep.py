@@ -22,7 +22,7 @@ ATR_PERIOD = 14
 WARMUP = 60  # bars of history before entry for ATR
 
 # Enabled 7.x configs (per Didier: all 7.x except disabled 7.0, 7.7)
-CONFIGS = ['7.2', '7.3', '7.4', '7.5', '7.6', '7.8']
+CONFIGS = ['7.2', '7.3', '7.4', '7.5', '7.6', '7.8', '22.0', '22.1']
 
 SWEEP = {
     'atr_stop_mult': [1.5, 2.0, 2.5, 3.0, 4.0],

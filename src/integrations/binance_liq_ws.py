@@ -153,6 +153,65 @@ def _write_snapshot(events: List[dict]) -> None:
         pass
 
 
+# ── Liquidation event history (2026-09-19) ─────────────────────────────────
+# The rolling snapshot only keeps ~1h — useless for backtesting the new V22
+# trigger (which needs historical volume + side per event over weeks). This
+# appends every WS event to a daily JSONL archive so we CAN replay the trigger
+# later. Deduped by (symbol, side, price, qty, rounded-ts).
+_HISTORY_DIR = os.path.abspath(os.path.join(
+    os.path.dirname(_SNAPSHOT_PATH), "liquidation_history"))
+_persisted_event_keys: set = set()   # in-process dedup
+
+
+def _persist_events(events: List[dict]) -> None:
+    """Append NEW events to today's JSONL archive (idempotent)."""
+    if not events:
+        return
+    try:
+        os.makedirs(_HISTORY_DIR, exist_ok=True)
+        day = time.strftime("%Y-%m-%d", time.gmtime())
+        path = os.path.join(_HISTORY_DIR, f"{day}.jsonl")
+        new_lines = []
+        for e in events:
+            key = (e.get("s", ""), e.get("S", ""), round(float(e.get("p", 0) or 0), 6),
+                   round(float(e.get("q", 0) or 0), 8), int(float(e.get("t", 0) or 0)))
+            if key in _persisted_event_keys:
+                continue
+            _persisted_event_keys.add(key)
+            new_lines.append(json.dumps(e, separators=(",", ":")))
+        if not new_lines:
+            return
+        # append atomically-ish: open 'a', write lines
+        with open(path, "a") as f:
+            for ln in new_lines:
+                f.write(ln + "\n")
+    except Exception:
+        pass
+
+
+def count_history_events(since_ts: Optional[float] = None) -> int:
+    """Total events persisted across all history files (optional ts filter)."""
+    total = 0
+    try:
+        for fn in sorted(os.listdir(_HISTORY_DIR)):
+            if not fn.endswith(".jsonl"):
+                continue
+            with open(os.path.join(_HISTORY_DIR, fn)) as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    try:
+                        e = json.loads(line)
+                    except Exception:
+                        continue
+                    if since_ts and float(e.get("t", 0) or 0) < since_ts:
+                        continue
+                    total += 1
+    except Exception:
+        pass
+    return total
+
+
 def get_liquidation_score(symbol: str) -> Tuple[float, dict]:
     """Liquidation score from best available source.
 
@@ -277,7 +336,8 @@ def run_ws_daemon():
         events: List[dict] = []
         while True:
             try:
-                async with websockets.connect("wss://fstream.binance.com/stream?streams=!forceOrder@arr", open_timeout=15, ping_interval=20) as ws:
+                stream_url = "wss://fstream.binance.com/market/ws/!forceOrder@arr"  # POST-2026-04-23 /market category; legacy /stream decommissioned
+                async with websockets.connect(stream_url, open_timeout=15, ping_interval=20) as ws:
                     logger.info("WS liquidation daemon connected")
                     last_heartbeat = time.time()
                     # Heartbeat on connect so a quiet market still writes a
@@ -290,7 +350,10 @@ def run_ws_daemon():
                             o = json.loads(msg).get("o", {})
                             sym, side, price, qty = o.get("s", ""), o.get("S", ""), float(o.get("p", 0) or 0), float(o.get("q", 0) or 0)
                             if sym and price > 0:
-                                events.append({"s": sym, "S": side, "p": price, "q": qty, "v": price * qty, "t": time.time()})
+                                ev = {"s": sym, "S": side, "p": price, "q": qty, "v": price * qty, "t": time.time()}
+                                events.append(ev)
+                                # NEW: append to daily history archive for later backtest
+                                _persist_events([ev])
                                 # keep 1h
                                 cutoff = time.time() - _WINDOW_SEC
                                 events[:] = [e for e in events if e["t"] >= cutoff]
