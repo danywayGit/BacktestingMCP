@@ -22,6 +22,9 @@ import sys
 import requests
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
+from dotenv import load_dotenv
+
+load_dotenv()  # WEBHOOK_KEY from gitignored .env (never hardcoded)
 
 SSH_HELPER = os.path.expanduser("~/.hermes/scripts/ssh_sudo_run.py")
 
@@ -186,7 +189,7 @@ def main():
     # the current wallet (queried live). For a clean restart, this measures
     # the run from the fresh baseline.
     try:
-        KEY = "BOT_WEBHOOK_KEY_REMOVED"
+        KEY = os.environ.get("WEBHOOK_KEY", "")  # from .env, never hardcoded
         summ = requests.get(f"http://109.123.229.200/api/summary?key={KEY}", timeout=6).json()
         balance = float(summ.get("cash_pool") or 0) or 5000.0
     except Exception:

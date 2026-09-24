@@ -8,15 +8,19 @@ Multi-config priority system with:
 - Fresh entry price from Binance at send time
 - Min effective R:R floor to reject stale setups
 """
-import httpx, json, logging, sqlite3, time
+import httpx, json, logging, sqlite3, time, os
 from datetime import datetime, timezone
 from typing import Optional, Dict, List, Tuple, Set
+from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
+load_dotenv()  # WEBHOOK_KEY lives in gitignored .env (never a literal in code)
+
 # ── Config ──
 WEBHOOK_URL = "http://109.123.229.200/webhook"
-WEBHOOK_KEY = "BOT_WEBHOOK_KEY_REMOVED"
+# Bot webhook key — from gitignored .env, NOT hardcoded (git-secret-guard).
+WEBHOOK_KEY = os.environ.get("WEBHOOK_KEY", "")
 EXCHANGE = "Binance"
 STRATEGY = "EdgeScanner"
 DB_PATH = "/home/hermes/BacktestingMCP/data/crypto.db"
