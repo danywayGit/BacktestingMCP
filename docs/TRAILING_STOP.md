@@ -40,12 +40,19 @@ No cross-account hedge risk, no duplicated secrets.
 ## Files
 | Path | Role |
 |---|---|
-| `~/.hermes/scripts/trailing_stop.py` | Engine (decision + archive) |
-| `~/.hermes/scripts/trailing_stop.sh` | Cron wrapper (rotating log) |
+| `scripts/hermes/trailing_stop.py` (BacktestingMCP) | **Tracked home** of the engine (git source of truth) |
+| `scripts/hermes/trailing_stop.sh` (BacktestingMCP) | **Tracked home** of the cron wrapper |
+| `~/.hermes/scripts/trailing_stop.py` | Runtime copy used by the cron (deploy: copy from tracked home) |
+| `~/.hermes/scripts/trailing_stop.sh` | Runtime cron wrapper (sources `~/.hermes/.env` for `TRAILING_BOT_API_KEY`) |
 | `~/.hermes/scripts/trailing_stats.py` | Read-only stats query helper |
 | `~/.hermes/scripts/.trailing_stop_state.json` | Live/transient tracking state |
 | `~/.hermes/logs/trailing_stop.log` | Engine log |
 | `/opt/Trading-WebHook-Bot/handler.py` (`MoveStopLoss`) | Bot-side SL execution |
+
+> **Deploy note:** edits are made to the tracked `scripts/hermes/trailing_stop.{py,sh}`,
+> then copied to `~/.hermes/scripts/` (the paths the cron runs). Run `diff` after
+> each copy to confirm the runtime matches the git version. The wrapper sources
+> `~/.hermes/.env` for `TRAILING_BOT_API_KEY` (gitignored — never a literal key in code).
 
 ## Cron
 - **Trailing engine:** every **3 min** on Hermes (`trailing-stop`, `*/3 * * * *`).
