@@ -1,0 +1,24 @@
+{
+  "python.pythonPath": "venv\\Scripts\\python.exe",
+  "python.terminal.activateEnvironment": true,
+  "python.linting.enabled": true,
+  "python.linting.pylintEnabled": false,
+  "python.linting.flake8Enabled": true,
+  "python.formatting.provider": "black",
+  "python.sortImports.args": [
+    "--profile",
+    "black"
+  ],
+  "files.associations": {
+    "*.py": "python"
+  },
+  "terminal.integrated.env.windows": {
+    "PYTHONPATH": "${workspaceFolder}/src"
+  },
+  "terminal.integrated.env.osx": {
+    "PYTHONPATH": "${workspaceFolder}/src"
+  },
+  "terminal.integrated.env.linux": {
+    "PYTHONPATH": "${workspaceFolder}/src"
+  }
+}
