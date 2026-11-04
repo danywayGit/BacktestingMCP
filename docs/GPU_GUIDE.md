@@ -117,3 +117,76 @@ pip install cupy-cuda12x
 ```
 
 For other CUDA versions: https://docs.cupy.dev/en/stable/install.html
+
+---
+
+## GPU MCP Server — expose the 4090 to Hermes over LAN
+
+`src/mcp/gpu_server.py` is a standalone MCP server that exposes the GPU's
+optimization/backtest tools to an agent (Hermes) over the network. Hermes can
+then call `gpu_health`, `run_exit_geometry_sweep`, `run_sweep_async`,
+`sweep_status`, `sweep_result` directly — running sweeps on the GPU and getting
+the results back.
+
+### Re-run this server (Windows 11 + RTX 4090)
+
+**Step 1 — deps** (one-time): the venv needs FastMCP + the supported `mcp` library:
+
+```bat
+pip install "fastmcp" "mcp[server]"
+```
+
+**Step 2 — start the server.** ⚠️ CRITICAL: you must run it from a directory
+OUTSIDE the repo AND clear `PYTHONPATH`, because the repo's own `src/mcp/`
+shadow-clashes with the installed `mcp` library (a circular-import error:
+`cannot import name 'Server'`). From your Windows home directory:
+
+```bat
+cd C:\Users\<you>
+set PYTHONPATH=
+python C:\Users\<you>\Documents\Git\DanywayGit\BacktestingMCP\src\mcp\gpu_server.py
+```
+
+Expected output (keep the window open):
+```
+INFO: Uvicorn running on http://0.0.0.0:8765 (Press CTRL+C to quit)
+```
+Serves Streamable HTTP MCP at `http://0.0.0.0:8765/mcp`.
+
+> **Path gotcha:** the repo has its own `src/mcp/server.py`. If `src/` is on
+> `sys.path` (cwd = repo, or a `PYTHONPATH` / editable-install `.pth` points at
+> `src`), then `import mcp` loads the repo file instead of the real library and
+> FastMCP fails with the circular-import error above. cd out + `set PYTHONPATH=`
+> fixes it. Do NOT run from the repo root.
+
+### Connect Hermes to it
+
+On the Hermes box (or any MCP client that can reach `192.168.1.7`):
+
+```bash
+hermes mcp add gpu4090 --url http://192.168.1.7:8765/mcp
+# answers: auth = n (none), enable all = y
+hermes mcp test gpu4090        # expect ✓ Connected + 5 tools
+```
+
+Or add to `~/.hermes/config.yaml`:
+```yaml
+mcp_servers:
+  gpu4090:
+    url: http://192.168.1.7:8765/mcp
+    enabled: true
+```
+
+Then `/reload-mcp` (or new session) and the GPU tools are usable as normal tools.
+
+### Tools exposed
+
+| Tool | Purpose |
+|------|---------|
+| `gpu_health` | GPU name / VRAM / numba availability (fast probe) |
+| `run_exit_geometry_sweep` | vectorized `atr_stop_mult × rr_ratio × max_hold` sweep on an OHLC close series; returns ranked combos by EV(R) |
+| `run_sweep_async` | submit a long sweep as a background job → returns `job_id` |
+| `sweep_status` / `sweep_result` | poll / fetch a completed job's results (persisted to `results/gpu_mcp/`) |
+
+**Safety:** this server exposes *compute* tools only (no trading/order actions).
+It reads OHLC and returns ranked results — it never touches exchange accounts.
