@@ -55,18 +55,22 @@ MARKET_TYPE = _EXEC_MODE_CFG["market_type"]        # Futures | Spot
 TESTNET_MODE = (ACCOUNT_TYPE == "TestNet")
 
 CONFIG_PRIORITY = [
+    # Featured edge (Nov 2026): 1.5 = only stat-confirmed + current-regime winner
+    # (6,927 resolved, WR 54.6%, CI-lo 52.6%, 57.3% last-30d). 1.4 = challenger
+    # (55% last-30d). 2.2 / 13.0 = proven executed grinders. Deprioritized rest
+    # stay Discovery-eligible (regime may rotate back), NOT bet-on.
+    ("1.5", 7.0, "V1.5 Conservative R:R"),    ("1.4", 7.0, "V1.4 Scanner-Focused"),
+    ("2.2", 7.0, "V2.2 Soft MT Alignment"),   ("13.0", 7.0, "V13.0 Auto-Evolved"),
     ("3.1", 7.0, "V3.1 ADX Trend"),         ("4.1", 7.0, "V4.1 Breakout+Vol"),
     ("5.1", 7.0, "V5.1 AI-focused"),         ("6.1", 7.0, "V6.1 Breakout Momentum"),
     ("2.1", 7.0, "V2.1 MT Alignment"),       ("4.0", 7.0, "V4.0 TR/ATR Breakout"),
-    ("1.4", 7.0, "V1.4 Scanner-Focused"),    ("1.5", 7.0, "V1.5 Conservative R:R"),
-    ("2.2", 7.0, "V2.2 Soft MT Alignment"),  ("8.0", 7.0, "V8.0 Funding Rate"),
+    ("8.0", 7.0, "V8.0 Funding Rate"),
     ("6.0", 7.0, "V6.0 Pullback"),           ("3.2", 7.0, "V3.2 Soft ADX"),
     ("5.2", 7.0, "V5.2 Balanced DeFi/AI"),   ("6.2", 7.0, "V6.2 Pullback Strat"),
     ("14.0", 7.0, "V14.0 Precursor BTC/ETH"),("14.1", 7.0, "V14.1 Precursor SHORT BTC/ETH"),
     ("5.0", 7.0, "V5.0 DEFI-focused"),
     ("10.0", 7.0, "V10.0 Chart Patterns"),   ("12.0", 7.0, "V12.0 Optimized Pro V2"),
     ("16.0", 7.0, "V16.0 Vol Squeeze"),      ("11.0", 7.0, "V11.0 Optimized Pro"),
-    ("13.0", 7.0, "V13.0 Auto-Evolved"),
     ("22.0", 7.0, "V22.0 Liquidation LONG"), ("22.1", 7.0, "V22.1 Liquidation SHORT"),
     ("22.2", 7.0, "V22.2 Liquidation Squeeze (agg)"),
     ("1.1", 7.0, "V1.1 Volume-Weighted"), ("1.2", 7.0, "V1.2 Signal-Focused"), ("1.3", 7.0, "V1.3 On-Chain"),
@@ -105,6 +109,14 @@ SIGNAL_COOLDOWN_HOURS = 2.0
 # sandbox). Applied in _route_min_score() below.
 PROP_ROUTE_MIN_SCORE = 8.0
 
+# ── Prop symbol blocklist (Oct 2026) ─────────────────────────────────────
+# Symbols with net-negative realized PnL across the prop book (6-week ledgers):
+# ZEC -165 / ADA -138 (on BOTH firms) / SOL -131 / DOGE -28 / HYPE -30 / UNI -13.
+# Excluded from ALL prop routes. Majors-first: keep BTC/ETH/BNB/SOL/LTC/XRP per
+# the big-symbol thesis (SOL's Hyro loss was one config's short-sample, not a
+# structural bleed on a top-5 major). Quality-over-quantity + data-driven.
+PROP_FIRM_EXCLUDED = {"ZEC", "ADA", "HYPE", "DOGE", "UNI"}
+
 
 def _route_min_score(base_min_score: float, route: str) -> float:
     """Raise the score floor for prop routes (Bybit/Velotrade/Bitfunded)."""
@@ -120,13 +132,13 @@ def _route_min_score(base_min_score: float, route: str) -> float:
 # daily -3% halt, challenge -5% lost, low-cap filter, fail-closed.
 # Toggle: set BYBIT_ROUTE=0 in the env to disable the Bybit pass.
 BYBIT_ROUTE = _os.getenv("BYBIT_ROUTE", "1").strip().lower() in ("1", "true", "yes", "on")
-# Didier (Sep 2026): realized-best high-WR set for the HyroTrader 10k challenge.
-# 2.2 (+$129, 66.7% WR), 1.2 (+$119, 52.6%), 1.3 (+$84, 60%), 1.4 (+$29, 48.8%,
-# largest sample). Dropped 22.0 (realized loser 28.6% WR, -$22) and 6.0/1.5
-# (low sample / marginal). Excluded 1.1: 34% WR big-win profile = drawdown risk
-# against the 5% daily prop cap. Prop routes run a higher score floor (8.0).
-BYBIT_CONFIGS = ["2.2", "1.2", "1.3", "1.4"]
-BYBIT_MAX_SIGNALS = 4                    # matches the 4-config set
+# Didier (Nov 2026): prop routing PAUSED pending signal quality. ALL prop config
+# lists drop 1.3 PERMANENTLY — it is the confirmed account-killer on real money
+# (Bybit −284 over 32, Velotrade −70 over 21) despite +58 on testnet. List is now
+# the realized per-firm winners: 1.4 (+136 Bybit) / 2.2 (+54 Bybit). Mirror is
+# Bybit-driven (select_signals(route="bybit") once, mirrored to all firms).
+BYBIT_CONFIGS = ["2.2", "1.4"]
+BYBIT_MAX_SIGNALS = 2                    # matches the 2-config set
 BYBIT_EXCHANGE = "Bybit"                 # routes to trade_bybit adapter
 BYBIT_ACCOUNT_TYPE = "Demo"              # HyroTrader 10k challenge (mainnet demo)
 
@@ -137,10 +149,10 @@ BYBIT_ACCOUNT_TYPE = "Demo"              # HyroTrader 10k challenge (mainnet dem
 #   2. The live DXtrade instrument list is verified (symbol mapper below).
 # Routes to the trade_dxtrade adapter via Exchange: Velotrade.
 VELOTRADE_ROUTE = _os.getenv("VELOTRADE_ROUTE", "0").strip().lower() in ("1", "true", "yes", "on")
-# Didier (Sep 2026): realized-best high-WR set (mirrors Bybit). Props keep the
-# same proven configs; higher score floor (8.0) filters low-conviction tail.
-VELOTRADE_CONFIGS = ["2.2", "1.2", "1.3", "1.4"]
-VELOTRADE_MAX_SIGNALS = 4
+# Didier (Nov 2026): 1.3 dropped PERMANENTLY (account-killer). 1.2 is the real
+# Velotrade winner (+100 over 10) — NOT in the old list. 2.2 supported across venues.
+VELOTRADE_CONFIGS = ["1.2", "2.2"]
+VELOTRADE_MAX_SIGNALS = 2
 VELOTRADE_EXCHANGE = "Velotrade"           # routes to trade_dxtrade adapter
 VELOTRADE_ACCOUNT_TYPE = "Standard"        # live funded account (or set to Demo for testing)
 # DXtrade crypto instruments are <BASE>USD with NO slash (BTCUSD, SOLUSD,
@@ -154,7 +166,7 @@ def dx_symbol(base_or_baseusdt: str) -> str:
         b = b[:-3]
     return f"{b}USD"
 
-# ── Bitfunded / TinyTrader route (15k Stage-1 challenge, UserID 44) ────────
+# ── Bitfunded / TinyTrader route (25k Intermediate Two-Step Stage-1, UserID 44) ─
 # OFF by default (BITFUNDED_ROUTE=0). Do NOT enable until:
 #   1. The Bitfunded circuit breaker (risk/bitfunded_risk.py) is DEPLOYED on
 #      the bot server — daily -4% / max -8%, UTC+8 reset, fail-closed.
@@ -164,11 +176,12 @@ def dx_symbol(base_or_baseusdt: str) -> str:
 # the trade_bitfunded adapter on the Danyway_Bitfunded (UserID 44) challenge,
 # whose 5% daily / 10% max / 15% weekly RiskLimits and the breaker protect it.
 BITFUNDED_ROUTE = _os.getenv("BITFUNDED_ROUTE", "0").strip().lower() in ("1", "true", "yes", "on")
-# Didier (Sep 2026): realized-best high-WR set (mirrors Bybit/Velotrade).
-BITFUNDED_CONFIGS = ["2.2", "1.2", "1.3", "1.4"]
-BITFUNDED_MAX_SIGNALS = 4
+# Didier (Nov 2026): 1.3 dropped PERMANENTLY (account-killer). Mirrors Bybit's
+# realized winners (1.4/2.2) since no Bitfunded config-by-config data survived.
+BITFUNDED_CONFIGS = ["2.2", "1.4"]
+BITFUNDED_MAX_SIGNALS = 2
 BITFUNDED_EXCHANGE = "Bitfunded"          # routes to trade_bitfunded adapter
-BITFUNDED_ACCOUNT_TYPE = "Standard"       # live simulated account (15k Stage 1)
+BITFUNDED_ACCOUNT_TYPE = "Standard"       # live simulated account (25k Intermediate Two-Step)
 BITFUNDED_USER_ID = 44                    # Danyway_Bitfunded (risk isolation)
 
 # ── Live price cache ──
@@ -513,13 +526,37 @@ def _check_market_regime(direction: str, market: str = "BTC") -> Tuple[bool, str
 
 
 # ── Selection ──
-def select_signals(route: str = "binance", skip_symbols: Optional[Set[str]] = None) -> List[Dict]:
-    """Select pending signals for a route: 'binance' | 'bybit' | 'velotrade'.
+def _with_live_overrides(priority):
+    """Merge gate-promoted LIVE configs from config_lifecycle.live_overrides()
+    into the routing priority list (as (version, min_score, label) tuples).
 
-    Each route uses its own config subset + batch cap and (for non-Binance)
-    skips symbols already claimed by other routes this cycle, so accounts
-    stay independent (keep-skip rule).
+    - Configs already in priority keep their existing tuple (not overridden).
+    - New live versions get priority slot 0-ish (tried first) with their override
+      min_score, so a genuinely-gated config isn't starved by existing entries.
+    - Never raises: a corrupt/missing overrides file falls back to base priority.
     """
+    try:
+        from .config_lifecycle import live_overrides
+        ov = live_overrides()
+        if not ov:
+            return priority
+        base_versions = {p[0] for p in priority}
+        extra = []
+        for ver, info in ov.items():
+            if ver in base_versions:
+                continue
+            ms = float(info.get("min_score", 7.0)) if isinstance(info, dict) else 7.0
+            extra.append((ver, ms, f"GATED {ver}"))
+        if not extra:
+            return priority
+        # Fresh gated configs before base priority so they get batch slots.
+        return extra + list(priority)
+    except Exception:
+        return priority
+
+
+def select_signals(route: str = "binance", skip_symbols: Optional[Set[str]] = None) -> List[Dict]:
+    """Select pending signals for a route: 'binance' | 'bybit' | 'velotrade'."""
     route = (route or "binance").lower()
     from src.integrations.binance_symbols import is_on_binance_futures, is_futures_symbol_tradable
     testnet_check = TESTNET_MODE
@@ -534,7 +571,10 @@ def select_signals(route: str = "binance", skip_symbols: Optional[Set[str]] = No
     sent_count = 0
 
     # Route config: config subset, max batch, mainnet-demo (skip TestNet list).
-    priority = CONFIG_PRIORITY
+    # Merge any gate-promoted LIVE configs (config_lifecycle.live_overrides) into
+    # the routing priority so auto-evolved configs can go live WITHOUT a source
+    # rewrite. Route-subset filters below still apply by version membership.
+    priority = _with_live_overrides(CONFIG_PRIORITY)
     max_batch = MAX_SIGNALS_PER_BATCH
     route_label = "BINANCE"
     if route == "bybit":
@@ -608,6 +648,12 @@ def select_signals(route: str = "binance", skip_symbols: Optional[Set[str]] = No
                     logger.info("  %s: TIME BLOCKED %s %s", label, sig["direction"], sym)
                     continue
             if sym in EXCLUDED_SYMBOLS:
+                continue
+            # Prop-firm symbol blocklist (Oct 2026): net-negative bleeders across
+            # the prop book are never sent to challenge accounts (quality-over-
+            # quantity). Applied on the master mirror (bybit) so all firms inherit it.
+            if route in ("bybit", "velotrade", "bitfunded") and sym in PROP_FIRM_EXCLUDED:
+                logger.info("  %s: SKIPPED %s %s — on prop-firm blocklist", label, sig["direction"], sym)
                 continue
             # Normalize score to positive + cap. The score convention is now
             # ALWAYS positive (direction is carried separately in the DB and
@@ -769,7 +815,7 @@ def format_webhook_msg(signal: Dict, route: str = "binance") -> str:
         "binance": "Danyway",            # UserID 1 — Binance (Standard/TestNet)
         "bybit": "Danyway_HyroTrader",   # UserID 43 — Bybit Demo 10k
         "velotrade": "Danyway_Velotrade",# UserID 45 — Velotrade 10k
-        "bitfunded": "Danyway_Bitfunded",# UserID 44 — Bitfunded 15k
+        "bitfunded": "Danyway_Bitfunded",# UserID 44 — Bitfunded 25k Intermediate Two-Step
     }
     route = (route or "binance").lower()
     route_username = _ROUTE_USER.get(route, "Danyway")

@@ -431,6 +431,23 @@ class ScoringConfig:
     (>80%) in a LONG direction, or near the lower band (<20%) in a SHORT
     direction, adds score. Catches momentum continuation setups."""
 
+    # ── Range-Ratio (HH/LL) precursor — OOS-validated 2026-10 ──────────────
+    range_ratio_weight: float = 0.0
+    """Weight for the HH/LL range-structure precursor. This is the ONLY family
+    that survived clean out-of-sample validation (BTC LL-ratio exhaustion → LONG;
+    ETH HH-ratio compression). Rewards EITHER: low hh_ratio (few higher highs =
+    coiling/compression) OR high ll_ratio (many lower lows = seller exhaustion).
+    Score = max(compression, exhaustion, 0) * weight, LONG-biased. 0 = disabled."""
+
+    range_ratio_lookback: int = 60
+    """Candles over which hh_ratio / ll_ratio are computed (matches research K)."""
+
+    range_hh_max: float = 0.45
+    """Compression threshold: hh_ratio <= this = few higher highs (coiled)."""
+
+    range_ll_min: float = 0.50
+    """Exhaustion threshold: ll_ratio >= this = many lower lows (washed out)."""
+
     min_precursors: int = 0
     """Minimum number of distinct precursor types that must fire for a
     signal to be valid. 0 = disabled (all signals pass). Set to 2 or 3
@@ -823,7 +840,8 @@ CONFIG_V1_0 = ScoringConfig(
 
 CONFIG_V1_1 = ScoringConfig(
     version="1.1",
-    description="Volume-weighted: Higher weight for volume relative (2.0)",
+    description="Volume-weighted: Higher weight for volume relative (2.0) [DISABLED Nov 2026 — realized bleeder: +$31 all-time but −$244 over last-30d, WR 39%]",
+    status="disabled",
     trend_weight=1.0,
     volume_relative_weight=2.0,
     signal_feed_weight=1.0,
@@ -1691,6 +1709,82 @@ CONFIG_V14_1_1 = ScoringConfig(
     liquidation_weight=2.0,
 )
 
+# ── CONFIG_V14_0_1_1 — Range-Ratio LONG · ETH (OOS-validated, 2026-10-14) ──
+# The TRADEABLE version of the validated precursor. Only range-structure survived
+# clean OOS (ETH HH-ratio compression). range_ratio_weight is primary; ATR/volume/BB
+# (OOS-failed) are demoted. DISABLED — paper-trade on TestNet before enabling.
+CONFIG_V14_0_1_1 = ScoringConfig(
+    version="14.0.1.1",
+    description="Range-Ratio LONG·ETH: compression-led (HH-ratio lowered pre-move), 60h lookback, per-pair ETH floors. Forward-validation (enabled, not active).",
+    status="enabled",
+    allowed_directions=["LONG"],
+    trend_weight=0.2,
+    volume_relative_weight=0.5,
+    signal_feed_weight=0.0,
+    scanner_hit_weight=0.0,
+    volume_divergence_weight=0.5,
+    bb_squeeze_min=20.0,
+    bb_squeeze_weight=0.5,
+    bb_position_weight=0.3,
+    atr_expansion_weight=0.5,
+    range_ratio_weight=3.0,   # primary precursor (validated)
+    range_ratio_lookback=240, # ETH HH-ratio strongest OOS at K=240 (60h); compression window
+    range_hh_max=0.46,        # fires when hh_ratio <= 0.46 (ETH pre-move 0.45 < ctrl 0.46)
+    range_ll_min=0.55,        # LL not ETH's signal — make exhaustion rare
+    atr_stop_mult=3.0,
+    rr_ratio=1.2,
+    min_abs_score=5.0,
+    min_atr_pct=0.35,         # ETH higher-vol (pre-move ATR ~0.40%)
+    min_volume_relative=0.30,
+    require_non_trend_confirmation=False,
+    market_regime_filter="BTC",
+    alert_min_score=5.0,
+    alert_require_multi_source=False,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    display_types_extra=[],
+    symbol_whitelist=["ETHUSDT"],
+    min_precursors=1,           # range-ratio alone can fire (it's the validated one)
+    liquidation_weight=1.0,
+)
+
+# ── CONFIG_V14_0_0_1 — Range-Ratio LONG · BTC (OOS-validated, 2026-10-14) ──
+# LONG·BTC range-ratio (BTC LL-ratio exhaustion survived OOS). Same pattern.
+CONFIG_V14_0_0_1 = ScoringConfig(
+    version="14.0.0.1",
+    description="Range-Ratio LONG·BTC: exhaustion-led (LL-ratio elevated pre-move), 30h lookback, per-pair BTC floors. Forward-validation (enabled, not active).",
+    status="enabled",
+    allowed_directions=["LONG"],
+    trend_weight=0.2,
+    volume_relative_weight=0.5,
+    signal_feed_weight=0.0,
+    scanner_hit_weight=0.0,
+    volume_divergence_weight=0.5,
+    bb_squeeze_min=20.0,
+    bb_squeeze_weight=0.5,
+    bb_position_weight=0.3,
+    atr_expansion_weight=0.5,
+    range_ratio_weight=3.0,
+    range_ratio_lookback=120, # BTC LL-ratio strongest OOS at K=120 (30h); exhaustion window
+    range_hh_max=0.42,        # compression tighter — HH not BTC's primary signal
+    range_ll_min=0.45,        # exhaustion fires when ll_ratio >= 0.45 (BTC pre-move 0.47 vs ctrl 0.45)
+    atr_stop_mult=3.0,
+    rr_ratio=1.2,
+    min_abs_score=5.0,
+    min_atr_pct=0.18,         # BTC lower-vol (pre-move ATR ~0.32%; dynamic ATR relaxes further)
+    min_volume_relative=0.30,
+    require_non_trend_confirmation=False,
+    market_regime_filter="BTC",
+    alert_min_score=5.0,
+    alert_require_multi_source=False,
+    coin_type_filter=["ANY"],
+    exclude_coin_types=[],
+    display_types_extra=[],
+    symbol_whitelist=["BTCUSDT"],
+    min_precursors=1,
+    liquidation_weight=1.0,
+)
+
 # ── CONFIG_V15_0 — Multi-Timeframe Alignment ──
 # Requires 1h, 4h, and 1d trends to all agree in direction.
 # Catches only the strongest, most confirmed trends.
@@ -1812,8 +1906,8 @@ CONFIG_V20_0 = ScoringConfig(
 # squeeze runs you've observed on BTC/ETH/BNB).
 CONFIG_V22_0 = ScoringConfig(
     version="22.0",
-    description="Liquidation Squeeze LONG (simple): short-squeeze cascade → LONG. Liquidation + volume only. Wide stop, high RR, majors-only.",
-    status="enabled",
+    description="Liquidation Squeeze LONG (simple): short-squeeze cascade → LONG. Liquidation + volume only. Wide stop, high RR, majors-only. [DISABLED Nov 2026 — realized −$74 all-time, WR 43.8%, −$38 last-30d]",
+    status="disabled",
     # Short squeeze (SHORT liqs dominate) drives price UP → enter LONG.
     # Hard-restrict LONG so long-squeeze readings never mint SHORTs here.
     allowed_directions=["LONG"],
@@ -1857,8 +1951,8 @@ CONFIG_V22_0 = ScoringConfig(
 # Wide stop + high RR to ride a 7–30% squeeze.
 CONFIG_V22_1 = ScoringConfig(
     version="22.1",
-    description="Liquidation Squeeze SHORT (simple): long-squeeze cascade → SHORT. Liquidation + volume only. Wide stop, high RR, majors-only.",
-    status="enabled",
+    description="Liquidation Squeeze SHORT (simple): long-squeeze cascade → SHORT. Liquidation + volume only. Wide stop, high RR, majors-only. [DISABLED Nov 2026 — realized −$57 all-time, WR 36.7%, high-volume bleeder]",
+    status="disabled",
     # Long squeeze (LONG liqs dominate) drives price DOWN → enter SHORT.
     # Hard-restrict SHORT so short-squeeze readings never mint LONGs here.
     allowed_directions=["SHORT"],
@@ -2603,12 +2697,153 @@ CONFIG_V1_11 = ScoringConfig(
     regime_dir_bull_short_penalty=2.0,
 )
 
+
+
+# ── CONFIG_V1_12 — Auto-generated 2026-09-27 16:00 ──
+CONFIG_V1_12 = ScoringConfig(
+    version="1.12",
+    description="LLM-evolved: win-rate optimized config, tightened filters for higher quality",
+    min_abs_score=7.5,
+    min_adx=25,
+    min_rsi=35,
+    max_rsi=65,
+    min_atr_pct=0.5,
+    atr_stop_mult=1.5,
+    rr_ratio=2.5,
+    trend_weight=0.35,
+    volume_relative_weight=0.15,
+    signal_feed_weight=0.35,
+    onchain_netflow_weight=0.15,
+    volume_divergence_weight=4.0,
+    smart_money_index_weight=3.0,
+    low_float_squeeze_weight=2.0,
+    regime_dir_bear_short_bonus=3.0,
+    regime_dir_bear_long_penalty=2.0,
+    regime_dir_bull_long_bonus=3.0,
+    regime_dir_bull_short_penalty=2.0,
+)
+
+
+
+# ── CONFIG_V1_13 — Auto-generated 2026-10-04 16:00 ──
+CONFIG_V1_13 = ScoringConfig(
+    version="1.13",
+    description="LLM-evolved: win-rate optimized config, tightened filters for higher quality",
+    min_abs_score=8.0,
+    min_adx=25,
+    min_rsi=35,
+    max_rsi=65,
+    min_atr_pct=0.5,
+    atr_stop_mult=1.5,
+    rr_ratio=2.0,
+    trend_weight=0.4,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.3,
+    onchain_netflow_weight=0.1,
+    volume_divergence_weight=3.0,
+    smart_money_index_weight=2.0,
+    low_float_squeeze_weight=2.0,
+    regime_dir_bear_short_bonus=2.5,
+    regime_dir_bear_long_penalty=2.0,
+    regime_dir_bull_long_bonus=2.5,
+    regime_dir_bull_short_penalty=2.0,
+)
+
+
+
+# ── CONFIG_V1_14 — Auto-generated 2026-10-11 16:00 ──
+CONFIG_V1_14 = ScoringConfig(
+    version="1.14",
+    description="LLM-evolved: win-rate optimized config, tightened filters for higher quality",
+    min_abs_score=7.5,
+    min_adx=25,
+    min_rsi=35,
+    max_rsi=65,
+    min_atr_pct=0.4,
+    atr_stop_mult=1.5,
+    rr_ratio=2.0,
+    trend_weight=0.4,
+    volume_relative_weight=0.1,
+    signal_feed_weight=0.4,
+    onchain_netflow_weight=0.1,
+    volume_divergence_weight=3.0,
+    smart_money_index_weight=2.0,
+    low_float_squeeze_weight=1.5,
+    regime_dir_bear_short_bonus=2.5,
+    regime_dir_bear_long_penalty=2.0,
+    regime_dir_bull_long_bonus=2.5,
+    regime_dir_bull_short_penalty=2.0,
+)
+
+
+
+# ── CONFIG_V1_15 — Auto-generated 2026-10-18 16:01 ──
+CONFIG_V1_15 = ScoringConfig(
+    version="1.15",
+    description="LLM-evolved: win-rate optimized config, tightened filters for higher quality",
+    min_abs_score=8.0,
+    min_adx=25,
+    min_rsi=35,
+    max_rsi=65,
+    min_atr_pct=0.4,
+    atr_stop_mult=1.5,
+    rr_ratio=2.0,
+    trend_weight=0.45,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.25,
+    onchain_netflow_weight=0.1,
+    volume_divergence_weight=3.5,
+    smart_money_index_weight=2.5,
+    low_float_squeeze_weight=2.0,
+    regime_dir_bear_short_bonus=3.0,
+    regime_dir_bear_long_penalty=2.5,
+    regime_dir_bull_long_bonus=3.0,
+    regime_dir_bull_short_penalty=2.5,
+)
+
+
+
+# ── CONFIG_V1_16 — Auto-generated 2026-10-25 15:00 ──
+CONFIG_V1_16 = ScoringConfig(
+    version="1.16",
+    description="LLM-evolved: win-rate optimized config, tightened filters for higher quality",
+    min_abs_score=8.0,
+    min_adx=25,
+    min_rsi=35,
+    max_rsi=65,
+    min_atr_pct=0.5,
+    atr_stop_mult=1.5,
+    rr_ratio=2.0,
+    trend_weight=0.4,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.3,
+    onchain_netflow_weight=0.1,
+    volume_divergence_weight=3.0,
+    smart_money_index_weight=2.0,
+    low_float_squeeze_weight=1.5,
+    regime_dir_bear_short_bonus=3.0,
+    regime_dir_bear_long_penalty=2.0,
+    regime_dir_bull_long_bonus=3.0,
+    regime_dir_bull_short_penalty=2.0,
+)
+
+# ── CONFIG_V14_0_1_2 — auto-evolved precursor (re-eval 2026-11-02) ──
+# Auto-generated by v14_evolve.py from OOS-validated precursors. DISABLED candidate.
+# Validated on clean net-move events; based-on features: ATR %. | ENGINE-GAP features: ATR %
+CONFIG_V14_0_1_2 = ScoringConfig(
+    version="14.0.1.2",
+    description="auto-evolved precursor LONG·ETH (re-eval 2026-11-02). DISABLED candidate.",
+    status="disabled",
+    allowed_directions=['LONG'],
+    symbol_whitelist=["ETHUSDT"],
+)
+
 ACTIVE_CONFIG = CONFIG_V1_4
 
 ALL_CONFIGS: dict[str, ScoringConfig] = {
     c.version: c for c in [
         # Baseline variants
-        CONFIG_V1_0, CONFIG_V1_1, CONFIG_V1_2, CONFIG_V1_3, CONFIG_V1_4, CONFIG_V1_5, CONFIG_V10_0, CONFIG_V11_0, CONFIG_V12_0, CONFIG_V13_0, CONFIG_V14_0, CONFIG_V14_1, CONFIG_V14_0_0, CONFIG_V14_0_1, CONFIG_V14_1_0, CONFIG_V14_1_1, CONFIG_V15_0, CONFIG_V16_0, CONFIG_V17_0, CONFIG_V18_0, CONFIG_V19_0, CONFIG_V20_0, CONFIG_V22_0, CONFIG_V22_1, CONFIG_V22_2,
+        CONFIG_V1_0, CONFIG_V1_1, CONFIG_V1_2, CONFIG_V1_3, CONFIG_V1_4, CONFIG_V1_5, CONFIG_V10_0, CONFIG_V11_0, CONFIG_V12_0, CONFIG_V13_0, CONFIG_V14_0, CONFIG_V14_1, CONFIG_V14_0_0, CONFIG_V14_0_1, CONFIG_V14_1_0, CONFIG_V14_1_1, CONFIG_V14_0_1_1, CONFIG_V14_0_0_1, CONFIG_V15_0, CONFIG_V16_0, CONFIG_V17_0, CONFIG_V18_0, CONFIG_V19_0, CONFIG_V20_0, CONFIG_V22_0, CONFIG_V22_1, CONFIG_V22_2,
         # Multi-timeframe (all kept for records)
         CONFIG_V2_0, CONFIG_V2_1, CONFIG_V2_2,
         # ADX momentum (all kept for records)
@@ -2638,6 +2873,16 @@ ALL_CONFIGS: dict[str, ScoringConfig] = {
         CONFIG_V1_10,
 
         CONFIG_V1_11,
+
+        CONFIG_V1_12,
+
+        CONFIG_V1_13,
+
+        CONFIG_V1_14,
+
+        CONFIG_V1_15,
+
+        CONFIG_V1_16,
 ]
 }
 

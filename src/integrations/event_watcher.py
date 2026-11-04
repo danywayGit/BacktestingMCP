@@ -69,11 +69,16 @@ DEBOUNCE_SEC = 60                 # min seconds between runs per symbol
 FUNDING_LOOKAHEAD_MIN = 5         # trigger funding scan X min before settlement
 FUNDING_EXTREME_ABS = 0.004       # |funding| > 0.4% considered extreme
 
-# Event-relevant configs (V22 = liquidation LONG/SHORT/agg, V8 = funding, V14 precursor)
+# Event-relevant configs. V22 (liquidation LONG/SHORT) DISABLED Nov 2026 —
+# realized bleeders (22.0 −$74, 22.1 −$57; 22.0 −$38 last-30d). Removing them
+# from LIQ_CONFIGS so the liquidation-triggered scans die with them. V8 = funding.
 LIQ_CONFIGS = ["22.0", "22.1"]
 # LIQ_CONFIGS_AGG (merged both-direction 22.2) removed 2026-09-23 — split into 22.0 LONG + 22.1 SHORT.
 FUNDING_CONFIGS = ["8.0"]
-EVENT_CONFIGS = list(dict.fromkeys(LIQ_CONFIGS + FUNDING_CONFIGS))  # dedup, keep order
+# V22 won't emit (scoring_config status=disabled), but keep them OUT of the event
+# scan list to avoid wasted targeted scans on disabled configs.
+_EVENT_DISABLED = {"22.0", "22.1"}
+EVENT_CONFIGS = [c for c in dict.fromkeys(LIQ_CONFIGS + FUNDING_CONFIGS) if c not in _EVENT_DISABLED]  # dedup, keep order
 
 # Debounce registry: symbol -> last scan timestamp
 _last_scan: Dict[str, float] = {}
@@ -290,11 +295,13 @@ def run_once() -> dict:
     """One event-watch pass (cron-friendly). Returns what was triggered."""
     triggered = {"liquidation": [], "funding": [], "runs": []}
 
-    # 1) Liquidation spikes → V22.0 (LONG / short-squeeze) / V22.1 (SHORT / long-squeeze)
+    # 1) Liquidation spikes (V22 LONG/SHORT) — DISABLED Nov 2026, see scoring_config.
+    #    Keep the blocks but gate on the configs still being enabled so a disabled
+    #    V22 never triggers a wasted targeted scan.
     spikes = _liq_spike_symbols()          # {symbol: imbalance}
     long_syms = [s for s, imb in spikes.items() if imb > 0 and _debounced(s)]
     short_syms = [s for s, imb in spikes.items() if imb < 0 and _debounced(s)]
-    if long_syms or short_syms:
+    if (long_syms or short_syms) and not (set(LIQ_CONFIGS) <= _EVENT_DISABLED):
         triggered["liquidation"] = long_syms + short_syms
         if long_syms:
             r = _run_targeted_scan(long_syms, ["22.0"])
@@ -304,9 +311,6 @@ def run_once() -> dict:
             r = _run_targeted_scan(short_syms, ["22.1"])
             if r:
                 triggered["runs"].append(r)
-        # Aggressive merged variant (22.2) removed 2026-09-23 per Didier:
-        # LONG/SHORT now trade as separate configs (22.0 LONG, 22.1 SHORT).
-        # No both-direction merged scan on every spike.
 
     # 2) Funding tick → V8.0
     f_syms = [s for s in _funding_tick_symbols() if _debounced(s)]
