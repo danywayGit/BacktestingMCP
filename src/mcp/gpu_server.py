@@ -3,13 +3,16 @@
 # Hermes connects via config.yaml:  mcp_servers:  gpu4090:  url: http://<WINDOWS_IP>:8765/mcp
 import asyncio, json, os, time, uuid, sys
 
+_FMCP_ERR = None
 try:
-    from mcp.server.fastmcp import FastMCP
-except ImportError:
+    from fastmcp import FastMCP
+except Exception as _e:
+    _FMCP_ERR = _e
     try:
-        from fastmcp import FastMCP
-    except ImportError as e:
-        print("FATAL: need FastMCP.  pip install 'fastmcp[uvicorn]' or 'mcp[fastmcp]'")
+        from mcp.server.fastmcp import FastMCP
+    except Exception:
+        print("FATAL: FastMCP import failed: %r" % (_FMCP_ERR,), file=sys.stderr)
+        print("pip install fastmcp  (this sits on top of 'fastmcp-slim'/'mcp' — do NOT need uvicorn extra)", file=sys.stderr)
         sys.exit(1)
 
 import numpy as np
