@@ -4,6 +4,8 @@ Systematic crypto trading signal generation and validation system.
 Discovers profitable entry/stop/target parameters through multi-config
 scoring, validates forward performance, and executes on Binance Futures.
 
+> **⚡ Quick start the GPU MCP server → [`GPU_MCP_START.md`](GPU_MCP_START.md)** — the one-file start guide for your RTX 4090 Windows box.
+
 ## Quick Start
 
 ```bash
