@@ -242,6 +242,31 @@ def get_coin_type(symbol: str) -> str:
     """Return coin type category, defaulting to 'OTHER'."""
     return COIN_TYPE_MAP.get(symbol.upper(), "OTHER")
 
+# ── Market-cap tier presets (mcap_tier field) ─────────────────────────────
+# Named bands that map to min/max_market_cap_usd. Used when a config sets
+# `mcap_tier="mid"` instead of raw USD numbers. Raw USD bounds, when set,
+# always take precedence over a tier (explicit numbers win).
+MCAP_TIERS: dict[str, tuple[float, float]] = {
+    "micro": (50_000_000, 0.0),   # >= 50M
+    "small": (200_000_000, 0.0),  # >= 200M
+    "mid":   (500_000_000, 0.0),  # >= 500M
+    "large": (1_000_000_000, 0.0),
+    "mega":  (10_000_000_000, 0.0),
+}
+
+def resolve_mcap_bounds(min_mc: float, max_mc: float, tier: Optional[str]) -> tuple[float, float]:
+    """Resolve the effective (min, max) market-cap bounds from explicit USD
+    values and/or a named tier. Explicit USD values win over the tier."""
+    lo, hi = min_mc, max_mc
+    if tier:
+        t = (tier or "").lower()
+        if t in MCAP_TIERS:
+            t_lo, t_hi = MCAP_TIERS[t]
+            # apply tier only where an explicit bound is not already set
+            lo = lo if lo > 0 else t_lo
+            hi = hi if hi > 0 else t_hi
+    return lo, hi
+
 # ---------------------------------------------------------------------------
 # Helper parsers for altFINS data fields
 # ---------------------------------------------------------------------------
@@ -409,6 +434,20 @@ class ScoringConfig:
     Breakout stage patterns get higher score than Emerging.
     Pattern direction + breakout stage = confidence boost for signal direction."""
 
+    chart_pattern_breakout_bull_mult: float = 2.0
+    """Multiplier on chart_pattern_weight for BREAKOUT·BULLISH (our best realized
+    cell: 64.6% WR, n=181). Default 2.0 matches the old hardcoded value."""
+
+    chart_pattern_emerging_bull_mult: float = 1.0
+    """Multiplier for EMERGING·BULLISH. Realized ~52% (≈breakeven). Old default 1.0."""
+
+    chart_pattern_emerging_bear_mult: float = 1.0
+    """Multiplier (sign-inverted by direction) for EMERGING·BEARISH. Realized ~36%
+    (drag). Lowering to 0.2 suppresses this dead cell."""
+
+    chart_pattern_breakout_bear_mult: float = 2.0
+    """Multiplier (sign-inverted) for BREAKOUT·BEARISH. Realized ~59%. Default 2.0."""
+
     # ── Volatility Squeeze (BB contraction → expansion) ────────────────────
     bb_squeeze_min: float = 0.0
     """Minimum Bollinger Band width percentile to consider a squeeze.
@@ -551,6 +590,13 @@ class ScoringConfig:
     """Maximum market cap in USD. 0 = no filter.
     Use to target small/mid cap only (e.g. max=2B)."""
 
+    mcap_tier: Optional[str] = None
+    """Named market-cap tier preset. Maps to min/max_market_cap_usd at
+    scoring time. Options: 'micro'(>=50M), 'small'(>=200M), 'mid'(>=500M),
+    'large'(>=1B), 'mega'(>=10B). None = use raw USD fields only.
+    If both a tier AND raw USD bounds are set, the RAW bounds take precedence
+    (explicit numbers win over a preset)."""
+
     min_volume_relative: float = 0.0
     """Minimum relative volume vs 10-bar average. 0 = no filter.
     1.0 = at least average. 1.5 = 50% above average. 2.0 = double average."""
@@ -559,6 +605,12 @@ class ScoringConfig:
     """Minimum ATR% (14-period ATR / close). 0 = no filter.
     Filters out low-volatility symbols that tend to produce FLAT resolutions.
     0.3 for 1h, 0.5 for active pairs, 1.0+ for volatile pairs."""
+
+    max_atr_pct: float = 0.0
+    """Maximum ATR% (ceiling). 0 = no filter.
+    Combined with min_atr_pct this forms a volatility BAND: a config can target
+    low-vol only (min=0, max=0.2), mid-vol (0.2<atr<0.5), or high-vol only
+    (min=0.5). 0.0 = open-ended ceiling."""
 
     min_adx: float = 0.0
     """Minimum ADX for trending market confirmation. 0 = no filter.
@@ -622,6 +674,29 @@ class ScoringConfig:
     config self-update its universe weekly without code edits. When the list
     is unavailable/empty it falls back to symbol_whitelist (or no filter)."""
 
+    # ── OHLC-native signal source (V23+/V24+ family, Nov 2026) ──────────────
+    # These configs are NOT driven by altFINS composite scoring. They are pure
+    # OHLC strategies (MA-cross, mean-reversion, momentum, breakout, trend,
+    # range-ratio) generated from resampled 1h candles by the ohlc-strategy
+    # engine (src/edge_scanner/ohlc_strategies.py). The composite path IGNORES
+    # these configs (burgertype != composite); the bridge reads their signals
+    # from edge_signals like any other.
+    burgertype: str = "composite"
+    """Signal source: 'composite' (altFINS scoring, default) or 'ohlc' (OHLC
+    native strategy engine). Gate used by the scanner/bridge to route a config
+    to the right generator."""
+
+    ohlc_strategy: str = ""
+    """OHLC strategy type when burgertype='ohlc': 'ma_cross'|'meanrev'|
+    'momentum'|'breakout'|'trend'|'rangeratio'. Empty = not an OHLC config."""
+
+    ohlc_tf_hours: int = 0
+    """OHLC timeframe in hours they base TF is resampled 1h -> {2,4,6,12,24}."""
+
+    ohlc_params: dict = field(default_factory=dict)
+    """OHLC strategy parameters (tuned, OOS-validated 2026-11-05). See
+    STRATEGY_OPTIMIZATION.md §13 for the validated values per strategy."""
+
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     notes: str = ""
 
@@ -664,7 +739,7 @@ class ScoringConfig:
             base.append("RSI14")
         if self.price_change_1w_weight > 0:
             base.append("PRICE_CHANGE_1W")
-        if self.tr_vs_atr_weight > 0:
+        if self.tr_vs_atr_weight > 0 or self.min_atr_pct > 0 or self.max_atr_pct > 0:
             base += ["TR_VS_ATR", "ATR"]
         # display_types_extra skipped here — use only known altFINS display types
         base += [dt for dt in self.display_types_extra
@@ -677,20 +752,39 @@ class ScoringConfig:
         Returns (passes: bool, reason: str). reason is '' if passes=True."""
         additional = screener_row.get("additionalData", {}) if screener_row else {}
 
-        # Market cap filters
-        if self.min_market_cap_usd > 0 or self.max_market_cap_usd > 0:
+        # Market cap filters (raw USD + optional named tier)
+        lo, hi = resolve_mcap_bounds(self.min_market_cap_usd,
+                                     self.max_market_cap_usd, self.mcap_tier)
+        if lo > 0 or hi > 0:
             mc = parse_market_cap(additional.get("MARKET_CAP", 0))
             if mc > 0:
-                if self.min_market_cap_usd > 0 and mc < self.min_market_cap_usd:
-                    return False, f"mcap=${mc/1e6:.0f}M < min=${self.min_market_cap_usd/1e6:.0f}M"
-                if self.max_market_cap_usd > 0 and mc > self.max_market_cap_usd:
-                    return False, f"mcap=${mc/1e6:.0f}M > max=${self.max_market_cap_usd/1e6:.0f}M"
+                if lo > 0 and mc < lo:
+                    return False, f"mcap=${mc/1e6:.0f}M < min=${lo/1e6:.0f}M"
+                if hi > 0 and mc > hi:
+                    return False, f"mcap=${mc/1e6:.0f}M > max=${hi/1e6:.0f}M"
 
         # Volume filter
         if self.min_volume_relative > 0:
             vol = parse_float(additional.get("VOLUME_RELATIVE", 0))
             if vol < self.min_volume_relative:
                 return False, f"vol_rel={vol:.2f} < min={self.min_volume_relative}"
+
+        # Volatility band — min AND max ATR%
+        # atr_pct = ATR / price from screener data. Price may live in the
+        # additionalData payload or the row's top-level lastPrice field.
+        atr_pct = 0.0
+        atr_raw = parse_float(additional.get("ATR", 0))
+        price = parse_float(additional.get("LAST_PRICE", additional.get("PRICE", 0)))
+        if price <= 0 and screener_row:
+            price = parse_float(screener_row.get("lastPrice", 0))
+        if screener_row and price <= 0:
+            price = parse_float(screener_row.get("last_price", 0))
+        if atr_raw > 0 and price > 0:
+            atr_pct = (atr_raw / price) * 100.0
+        if self.min_atr_pct > 0 and 0 < atr_pct < self.min_atr_pct:
+            return False, f"atr%={atr_pct:.2f} < min={self.min_atr_pct}"
+        if self.max_atr_pct > 0 and atr_pct > self.max_atr_pct:
+            return False, f"atr%={atr_pct:.2f} > max={self.max_atr_pct}"
 
         # ADX filter
         if self.min_adx > 0:
@@ -947,6 +1041,41 @@ CONFIG_V10_0 = ScoringConfig(
     scanner_hit_weight=0.5,
     # Pattern scoring (requires scraper data)
     chart_pattern_weight=5.0,
+    # ATR filter — patterns need volatility
+    min_atr_pct=0.15,
+    # R:R
+    rr_ratio=1.3,
+    # Filters
+    min_abs_score=4.0,
+    alert_min_score=4.0,
+    alert_require_multi_source=False,
+    coin_type_filter=["ANY"],
+    display_types_extra=[],
+)
+
+# ── CONFIG_V10_1 — Chart Pattern, success-weighted cells ──
+# Same pattern scanner as 10.0 but weights each (stage,outlook) cell by OUR
+# realized success (Nov 2026, n=335): Breakout/Bull 64.6% (2x), Emerging/Bull
+# ~52% (0.5x, ≈breakeven — don't push), Emerging/Bear 36% (0.2x — kill the
+# drag), Breakout/Bear 59% (1x). Pattern TYPE itself stays unweighted (n too
+# thin per type to bank alone). CANDIDATE — must beat 10.0 OUT-OF-SAMPLE before
+# it routes; disabled until the OOS gate passes it.
+CONFIG_V10_1 = ScoringConfig(
+    version="10.1",
+    description="Chart Pattern, success-weighted cells: re-weights (stage,outlook) by realized WR. Breakout/Bull 2x, Emerg/Bull 0.5x, Emerg/Bear 0.2x, Brkout/Bear 1x. CANDIDATE — awaits OOS vs 10.0.",
+    status="disabled",
+    # Same low trend/volume — patterns are the primary signal
+    trend_weight=0.2,
+    volume_relative_weight=0.5,
+    signal_feed_weight=1.0,
+    scanner_hit_weight=0.5,
+    # Pattern scoring (requires scraper data)
+    chart_pattern_weight=5.0,
+    # Success-weighted per-cell multipliers
+    chart_pattern_breakout_bull_mult=2.0,
+    chart_pattern_emerging_bull_mult=0.5,
+    chart_pattern_emerging_bear_mult=0.2,
+    chart_pattern_breakout_bear_mult=1.0,
     # ATR filter — patterns need volatility
     min_atr_pct=0.15,
     # R:R
@@ -2838,12 +2967,106 @@ CONFIG_V14_0_1_2 = ScoringConfig(
     symbol_whitelist=["ETHUSDT"],
 )
 
+# ── CONFIG_V23_0 — MA-Cross Swing (12h) — OOS-validated 2026-11-05 ──
+# OHLC-native (burgertype=ohlc): EMA 10/50 cross on resampled 12h, long+short.
+# OOS: +0.24R, WR ~60%, n107, avg win +6.19% / avg loss -4.48%. Tier: ENABLED.
+CONFIG_V23_0 = ScoringConfig(
+    version="23.0",
+    description="MA-Cross Swing (12h): EMA10/50 cross, resampled 12h OHLC, 1.5xATR stop/RR1.5. OOS +0.24R WR60% n107. [ENABLED — Didier-approved forward-test]",
+    status="enabled",
+    burgertype="ohlc",
+    ohlc_strategy="ma_cross",
+    ohlc_tf_hours=12,
+    ohlc_params={"fast": 10, "slow": 50},
+    allowed_directions=["LONG", "SHORT"],
+    atr_stop_mult=1.5,
+    rr_ratio=1.5,
+    min_abs_score=8.0,
+    short_min_abs_score=8.0,
+    alert_min_score=8.0,
+    alert_require_multi_source=False,
+    coin_type_filter=["ANY"],
+    symbol_whitelist=["BTC", "ETH", "BNB"],
+    notes="OOS-validated 2026-11-05 (STRATEGY_OPTIMIZATION.md §13). Forward-test target.",
+)
+
+# ── CONFIG_V23_1 — Mean-Reversion (1h) — OOS-validated 2026-11-05 ──
+# OHLC-native RSI 30/70 mean-reversion on 1h, 1.5xATR stop / RR 1.5.
+# OOS: +0.24R, WR ~55%, n111, avg win +1.88% / avg loss -1.38%. Tier: ENABLED.
+CONFIG_V23_1 = ScoringConfig(
+    version="23.1",
+    description="Mean-Reversion (1h): RSI14 30/70 over EMA50, 1h OHLC, 1.5xATR stop/RR1.5. OOS +0.24R WR55% n111. [ENABLED — Didier-approved forward-test]",
+    status="enabled",
+    burgertype="ohlc",
+    ohlc_strategy="meanrev",
+    ohlc_tf_hours=1,
+    ohlc_params={"rsi": 14, "oversold": 30, "overbought": 70},
+    allowed_directions=["LONG", "SHORT"],
+    atr_stop_mult=1.5,
+    rr_ratio=1.5,
+    min_abs_score=8.0,
+    short_min_abs_score=8.0,
+    alert_min_score=8.0,
+    alert_require_multi_source=False,
+    coin_type_filter=["ANY"],
+    symbol_whitelist=["BTC", "ETH", "BNB"],
+    notes="OOS-validated 2026-11-05 (STRATEGY_OPTIMIZATION.md §13). Forward-test target.",
+)
+
+# ── V23.x / V24.x — REGISTERED but DISABLED candidates ──
+# Same OOS-validated params; disabled pending forward-validation of V23.0/23.1.
+CONFIG_V23_2 = ScoringConfig(
+    version="23.2",
+    description="MA-Cross (6h): EMA20/100, 1.5xATR/RR1.0. OOS +0.11R WR56% n129. CANDIDATE (disabled).",
+    status="disabled",
+    burgertype="ohlc", ohlc_strategy="ma_cross", ohlc_tf_hours=6,
+    ohlc_params={"fast": 20, "slow": 100},
+    atr_stop_mult=1.5, rr_ratio=1.0,
+    symbol_whitelist=["BTC", "ETH", "BNB"],
+)
+CONFIG_V24_0 = ScoringConfig(
+    version="24.0",
+    description="Momentum (1h): ROC5 thr1.5 vol1.2, 5xATR/RR2.0. OOS +0.23R WR41% n205. CANDIDATE (disabled).",
+    status="disabled",
+    burgertype="ohlc", ohlc_strategy="momentum", ohlc_tf_hours=1,
+    ohlc_params={"roc": 5, "thr": 1.5, "vol": 1.2},
+    atr_stop_mult=5.0, rr_ratio=2.0,
+    symbol_whitelist=["BTC", "ETH", "BNB"],
+)
+CONFIG_V24_1 = ScoringConfig(
+    version="24.1",
+    description="Momentum (2h): ROC8 thr1.0 vol1.2, 5xATR/RR2.0. OOS +0.16R WR39% n90. CANDIDATE (disabled).",
+    status="disabled",
+    burgertype="ohlc", ohlc_strategy="momentum", ohlc_tf_hours=2,
+    ohlc_params={"roc": 8, "thr": 1.0, "vol": 1.2},
+    atr_stop_mult=5.0, rr_ratio=2.0,
+    symbol_whitelist=["BTC", "ETH", "BNB"],
+)
+CONFIG_V24_2 = ScoringConfig(
+    version="24.2",
+    description="Breakout (1h): Donchian20, 5xATR/RR2.0. OOS +0.08R WR36% n255. CANDIDATE (disabled).",
+    status="disabled",
+    burgertype="ohlc", ohlc_strategy="breakout", ohlc_tf_hours=1,
+    ohlc_params={"chan": 20, "vol": 0.0},
+    atr_stop_mult=5.0, rr_ratio=2.0,
+    symbol_whitelist=["BTC", "ETH", "BNB"],
+)
+CONFIG_V24_3 = ScoringConfig(
+    version="24.3",
+    description="Range-Ratio (1h): K60 hh0.45 ll0.50 precursor, 5xATR/RR2.0. OOS +0.15R WR39% n99. CANDIDATE (disabled).",
+    status="disabled",
+    burgertype="ohlc", ohlc_strategy="rangeratio", ohlc_tf_hours=1,
+    ohlc_params={"K": 60, "hh": 0.45, "ll": 0.50},
+    atr_stop_mult=5.0, rr_ratio=2.0,
+    symbol_whitelist=["BTC", "ETH", "BNB"],
+)
+
 ACTIVE_CONFIG = CONFIG_V1_4
 
 ALL_CONFIGS: dict[str, ScoringConfig] = {
     c.version: c for c in [
         # Baseline variants
-        CONFIG_V1_0, CONFIG_V1_1, CONFIG_V1_2, CONFIG_V1_3, CONFIG_V1_4, CONFIG_V1_5, CONFIG_V10_0, CONFIG_V11_0, CONFIG_V12_0, CONFIG_V13_0, CONFIG_V14_0, CONFIG_V14_1, CONFIG_V14_0_0, CONFIG_V14_0_1, CONFIG_V14_1_0, CONFIG_V14_1_1, CONFIG_V14_0_1_1, CONFIG_V14_0_0_1, CONFIG_V15_0, CONFIG_V16_0, CONFIG_V17_0, CONFIG_V18_0, CONFIG_V19_0, CONFIG_V20_0, CONFIG_V22_0, CONFIG_V22_1, CONFIG_V22_2,
+        CONFIG_V1_0, CONFIG_V1_1, CONFIG_V1_2, CONFIG_V1_3, CONFIG_V1_4, CONFIG_V1_5, CONFIG_V10_0, CONFIG_V10_1, CONFIG_V11_0, CONFIG_V12_0, CONFIG_V13_0, CONFIG_V14_0, CONFIG_V14_1, CONFIG_V14_0_0, CONFIG_V14_0_1, CONFIG_V14_1_0, CONFIG_V14_1_1, CONFIG_V14_0_1_1, CONFIG_V14_0_0_1, CONFIG_V15_0, CONFIG_V16_0, CONFIG_V17_0, CONFIG_V18_0, CONFIG_V19_0, CONFIG_V20_0, CONFIG_V22_0, CONFIG_V22_1, CONFIG_V22_2,
         # Multi-timeframe (all kept for records)
         CONFIG_V2_0, CONFIG_V2_1, CONFIG_V2_2,
         # ADX momentum (all kept for records)
@@ -2883,6 +3106,10 @@ ALL_CONFIGS: dict[str, ScoringConfig] = {
         CONFIG_V1_15,
 
         CONFIG_V1_16,
+
+        # OHLC-native family (V23/V24) — 2026-11-05
+        CONFIG_V23_0, CONFIG_V23_1, CONFIG_V23_2,
+        CONFIG_V24_0, CONFIG_V24_1, CONFIG_V24_2, CONFIG_V24_3,
 ]
 }
 

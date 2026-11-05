@@ -138,8 +138,15 @@ def run_parallel_scan(
     result.candidates_count = len(candidates)
 
     if not candidates:
-        logger.warning("No candidates returned from altFINS screener.")
-        return result
+        # Composite configs need the altFINS candidate pool, but OHLC-native
+        # configs generate their signals from price history alone (no screener).
+        # If there's nothing to score on the composite side but OHLC configs are
+        # present, keep going so the OHLC signals still fire. The thread pool
+        # below is the branch that skips composite scoring for burgertype=ohlc.
+        has_ohlc = any(getattr(c, "burgertype", "composite") == "ohlc" for c in active_configs)
+        if not has_ohlc:
+            logger.warning("No candidates returned from altFINS screener.")
+            return result
 
     # ── Step 2: Single signal feed call (shared across all versions) ──────
     try:
@@ -163,6 +170,13 @@ def run_parallel_scan(
     import concurrent.futures as _cf
 
     def _score_one_config(cfg) -> tuple:
+        # OHLC-native configs bypass altFINS scoring entirely — their signals
+        # come from the OHLC strategy engine at the config's own timeframe.
+        if getattr(cfg, "burgertype", "composite") == "ohlc":
+            from .ohlc_strategies import generate_for_config
+            scored = generate_for_config(cfg, lookback_days=max(30, cfg.ohlc_tf_hours * 20))
+            scored.sort(key=lambda x: abs(x.composite_score), reverse=True)
+            return cfg.version, scored
         scored: List[CandidateScore] = []
         for symbol, row in candidates.items():
             candidate = score_symbol(

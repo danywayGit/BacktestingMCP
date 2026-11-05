@@ -15,6 +15,8 @@ from typing import List, Tuple, Optional
 
 import pandas as pd
 
+import numpy as np
+
 from config.settings import TimeFrame
 from ..core.backtesting_engine import engine
 from ..data.database import db
@@ -111,6 +113,7 @@ def _compute_atr_stop_target(
     timeframe: TimeFrame,
     atr_stop_mult: float,
     rr_ratio: float,
+    tf_override_hours: Optional[int] = None,
 ) -> tuple[float, float]:
     """Compute ATR-based stop and target prices for a signal.
 
@@ -118,7 +121,23 @@ def _compute_atr_stop_target(
     fallback using a fixed 2% expected move.
     """
     pair = f"{symbol.upper()}USDT"
-    atr = _get_atr(pair, timeframe)
+    if tf_override_hours:
+        # OHLC config: ATR must be measured on the strategy's own timeframe
+        # (e.g. 12h for V23.0), not the scan's 1h — a 1h ATR is ~5-8x tighter
+        # than a 12h ATR, which would place a stop inside normal bar noise and
+        # poison the geometry (every signal reads as a wick stop-out).
+        from .ohlc_strategies import _fetch_ohlc_tf
+        rows = _fetch_ohlc_tf(pair, tf_override_hours, max(30, tf_override_hours * 20))
+        if len(rows) >= 15:
+            from .ohlc_strategies import _atr
+            hs = np.asarray([r[2] for r in rows], float)
+            ls = np.asarray([r[3] for r in rows], float)
+            cs = np.asarray([r[4] for r in rows], float)
+            atr = float(_atr(hs, ls, cs)[-1])
+        else:
+            atr = 0.0
+    else:
+        atr = _get_atr(pair, timeframe)
     if atr > 0:
         stop_distance = atr * atr_stop_mult
         if direction == "LONG":
@@ -182,9 +201,11 @@ def log_signals(scores: List[CandidateScore], timeframe: TimeFrame, horizon_hour
         # entry/target/stop are consistent. Previously target/stop were computed
         # from last_close while entry used the live price — causing impossible
         # LONG signals where target <= entry when price had rallied.
+        # OHLC configs use their own TF for ATR (store's per-config override).
+        tf_override = config.ohlc_tf_hours if (config is not None and getattr(config, "burgertype", "composite") == "ohlc") else None
         target_price, stop_price = _compute_atr_stop_target(
             score.symbol, score.direction, current_price, timeframe,
-            atr_stop_mult, rr_ratio,
+            atr_stop_mult, rr_ratio, tf_override_hours=tf_override,
         )
 
         # Dedup per config-version: same symbol+direction+config = update, not insert

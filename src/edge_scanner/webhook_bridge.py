@@ -55,6 +55,11 @@ MARKET_TYPE = _EXEC_MODE_CFG["market_type"]        # Futures | Spot
 TESTNET_MODE = (ACCOUNT_TYPE == "TestNet")
 
 CONFIG_PRIORITY = [
+    # OHLC-native forward-test (Nov 2026): V23.0 (12h MA-cross) & V23.1 (1h
+    # mean-reversion) — Didier-approved, cost-adjusted OOS positive. Higher
+    # score floor (8.0) so the low-frequency OHLC signals only send on real
+    # setups; quality-over-quantity per Didier.
+    ("23.0", 8.0, "V23.0 MA-Cross 12h"),  ("23.1", 8.0, "V23.1 MeanRev 1h"),
     # Featured edge (Nov 2026): 1.5 = only stat-confirmed + current-regime winner
     # (6,927 resolved, WR 54.6%, CI-lo 52.6%, 57.3% last-30d). 1.4 = challenger
     # (55% last-30d). 2.2 / 13.0 = proven executed grinders. Deprioritized rest

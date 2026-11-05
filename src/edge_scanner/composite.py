@@ -126,6 +126,14 @@ def _is_blocked(symbol: str) -> bool:
     return False
 
 
+def _is_ohlc_config(config) -> bool:
+    """True for OHLC-native configs (burgertype==\"ohlc\") that must NOT be scored
+    through the altFINS composite path — they are driven by the OHLC strategy
+    engine instead. Without this guard, a composite pass scores an OHLC config
+    with min_abs_score=0 and fabricates a score-0 LONG/SHORT for every candidate."""
+    return bool(getattr(config, "burgertype", "composite") == "ohlc")
+
+
 @dataclass
 class CandidateScore:
     symbol: str               # altFINS-style base symbol, e.g. "BTC"
@@ -260,6 +268,13 @@ def score_symbol(
 ) -> CandidateScore:
     """Score a single symbol using the given ScoringConfig (defaults to ACTIVE_CONFIG)."""
     cfg = config or ACTIVE_CONFIG
+    # OHLC-native configs are never composite-scored — the OHLC strategy engine
+    # drives them (multi_version_scan._score_one_config bypasses score_symbol
+    # for burgertype=ohlc; this guard is belt-and-suspenders for any other
+    # caller, e.g. the single-version CLI path).
+    if _is_ohlc_config(cfg):
+        return _filtered_result(symbol, _altfins_to_pair(symbol), get_coin_type(symbol), cfg.version,
+                                {"ohlc": True, "blocked": "composite path — use OHLC engine"})
     pair = _altfins_to_pair(symbol)
     coin_type = get_coin_type(symbol)
     components: Dict[str, Any] = {}
@@ -547,9 +562,33 @@ def score_symbol(
                     score += atr_score
                     components["atr_expansion_score"] = round(atr_score, 2)
 
+            # ── Range-Ratio (HH/LL) precursor — OOS-validated 2026-10 ──
+            # Only range-structure survived clean OOS. LONG-biased: reward EITHER
+            # compression (few higher highs) OR exhaustion (many lower lows).
+            if cfg.range_ratio_weight > 0 and len(data) >= cfg.range_ratio_lookback + 1:
+                rr = cfg.range_ratio_lookback
+                hh_count = int((high.to_numpy()[-(rr):] > high.to_numpy()[-(rr + 1):-1]).sum())
+                ll_count = int((low.to_numpy()[-(rr):] < low.to_numpy()[-(rr + 1):-1]).sum())
+                hh_ratio = hh_count / rr if rr > 0 else 0
+                ll_ratio = ll_count / rr if rr > 0 else 0
+                components["hh_ratio"] = round(hh_ratio, 3)
+                components["ll_ratio"] = round(ll_ratio, 3)
+                compression = max(cfg.range_hh_max - hh_ratio, 0.0)   # few HH → coiled
+                exhaustion = max(ll_ratio - cfg.range_ll_min, 0.0)    # many LL → washed out
+                range_intensity = max(compression / cfg.range_hh_max,
+                                      exhaustion / (1.0 - cfg.range_ll_min)) if (cfg.range_hh_max > 0 and cfg.range_ll_min < 1.0) else 0.0
+                if range_intensity > 0.0:
+                    rr_score = min(range_intensity, 1.0) * cfg.range_ratio_weight
+                    score += rr_score
+                    components["range_ratio_score"] = round(rr_score, 3)
+                    components["range_ratio_compression"] = round(compression, 3)
+                    components["range_ratio_exhaustion"] = round(exhaustion, 3)
+
             # ── Multi-precursor validation ──
             if cfg.min_precursors > 0:
                 precursor_count = 0
+                if components.get("range_ratio_score", 0) > 0:
+                    precursor_count += 1
                 if components.get("bb_squeeze_score", 0) > 0:
                     precursor_count += 1
                 if components.get("atr_expansion_score", 0) > 0:
@@ -639,13 +678,21 @@ def score_symbol(
                 stage = pattern.get("stage", "")
                 pattern_type = pattern.get("pattern", "")
                 
-                # Score based on outlook direction and stage
-                if outlook.upper() == "BULLISH":
-                    base = cfg.chart_pattern_weight * (2.0 if stage.upper() == "BREAKOUT" else 1.0)
-                    chart_pattern_score = base
-                elif outlook.upper() == "BEARISH":
-                    base = -cfg.chart_pattern_weight * (2.0 if stage.upper() == "BREAKOUT" else 1.0)
-                    chart_pattern_score = base
+                # Score based on outlook direction + stage + per-cell success
+                # multipliers (defaults reproduce the old flat 2x-split behavior,
+                # so existing configs are unchanged).
+                stage_u = stage.upper()
+                outlook_u = outlook.upper()
+                if outlook_u == "BULLISH":
+                    mult = (cfg.chart_pattern_breakout_bull_mult
+                            if stage_u == "BREAKOUT"
+                            else cfg.chart_pattern_emerging_bull_mult)
+                    chart_pattern_score = cfg.chart_pattern_weight * mult
+                elif outlook_u == "BEARISH":
+                    mult = (cfg.chart_pattern_breakout_bear_mult
+                            if stage_u == "BREAKOUT"
+                            else cfg.chart_pattern_emerging_bear_mult)
+                    chart_pattern_score = -cfg.chart_pattern_weight * mult
                 
                 if chart_pattern_score != 0:
                     score += chart_pattern_score
