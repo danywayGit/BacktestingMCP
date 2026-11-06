@@ -55,11 +55,15 @@ MARKET_TYPE = _EXEC_MODE_CFG["market_type"]        # Futures | Spot
 TESTNET_MODE = (ACCOUNT_TYPE == "TestNet")
 
 CONFIG_PRIORITY = [
-    # OHLC-native forward-test (Nov 2026): V23.0 (12h MA-cross) & V23.1 (1h
-    # mean-reversion) — Didier-approved, cost-adjusted OOS positive. Higher
-    # score floor (8.0) so the low-frequency OHLC signals only send on real
-    # setups; quality-over-quantity per Didier.
-    ("23.0", 8.0, "V23.0 MA-Cross 12h"),  ("23.1", 8.0, "V23.1 MeanRev 1h"),
+    # OHLC-native forward-test (Nov 2026): V25 direction-specific family
+    # (tuned on train-60 / OOS-validated on 40%, cost-adjusted). V25.0/25.1
+    # MA-cross 12h L/S, V25.2/25.3 Mean-rev 1h L/S, V25.4 Momentum 2h LONG.
+    # Higher score floor (8.0) so the low-frequency OHLC signals only send on
+    # real setups; quality-over-quantity per Didier. Replaces the both-direction
+    # V23.0/V23.1 (now disabled).
+    ("25.0", 8.0, "V25.0 MA-Cross LONG"),  ("25.1", 8.0, "V25.1 MA-Cross SHORT"),
+    ("25.2", 8.0, "V25.2 MeanRev LONG"),   ("25.3", 8.0, "V25.3 MeanRev SHORT"),
+    ("25.4", 8.0, "V25.4 Momentum LONG"),
     # Featured edge (Nov 2026): 1.5 = only stat-confirmed + current-regime winner
     # (6,927 resolved, WR 54.6%, CI-lo 52.6%, 57.3% last-30d). 1.4 = challenger
     # (55% last-30d). 2.2 / 13.0 = proven executed grinders. Deprioritized rest

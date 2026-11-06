@@ -2972,8 +2972,8 @@ CONFIG_V14_0_1_2 = ScoringConfig(
 # OOS: +0.24R, WR ~60%, n107, avg win +6.19% / avg loss -4.48%. Tier: ENABLED.
 CONFIG_V23_0 = ScoringConfig(
     version="23.0",
-    description="MA-Cross Swing (12h): EMA10/50 cross, resampled 12h OHLC, 1.5xATR stop/RR1.5. OOS +0.24R WR60% n107. [ENABLED — Didier-approved forward-test]",
-    status="enabled",
+    description="MA-Cross Swing (12h): EMA10/50 cross, resampled 12h OHLC, 1.5xATR stop/RR1.5. OOS +0.24R WR60% n107. [DISABLED — superseded by V25.0/V25.1 direction split]",
+    status="disabled",
     burgertype="ohlc",
     ohlc_strategy="ma_cross",
     ohlc_tf_hours=12,
@@ -2995,8 +2995,8 @@ CONFIG_V23_0 = ScoringConfig(
 # OOS: +0.24R, WR ~55%, n111, avg win +1.88% / avg loss -1.38%. Tier: ENABLED.
 CONFIG_V23_1 = ScoringConfig(
     version="23.1",
-    description="Mean-Reversion (1h): RSI14 30/70 over EMA50, 1h OHLC, 1.5xATR stop/RR1.5. OOS +0.24R WR55% n111. [ENABLED — Didier-approved forward-test]",
-    status="enabled",
+    description="Mean-Reversion (1h): RSI14 30/70 over EMA50, 1h OHLC, 1.5xATR stop/RR1.5. OOS +0.24R WR55% n111. [DISABLED — superseded by V25.2/V25.3 direction split]",
+    status="disabled",
     burgertype="ohlc",
     ohlc_strategy="meanrev",
     ohlc_tf_hours=1,
@@ -3061,6 +3061,83 @@ CONFIG_V24_3 = ScoringConfig(
     symbol_whitelist=["BTC", "ETH", "BNB"],
 )
 
+# ── V25 family — DIRECTION-SPECIFIC OHLC (tuned 2026-11-05, Didier-approved) ──
+# Each carries ONE direction with its own tuned signal + exit geometry. The
+# original both-direction V23.0/V23.1 are disabled (never deleted) because a
+# single compromise set of params can't serve both sides; per-direction tuning
+# roughly doubled aggregate OOS EV. Tuned on train-60, OOS-validated on 40%.
+# All ready to forward-test on TestNet; nothing proven until 100+ live trades.
+CONFIG_V25_0 = ScoringConfig(
+    version="25.0",
+    description="MA-Cross LONG (12h): EMA5/50, 2xATR/RR1.5, LONG-only. OOS EV +0.349R (n76). [ENABLED — forward-test]",
+    status="enabled",
+    burgertype="ohlc", ohlc_strategy="ma_cross", ohlc_tf_hours=12,
+    ohlc_params={"fast": 5, "slow": 50},
+    allowed_directions=["LONG"],
+    atr_stop_mult=2.0, rr_ratio=1.5,
+    min_abs_score=8.0, short_min_abs_score=8.0, alert_min_score=8.0,
+    alert_require_multi_source=False,
+    coin_type_filter=["ANY"],
+    symbol_whitelist=["BTC", "ETH", "BNB"],
+    notes="Tuned 2026-11-05 (results/_v23_tune.json). OOS +0.349R / n76. Forward-test target.",
+)
+CONFIG_V25_1 = ScoringConfig(
+    version="25.1",
+    description="MA-Cross SHORT (12h): EMA10/150, 3xATR/RR2.0, SHORT-only. OOS EV +0.385R (n26). [ENABLED — forward-test]",
+    status="enabled",
+    burgertype="ohlc", ohlc_strategy="ma_cross", ohlc_tf_hours=12,
+    ohlc_params={"fast": 10, "slow": 150},
+    allowed_directions=["SHORT"],
+    atr_stop_mult=3.0, rr_ratio=2.0,
+    min_abs_score=8.0, short_min_abs_score=8.0, alert_min_score=8.0,
+    alert_require_multi_source=False,
+    coin_type_filter=["ANY"],
+    symbol_whitelist=["BTC", "ETH", "BNB"],
+    notes="Tuned 2026-11-05. OOS +0.385R / n26 (thinnest — promising, unproven). Forward-test target.",
+)
+CONFIG_V25_2 = ScoringConfig(
+    version="25.2",
+    description="Mean-Reversion LONG (1h): RSI14 30/70, 1xATR/RR1.5, LONG-only. OOS EV +0.308R (n65). [ENABLED — forward-test]",
+    status="enabled",
+    burgertype="ohlc", ohlc_strategy="meanrev", ohlc_tf_hours=1,
+    ohlc_params={"rsi": 14, "oversold": 30, "overbought": 70},
+    allowed_directions=["LONG"],
+    atr_stop_mult=1.0, rr_ratio=1.5,
+    min_abs_score=8.0, short_min_abs_score=8.0, alert_min_score=8.0,
+    alert_require_multi_source=False,
+    coin_type_filter=["ANY"],
+    symbol_whitelist=["BTC", "ETH", "BNB"],
+    notes="Tuned 2026-11-05. OOS +0.308R / n65. EMA50 filter kept (validated adds edge). Forward-test target.",
+)
+CONFIG_V25_3 = ScoringConfig(
+    version="25.3",
+    description="Mean-Reversion SHORT (1h): RSI14 30/70, 1.5xATR/RR1.5, SHORT-only. OOS EV +0.479R (n49). [ENABLED — forward-test]",
+    status="enabled",
+    burgertype="ohlc", ohlc_strategy="meanrev", ohlc_tf_hours=1,
+    ohlc_params={"rsi": 14, "oversold": 30, "overbought": 70},
+    allowed_directions=["SHORT"],
+    atr_stop_mult=1.5, rr_ratio=1.5,
+    min_abs_score=8.0, short_min_abs_score=8.0, alert_min_score=8.0,
+    alert_require_multi_source=False,
+    coin_type_filter=["ANY"],
+    symbol_whitelist=["BTC", "ETH", "BNB"],
+    notes="Tuned 2026-11-05. OOS +0.479R / n49 — strongest single edge. Forward-test target.",
+)
+CONFIG_V25_4 = ScoringConfig(
+    version="25.4",
+    description="Momentum LONG (2h): ROC8 thr1.0 vol1.2, 5xATR/RR2.5, LONG-only. OOS EV +0.426R (n88). [ENABLED — forward-test]",
+    status="enabled",
+    burgertype="ohlc", ohlc_strategy="momentum", ohlc_tf_hours=2,
+    ohlc_params={"roc": 8, "thr": 1.0, "vol": 1.2},
+    allowed_directions=["LONG"],
+    atr_stop_mult=5.0, rr_ratio=2.5,
+    min_abs_score=8.0, short_min_abs_score=8.0, alert_min_score=8.0,
+    alert_require_multi_source=False,
+    coin_type_filter=["ANY"],
+    symbol_whitelist=["BTC", "ETH", "BNB"],
+    notes="Tuned 2026-11-05. OOS +0.426R / n88 (SHORT dead — NOT enabled). Forward-test target.",
+)
+
 ACTIVE_CONFIG = CONFIG_V1_4
 
 ALL_CONFIGS: dict[str, ScoringConfig] = {
@@ -3110,6 +3187,8 @@ ALL_CONFIGS: dict[str, ScoringConfig] = {
         # OHLC-native family (V23/V24) — 2026-11-05
         CONFIG_V23_0, CONFIG_V23_1, CONFIG_V23_2,
         CONFIG_V24_0, CONFIG_V24_1, CONFIG_V24_2, CONFIG_V24_3,
+        # V25 direction-specific OHLC (tuned 2026-11-05, forward-test)
+        CONFIG_V25_0, CONFIG_V25_1, CONFIG_V25_2, CONFIG_V25_3, CONFIG_V25_4,
 ]
 }
 
