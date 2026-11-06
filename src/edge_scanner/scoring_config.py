@@ -3135,17 +3135,17 @@ CONFIG_V25_1 = ScoringConfig(
 )
 CONFIG_V25_2 = ScoringConfig(
     version="25.2",
-    description="Mean-Reversion LONG (1h): RSI14 30/70, 1xATR/RR1.5, LONG-only. OOS EV +0.308R (n65). [ENABLED — forward-test]",
+    description="Mean-Reversion LONG (1h): RSI14 30/70, 3xATR/RR2.0, LONG-only. OOS EV +0.286R (n63). [ENABLED — forward-test]",
     status="enabled",
     burgertype="ohlc", ohlc_strategy="meanrev", ohlc_tf_hours=1,
     ohlc_params={"rsi": 14, "oversold": 30, "overbought": 70},
     allowed_directions=["LONG"],
-    atr_stop_mult=1.0, rr_ratio=1.5,
+    atr_stop_mult=3.0, rr_ratio=2.0,
     min_abs_score=8.0, short_min_abs_score=8.0, alert_min_score=8.0,
     alert_require_multi_source=False,
     coin_type_filter=["ANY"],
     symbol_whitelist=["BTC", "ETH", "BNB"],
-    notes="Tuned 2026-11-05. OOS +0.308R / n65. EMA50 filter kept (validated adds edge). Forward-test target.",
+    notes="Tuned 2026-11-05 (results/_exit_tune.json). Wide-stop re-tune: 1.0xATR was cutting inside noise (flat +0.01%); 3xATR/RR2.0 OOS +0.286R / n63. Forward-test target.",
 )
 CONFIG_V25_3 = ScoringConfig(
     version="25.3",
