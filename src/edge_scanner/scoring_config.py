@@ -574,6 +574,44 @@ class ScoringConfig:
     """Risk-to-reward ratio. target = entry ± (stop_distance × RR).
     SWING strategies optimized to 1.5-2.5. Higher = more ambitious targets."""
 
+    # ── Exit geometry type (Nov 2026) ────────────────────────────────────────
+    # How stop/target prices are derived. All exits resolve to a FIXED
+    # stop_price + target_price at signal time (the only thing the bridge/bot
+    # can execute) unless exit_type marks a DYNAMIC exit, which the backtest
+    # simulates bar-by-bar and the trailing engine executes live.
+    exit_type: str = "atr_rr"
+    """Selects the stop/target geometry:
+      atr_rr      (default) stop = entry ± ATR×atr_stop_mult; target = stop×rr_ratio
+      pct_rr      stop = entry ± entry×exit_pct_pct/100;      target = stop×rr_ratio
+      ema_atr     stop = ATR×atr_stop_mult UNDER the exit_ema level (LONG) / ABOVE (SHORT);
+                  target = stop_dist×rr_ratio
+      ema_opposite stop = ATR under exit_ema; target = at the OPPOSITE exit_ema2 level
+      mtf_regime  stop = ATR×atr_stop_mult; target = stop×rr_ratio, but entry is
+                  gated by the higher-TF regime (allowed_direction must agree)
+      ema_cross_dynamic  (DYNAMIC) SL fixed; position CLOSED when price crosses
+                  back through exit_ema (LONG: close<cross; SHORT: close>cross)
+      time_exit   (DYNAMIC) SL fixed; position auto-closed after max_hold_bars
+    The dynamic types use a simulation path in the backtest + the trailing
+    engine live; the fixed types are plain price pairs deployable now."""
+
+    exit_ema: int = 0
+    """EMA period used by ema_atr / ema_opposite / ema_cross_dynamic exits.
+     0 = unused."""
+
+    exit_ema2: int = 0
+    """Second EMA (opposite band) for ema_opposite. 0 = fall back to exit_ema."""
+
+    exit_pct_pct: float = 0.0
+    """Percent stop for pct_rr (e.g. 1.5 = 1.5%). 0 = unused."""
+
+    max_hold_bars: int = 0
+    """Max bars before forced exit for time_exit / as a cap on any dynamic exit.
+     0 = unlimited."""
+
+    exit_params: dict = field(default_factory=dict)
+    """Free-form extra params for an exit_type (e.g. {"ema": 50, "cross_cut": 0.5}
+    for advanced geometry). Leave empty for the standard named fields above."""
+
     # ── Alert thresholds ────────────────────────────────────────────────────
     alert_min_score: float = 7.0
     """Minimum absolute composite score to trigger a Telegram alert."""

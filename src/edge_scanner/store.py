@@ -106,55 +106,115 @@ def _get_atr(pair: str, timeframe: TimeFrame) -> float:
         return 0.0
 
 
-def _compute_atr_stop_target(
+def _ema_at_value(rows, period: int) -> Optional[float]:
+    """Latest EMA(period) from resampled OHLC rows. Returns None if no data."""
+    if period <= 0 or len(rows) < period + 2:
+        return None
+    from .ohlc_strategies import _ema
+    cs = np.asarray([r[4] for r in rows], float)
+    try:
+        return float(_ema(cs, period)[-1])
+    except Exception:
+        return None
+
+
+def _compute_exit_levels(
     symbol: str,
     direction: str,
     entry_price: float,
     timeframe: TimeFrame,
-    atr_stop_mult: float,
-    rr_ratio: float,
+    config,
     tf_override_hours: Optional[int] = None,
-) -> tuple[float, float]:
-    """Compute ATR-based stop and target prices for a signal.
+) -> tuple[float, float, dict]:
+    """Dispatch stop/target computation on config.exit_type.
 
-    Returns (target_price, stop_price). If ATR is unavailable, returns
-    fallback using a fixed 2% expected move.
+    Returns (target_price, stop_price, exit_meta). All FIXED exit types resolve
+    to a literal price pair deployable by the bridge today. DYNAMIC types
+    (ema_cross_dynamic, time_exit) still return a fixed SL (+ a conservative
+    target placeholder) so the signal can be logged, and tag exit_meta with the
+    rule + the EMA reference the trailing engine / resolution can act on.
+    Backward-compatible: default exit_type='atr_rr' reproduces the old geometry.
     """
+    atr_stop_mult = getattr(config, "atr_stop_mult", 3.0) or 3.0
+    rr_ratio = getattr(config, "rr_ratio", 2.0) or 2.0
+    exit_type = getattr(config, "exit_type", "atr_rr") or "atr_rr"
+    exit_ema = getattr(config, "exit_ema", 0) or 0
+    exit_ema2 = getattr(config, "exit_ema2", 0) or exit_ema
+    exit_pct = getattr(config, "exit_pct_pct", 0.0) or 0.0
     pair = f"{symbol.upper()}USDT"
+
+    # ── fetch ATR (and EMA levels) on the strategy's own TF when available ──
+    atr = 0.0
+    rows = None
     if tf_override_hours:
-        # OHLC config: ATR must be measured on the strategy's own timeframe
-        # (e.g. 12h for V23.0), not the scan's 1h — a 1h ATR is ~5-8x tighter
-        # than a 12h ATR, which would place a stop inside normal bar noise and
-        # poison the geometry (every signal reads as a wick stop-out).
-        from .ohlc_strategies import _fetch_ohlc_tf
+        from .ohlc_strategies import _fetch_ohlc_tf, _atr
         rows = _fetch_ohlc_tf(pair, tf_override_hours, max(30, tf_override_hours * 20))
-        if len(rows) >= 15:
-            from .ohlc_strategies import _atr
+        if rows and len(rows) >= 15:
             hs = np.asarray([r[2] for r in rows], float)
             ls = np.asarray([r[3] for r in rows], float)
             cs = np.asarray([r[4] for r in rows], float)
             atr = float(_atr(hs, ls, cs)[-1])
-        else:
-            atr = 0.0
     else:
         atr = _get_atr(pair, timeframe)
-    if atr > 0:
-        stop_distance = atr * atr_stop_mult
-        if direction == "LONG":
-            stop_price = round(entry_price - stop_distance, 8)
-            target_price = round(entry_price + stop_distance * rr_ratio, 8)
-        else:
-            stop_price = round(entry_price + stop_distance, 8)
-            target_price = round(entry_price - stop_distance * rr_ratio, 8)
-    else:
-        move = entry_price * 0.02
-        if direction == "LONG":
-            stop_price = round(entry_price - move * atr_stop_mult, 8)
-            target_price = round(entry_price + move * rr_ratio, 8)
-        else:
-            stop_price = round(entry_price + move * atr_stop_mult, 8)
-            target_price = round(entry_price - move * rr_ratio, 8)
-    return target_price, stop_price
+
+    def _sig_stop(stop_dist: float):
+        return round(entry_price - stop_dist, 8) if direction == "LONG" else round(entry_price + stop_dist, 8)
+
+    def _sig_target(dist: float):
+        return round(entry_price + dist, 8) if direction == "LONG" else round(entry_price - dist, 8)
+
+    def _fallback_stop_dist():
+        return (atr * atr_stop_mult) if atr > 0 else (entry_price * 0.02 * atr_stop_mult)
+
+    stop_dist = _fallback_stop_dist()
+
+    # ── fixed price-pair exits (deployable now) ─────────────────────────────
+    if exit_type == "pct_rr" and exit_pct > 0:
+        stop_dist = entry_price * exit_pct / 100.0
+        return _sig_target(stop_dist * rr_ratio), _sig_stop(stop_dist), {"exit_type": exit_type}
+
+    if exit_type in ("ema_atr", "ema_opposite", "ema_cross_dynamic", "time_exit"):
+        ema_ref = _ema_at_value(rows, exit_ema) if rows else None
+        ema2_ref = None
+        if rows and exit_ema2 and exit_ema2 != exit_ema:
+            ema2_ref = _ema_at_value(rows, exit_ema2)
+        elif rows:
+            ema2_ref = ema_ref or _ema_at_value(rows, exit_ema)
+        atr_eff = atr if atr > 0 else (entry_price * 0.02)
+        # EMA-anchored stop is an absolute PRICE at the EMA level (± ATR·mult).
+        # distance-from-entry is derived below for the RR target.
+        if ema_ref is not None:
+            if direction == "LONG":
+                stop_price = ema_ref - atr_eff * atr_stop_mult      # below the EMA
+                stop_dist = max(entry_price - stop_price, entry_price * 0.0005)
+            else:
+                stop_price = ema_ref + atr_eff * atr_stop_mult      # above the EMA
+                stop_dist = max(stop_price - entry_price, entry_price * 0.0005)
+            stop_price = round(stop_price, 8)
+        else:  # no EMA available → plain ATR stop
+            stop_dist = atr_eff * atr_stop_mult
+            stop_price = _sig_stop(stop_dist)
+        if exit_type == "ema_atr":
+            target_price = _sig_target(stop_dist * rr_ratio)
+        elif exit_type == "ema_opposite":
+            # target = the OPPOSITE EMA band (an absolute price on the right side)
+            opp = ema2_ref if ema2_ref is not None else entry_price
+            if direction == "LONG":
+                target_price = round(max(opp, entry_price + stop_dist * 0.5), 8)
+            else:
+                target_price = round(min(opp, entry_price - stop_dist * 0.5), 8)
+        else:  # dynamic: fixed SL + conservative TP placeholder (rule in exit_meta)
+            target_price = _sig_target(stop_dist * rr_ratio)
+        meta = {"exit_type": exit_type, "exit_ema": exit_ema, "ema_ref": (round(ema_ref, 8) if ema_ref is not None else None),
+                "ema2_ref": (round(ema2_ref, 8) if ema2_ref is not None else None)}
+        if exit_type == "time_exit":
+            meta["max_hold_bars"] = getattr(config, "max_hold_bars", 0)
+        if exit_type == "ema_cross_dynamic":
+            meta["rule"] = "close when price crosses back through exit_ema"
+        return target_price, stop_price, meta
+
+    # ── default: atr_rr (unchanged behaviour) ──────────────────────────────
+    return _sig_target(stop_dist * rr_ratio), _sig_stop(stop_dist), {"exit_type": "atr_rr"}
 
 
 def log_signals(scores: List[CandidateScore], timeframe: TimeFrame, horizon_hours: int = DEFAULT_HORIZON_HOURS) -> int:
@@ -203,10 +263,17 @@ def log_signals(scores: List[CandidateScore], timeframe: TimeFrame, horizon_hour
         # LONG signals where target <= entry when price had rallied.
         # OHLC configs use their own TF for ATR (store's per-config override).
         tf_override = config.ohlc_tf_hours if (config is not None and getattr(config, "burgertype", "composite") == "ohlc") else None
-        target_price, stop_price = _compute_atr_stop_target(
+        target_price, stop_price, exit_meta = _compute_exit_levels(
             score.symbol, score.direction, current_price, timeframe,
-            atr_stop_mult, rr_ratio, tf_override_hours=tf_override,
+            config, tf_override_hours=tf_override,
         )
+        # Persist the exit_type rule so the trailing engine / resolution can act
+        # on DYNAMIC exits later (fixed exits carry {} here); merge into components
+        # for auditability.
+        if exit_meta:
+            comp = dict(score.components or {})
+            comp["exit_meta"] = exit_meta
+            score.components = comp
 
         # Dedup per config-version: same symbol+direction+config = update, not insert
         existing = db.get_pending_edge_signal(score.symbol, score.direction, score.config_version)
