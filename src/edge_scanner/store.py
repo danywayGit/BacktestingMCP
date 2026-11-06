@@ -207,6 +207,8 @@ def _compute_exit_levels(
             target_price = _sig_target(stop_dist * rr_ratio)
         meta = {"exit_type": exit_type, "exit_ema": exit_ema, "ema_ref": (round(ema_ref, 8) if ema_ref is not None else None),
                 "ema2_ref": (round(ema2_ref, 8) if ema2_ref is not None else None)}
+        if tf_override_hours:
+            meta["tf_hours"] = tf_override_hours
         if exit_type == "time_exit":
             meta["max_hold_bars"] = getattr(config, "max_hold_bars", 0)
         if exit_type == "ema_cross_dynamic":
