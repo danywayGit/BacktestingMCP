@@ -137,6 +137,16 @@ _TOKENIZED_STOCK_EXACT: frozenset[str] = frozenset({
     "INTCX", "HOODX", "QQQX", "SPXX", "TQQQX", "ABBVX", "CSCOX",
     "JPMX", "UNHX", "MRVLX", "EDGEX", "STRCX", "BACX", "VTIX",
     "CRWDX", "TBLLX", "DEGENX", "NVOX", "APEX",
+    # Binance tokenized US-stock perpetuals (plain tickers, listed as e.g.
+    # METAUSDT/NVDAUSDT on both prod and TestNet). These are NOT crypto —
+    # they flood the candidate universe, score huge, and are never opened
+    # by the bot. Added Nov 2026 per Didier (edge scanner stopped trading).
+    # Blocked from the universe so real crypto gets scoring room again.
+    "META", "NVDA", "TSLA", "AAPL", "MSFT", "AMZN", "PLTR", "DIS", "MU",
+    "AMD", "COST", "HD", "JNJ", "LLY", "MRK", "V", "KO", "WMT", "CSCO",
+    "CVX", "MCD", "PANW", "SONY", "TSM", "AVGO", "ABBV", "AMGN", "HOOD",
+    "COIN", "NFLX", "ADBE", "CRM", "ORCL", "GOOG", "GOOGL", "GME", "AMC",
+    "SQ", "SHOP", "UBER", "PYPL", "INTC", "QCOM",
     # Short ambiguous tickers that are not real crypto
     "US", "IN", "AT", "BR", "VX", "VR", "MET", "MY", "EV", "B2",
     "VR", "M", "H", "B", "CC",
@@ -153,7 +163,11 @@ def is_stablecoin_or_stock(symbol: str) -> bool:
         return True
     # xStock pattern: 4+ chars, ends in X, base is alphabetic (e.g. INTCX, QQQX)
     # Exceptions: legitimate crypto tokens ending in X
-    _CRYPTO_X_OK = {"OX", "INX", "KSX", "HEX", "LEX", "LUMX", "AX", "MX", "SX"}
+    _CRYPTO_X_OK = {"OX", "INX", "KSX", "HEX", "LEX", "LUMX", "AX", "MX", "SX",
+                    # Genuine Binance-futures crypto (verified live TRADING 2026-11):
+                    # the suffix-X heuristic must NOT block real crypto contracts.
+                    "AVAX", "BEAMX", "DODOX", "DYDX", "FLEX", "FLUX", "FRAX",
+                    "IOTX", "POLYX", "PUNDIX", "VKTX"}
     if len(s) >= 4 and s.endswith("X") and s[:-1].isalpha() and s not in _CRYPTO_X_OK:
         return True
     return False
@@ -3176,6 +3190,84 @@ CONFIG_V25_4 = ScoringConfig(
     notes="Tuned 2026-11-05. OOS +0.426R / n88 (SHORT dead — NOT enabled). Forward-test target.",
 )
 
+
+
+# ── CONFIG_V1_17 — Auto-generated 2026-11-08 15:05 ──
+CONFIG_V1_17 = ScoringConfig(
+    version="1.17",
+    description="LLM-evolved: win-rate optimized config, tightened filters for higher quality",
+    min_abs_score=7.5,
+    min_adx=25,
+    min_rsi=30,
+    max_rsi=70,
+    min_atr_pct=0.3,
+    atr_stop_mult=1.5,
+    rr_ratio=2.0,
+    trend_weight=0.4,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.3,
+    onchain_netflow_weight=0.1,
+    volume_divergence_weight=3.0,
+    smart_money_index_weight=2.0,
+    low_float_squeeze_weight=1.5,
+    regime_dir_bear_short_bonus=2.5,
+    regime_dir_bear_long_penalty=2.5,
+    regime_dir_bull_long_bonus=2.5,
+    regime_dir_bull_short_penalty=2.5,
+)
+
+
+
+# ── CONFIG_V1_18 — Auto-generated 2026-11-15 15:00 ──
+CONFIG_V1_18 = ScoringConfig(
+    version="1.18",
+    description="LLM-evolved: win-rate optimized config, tightened filters for higher quality",
+    min_abs_score=7.5,
+    min_adx=25,
+    min_rsi=30,
+    max_rsi=70,
+    min_atr_pct=0.3,
+    atr_stop_mult=1.5,
+    rr_ratio=2.0,
+    trend_weight=0.4,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.3,
+    onchain_netflow_weight=0.1,
+    volume_divergence_weight=3.0,
+    smart_money_index_weight=2.0,
+    low_float_squeeze_weight=1.5,
+    regime_dir_bear_short_bonus=2.0,
+    regime_dir_bear_long_penalty=2.0,
+    regime_dir_bull_long_bonus=2.0,
+    regime_dir_bull_short_penalty=2.0,
+)
+
+
+
+# ── CONFIG_V1_19 — Auto-generated 2026-11-22 15:00 ──
+CONFIG_V1_19 = ScoringConfig(
+    version="1.19",
+    description="LLM-evolved: win-rate optimized config, tightened filters for higher quality",
+    min_abs_score=7.5,
+    min_adx=25,
+    min_rsi=30,
+    max_rsi=70,
+    min_atr_pct=0.35,
+    atr_stop_mult=1.5,
+    rr_ratio=2.0,
+    trend_weight=0.4,
+    volume_relative_weight=0.2,
+    signal_feed_weight=0.3,
+    onchain_netflow_weight=0.1,
+    volume_divergence_weight=3.0,
+    smart_money_index_weight=2.0,
+    low_float_squeeze_weight=1.5,
+    regime_dir_bear_short_bonus=2.5,
+    regime_dir_bear_long_penalty=2.5,
+    regime_dir_bull_long_bonus=2.5,
+    regime_dir_bull_short_penalty=2.5,
+)
+
 ACTIVE_CONFIG = CONFIG_V1_4
 
 ALL_CONFIGS: dict[str, ScoringConfig] = {
@@ -3227,6 +3319,12 @@ ALL_CONFIGS: dict[str, ScoringConfig] = {
         CONFIG_V24_0, CONFIG_V24_1, CONFIG_V24_2, CONFIG_V24_3,
         # V25 direction-specific OHLC (tuned 2026-11-05, forward-test)
         CONFIG_V25_0, CONFIG_V25_1, CONFIG_V25_2, CONFIG_V25_3, CONFIG_V25_4,
+
+        CONFIG_V1_17,
+
+        CONFIG_V1_18,
+
+        CONFIG_V1_19,
 ]
 }
 
